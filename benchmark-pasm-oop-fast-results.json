@@ -1,0 +1,84 @@
+{
+    "100000": {
+        "old": {
+            "mode": "old",
+            "ops": 100000,
+            "ms": {
+                "Vector add\/get": 5.753482,
+                "Stack push\/pop": 9.833591,
+                "Queue enq\/deq": 8.523249,
+                "Deque back\/front": 10.494146,
+                "Map put\/get": 4.714665,
+                "Set add\/has": 24.989412
+            },
+            "peak_mb": 8.5
+        },
+        "new": {
+            "mode": "new",
+            "ops": 100000,
+            "ms": {
+                "Vector add\/get": 3.994472,
+                "Stack push\/pop": 4.387727,
+                "Queue enq\/deq": 6.997166,
+                "Deque back\/front": 8.706893,
+                "Map put\/get": 4.314478,
+                "Set add\/has": 13.7793
+            },
+            "peak_mb": 8.5
+        },
+        "native": {
+            "mode": "native",
+            "ops": 100000,
+            "ms": {
+                "Vector add\/get": 0.561927,
+                "Stack push\/pop": 1.263532,
+                "Queue enq\/deq": 0.724019,
+                "Deque back\/front": 0.645342,
+                "Map put\/get": 0.630149,
+                "Set add\/has": 0.706273
+            },
+            "peak_mb": 2
+        }
+    },
+    "1000000": {
+        "old": {
+            "mode": "old",
+            "ops": 1000000,
+            "ms": {
+                "Vector add\/get": 53.923643,
+                "Stack push\/pop": 80.413501,
+                "Queue enq\/deq": 88.356456,
+                "Deque back\/front": 96.005813,
+                "Map put\/get": 48.916848,
+                "Set add\/has": 240.271806
+            },
+            "peak_mb": 56.00390625
+        },
+        "new": {
+            "mode": "new",
+            "ops": 1000000,
+            "ms": {
+                "Vector add\/get": 42.449067,
+                "Stack push\/pop": 46.252954,
+                "Queue enq\/deq": 67.362166,
+                "Deque back\/front": 83.464663,
+                "Map put\/get": 45.219735,
+                "Set add\/has": 152.257961
+            },
+            "peak_mb": 52.00390625
+        },
+        "native": {
+            "mode": "native",
+            "ops": 1000000,
+            "ms": {
+                "Vector add\/get": 8.189081,
+                "Stack push\/pop": 14.645451,
+                "Queue enq\/deq": 8.815475,
+                "Deque back\/front": 9.305905,
+                "Map put\/get": 9.231624,
+                "Set add\/has": 10.11722
+            },
+            "peak_mb": 14.0078125
+        }
+    }
+}
