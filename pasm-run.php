@@ -2,13 +2,8 @@
 <?php declare(strict_types=1);
 /**
  * PASL runner — silent by default.
- *
- *   php pasm-run.php program.pbc
- *   php pasm-run.php -c 'source'
- *   php pasm-run.php -o out.pbc source.pasl
- *   php pasm-run.php --print ...
+ *   php pasm-run.php [--print] [-O0|-O1] [-o out] [--x86] [-c src|file]
  */
-
 namespace pasm\lang;
 
 $root = __DIR__;
@@ -24,6 +19,7 @@ $outFile = null;
 $sourceArg = null;
 $pbcArg = null;
 $inline = null;
+$x86 = false;
 
 $argv = $_SERVER['argv'] ?? [];
 array_shift($argv);
@@ -41,10 +37,12 @@ while ($argv !== []) {
         $optimize = true;
     } elseif ($a === '-o') {
         $outFile = array_shift($argv);
+    } elseif ($a === '--x86' || $a === '-x86') {
+        $x86 = true;
     } elseif ($a === '-c') {
         $inline = array_shift($argv);
     } elseif ($a === '-h' || $a === '--help') {
-        fwrite(STDOUT, "Usage: pasm-run.php [--print|-v] [-O0|-O1] [-o out.pbc] [-c 'src'] [file.pasl|file.pbc]\n");
+        fwrite(STDOUT, "Usage: pasm-run.php [--print|-v] [--x86] [-O0|-O1] [-o out] [-c 'src'] [file.pasl|file.pbc]\n");
         exit(0);
     } elseif (is_string($a) && str_ends_with($a, '.pbc')) {
         $pbcArg = $a;
@@ -54,6 +52,38 @@ while ($argv !== []) {
 }
 
 try {
+    if ($x86) {
+        require_once $root . '/pasm-lang-x86.php';
+        $xc = new X86Compiler($optimize);
+        if ($inline !== null) {
+            $asm = $xc->compile($inline);
+            if ($outFile !== null) {
+                file_put_contents($outFile, $asm);
+                exit(0);
+            }
+            if ($print) {
+                echo $asm;
+            }
+            exit(0);
+        }
+        if ($sourceArg !== null) {
+            $src = file_get_contents($sourceArg);
+            if ($src === false) {
+                fwrite(STDERR, "Cannot read {$sourceArg}\n");
+                exit(1);
+            }
+            $asm = $xc->compile($src);
+            $out = $outFile ?? (preg_replace('/\.pasl$/', '', $sourceArg) . '.s');
+            file_put_contents($out, $asm);
+            if ($print) {
+                echo $asm;
+            }
+            exit(0);
+        }
+        fwrite(STDERR, "x86 mode needs -c or a .pasl file\n");
+        exit(1);
+    }
+
     $eng = new Engine($optimize, $verbose);
 
     if ($inline !== null) {
