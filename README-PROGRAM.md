@@ -1,67 +1,63 @@
 # PASM Program Builder
 
-## Will `$addedto++` become bytecode automatically?
+## Control flow → bytecode
 
-**No.** Ordinary PHP in a `.php` file still runs as PHP.
+Pass **restricted** statement source through `expr()` / `PASMExprCompiler` (not raw PHP files).
 
-To lower integer assignments and operators into PASM bytecode, pass them through **`expr()`** (or `PASMExprCompiler`):
+### Supported
+
+| Construct | Lowers to |
+|-----------|-----------|
+| `while ($i) { ... }` | label + `CMP`/`JNZ`/`JMP` |
+| `for ($k=0; $k != 3; $k++) { ... }` | init + head/step/end labels |
+| `if (cond) { ... } else { ... }` | `JZ`/`JNZ` + `JMP` |
+| `select ($x) { case 1: ...; default: ...; }` | sequential `CMP`/`JNZ` (also `switch`) |
+| `break` / `continue` | `JMP` to end / step of innermost loop |
+| assignments, `++`, `+=`, arithmetic, bitwise | as before |
+
+### Conditions
+
+Because the binary ISA only exposes a **zero flag** (`CMP` + `JZ`/`JNZ`):
+
+- Fully supported: `==`, `!=`, and nonzero truthiness (`while ($i)`).
+- **Not** supported on this ISA: `<`, `>`, `<=`, `>=` (no sign flag). Structure counting loops with `++`/`--` and `!=` / nonzero tests instead.
+
+### Not supported
+
+| Feature | Alternative |
+|---------|-------------|
+| `foreach` over arrays/objects | `for ($i=0; $i != n; $i++)` or OOP containers + ASM |
+| `do`/`while` | rewrite as `while` |
+| `goto` | labels in ASM frame |
+| exceptions, `match`, generators | `php()` stage (stays PHP) |
+
+### Example
 
 ```php
 $prog->expr(<<<'SRC'
-    $addedto = 0;
-    $addedto = $addedto + 1;
-    $addedto++;
-    $addedto += 1;
+    $sum = 0;
+    $i = 5;
+    while ($i) {
+        $sum = $sum + $i;
+        $i--;
+    }
+    for ($k = 0; $k != 3; $k++) {
+        $sum = $sum + 1;
+    }
+    select ($k) {
+        case 0: $sum = $sum + 100;
+        default: $sum = $sum + 1;
+    }
 SRC);
 
-$package = $prog->finalize();
-echo $package->runExpr();        // 2
-echo bin2hex($package->toBytecode()); // unified stream includes expr
+echo $prog->finalize()->runExpr();
 ```
-
-### Operator → bytecode mapping
-
-| Source | PASM |
-|--------|------|
-| `$x = 42` | `MOVI reg 42` |
-| `$x = $y` | `MOVR x y` |
-| `$x = $a + $b` | `ADD x a b` |
-| `-` `*` `/` `%` | `SUB` `MUL` `DIV` `MOD` |
-| `&` \| `^` `<<` `>>` | `AND` `OR` `XOR` `SHL` `SHR` |
-| `$x += 1` | `ADD x x immReg` |
-| `$x++` / `++$x` | `INC x` |
-| `$x--` / `--$x` | `DEC x` |
-| unary `-` | `NEG` |
-
-Variables are allocated onto the 8 bytecode registers: `ecx, ah, adx, bdx, cdx, ddx, edx, rdx`.
-
-### Not supported in `expr()`
-
-- Strings, arrays, objects, method calls
-- Control flow (`if`, `while`, `for`) — use ASM frame or canonical blocks
-- More than 8 live variables
-
-Use the **ASM frame** or **canonical blocks** for loops/branches; use **`php()`** for arbitrary PHP that must stay PHP.
-
-## Unified bytecode
-
-`finalize()` builds:
-
-1. Container integer prelude → arena + `ecx`/`ah`/`adx`
-2. All `expr()` chunks → ASM → bytecode
-3. User `asm()` frame
-
-```php
-$bytes = $package->toBytecode();
-$package->runUnified();
-```
-
-## Errors
-
-`PASMProgramException` → `PASMAssembleException` | `PASMFinalizeException` | `PASMExecuteException`  
-`PASMExprException` for bad expressions.
 
 ```bash
+php examples/control-flow-bytecode.php
 php examples/expr-to-bytecode.php
-php examples/program-php-asm-oop.php
 ```
+
+### Unified bytecode
+
+`finalize()` still merges: container prelude + `expr()` chunks + user `asm()` into `toBytecode()`.
