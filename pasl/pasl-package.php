@@ -1,15 +1,12 @@
 <?php declare(strict_types=1);
 namespace pasl;
 
-/**
- * Unified facade: one API over numeric core + strnet full surface.
- */
 final class Package
 {
     public static function needsFullSurface(string $source): bool
     {
         return (bool) preg_match(
-            '/["\']|net_|strlen|substr|strcmp|count\s*\(|string\s+\$|object\s+\$|bag\s+\$|array\s+\$|\.[A-Za-z_]|\[/',
+            '/["\']|net_|fetch\s*\(|live_set|live_run|https?:\/\/|strlen|substr|strcmp|count\s*\(|string\s+\$|object\s+\$|bag\s+\$|array\s+\$|\.[A-Za-z_]|\[/',
             $source
         );
     }
