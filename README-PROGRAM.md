@@ -1,84 +1,67 @@
 # PASM Program Builder
 
-`pasm-program.php` builds a whole program from the existing runtime layers and, at `finalize()`, produces a **unified bytecode** blob when possible.
+## Will `$addedto++` become bytecode automatically?
+
+**No.** Ordinary PHP in a `.php` file still runs as PHP.
+
+To lower integer assignments and operators into PASM bytecode, pass them through **`expr()`** (or `PASMExprCompiler`):
+
+```php
+$prog->expr(<<<'SRC'
+    $addedto = 0;
+    $addedto = $addedto + 1;
+    $addedto++;
+    $addedto += 1;
+SRC);
+
+$package = $prog->finalize();
+echo $package->runExpr();        // 2
+echo bin2hex($package->toBytecode()); // unified stream includes expr
+```
+
+### Operator → bytecode mapping
+
+| Source | PASM |
+|--------|------|
+| `$x = 42` | `MOVI reg 42` |
+| `$x = $y` | `MOVR x y` |
+| `$x = $a + $b` | `ADD x a b` |
+| `-` `*` `/` `%` | `SUB` `MUL` `DIV` `MOD` |
+| `&` \| `^` `<<` `>>` | `AND` `OR` `XOR` `SHL` `SHR` |
+| `$x += 1` | `ADD x x immReg` |
+| `$x++` / `++$x` | `INC x` |
+| `$x--` / `--$x` | `DEC x` |
+| unary `-` | `NEG` |
+
+Variables are allocated onto the 8 bytecode registers: `ecx, ah, adx, bdx, cdx, ddx, edx, rdx`.
+
+### Not supported in `expr()`
+
+- Strings, arrays, objects, method calls
+- Control flow (`if`, `while`, `for`) — use ASM frame or canonical blocks
+- More than 8 live variables
+
+Use the **ASM frame** or **canonical blocks** for loops/branches; use **`php()`** for arbitrary PHP that must stay PHP.
 
 ## Unified bytecode
 
-On `finalize()` / `compileUnified()`:
+`finalize()` builds:
 
-1. Each tracked container is flushed and bound into `P0`, `P1`, …
-2. **Integer** values from linear containers are written into the memory arena.
-3. An auto-generated **prelude** sets `ecx` (base), `ah` (count), `adx` (containerId).
-4. Your **ASM frame** is appended (or a default sum-over-buffer body).
-5. The combined assembly is compiled with `PASMOptimizingAssembler` → one binary string.
+1. Container integer prelude → arena + `ecx`/`ah`/`adx`
+2. All `expr()` chunks → ASM → bytecode
+3. User `asm()` frame
 
 ```php
-$package = $prog->finalize();
-$bytes   = $package->toBytecode();      // inclusive binary
-$hex     = $package->toBytecodeHex();
-$result  = $package->runUnified();
+$bytes = $package->toBytecode();
+$package->runUnified();
 ```
 
-### Still outside the binary ISA
+## Errors
 
-| Artifact | Why |
-|----------|-----|
-| Canonical blocks | Run on `PASMCanonicalExecutor` (command arrays), not the binary bytecode VM |
-| PHP stages | Arbitrary PHP callables — executed as PHP |
-| Non-integer container values | Skipped in the prelude (not representable in the integer LOAD32 path) |
-
-## Error handling
-
-```text
-PASMProgramException          base
-  PASMAssembleException       assembler / invalid ASM
-  PASMFinalizeException       flush, alloc, package build
-  PASMExecuteException        VM / block / PHP stage run
-```
-
-Messages are tagged `[PASMProgram:<phase>]` and may include JSON context.
-
-```php
-try {
-    $package = $prog->finalize();
-    echo $package->runUnified();
-} catch (PASMAssembleException $e) {
-    // bad assembly
-} catch (PASMFinalizeException $e) {
-    // materialize / package failure
-} catch (PASMExecuteException $e) {
-    // run-time failure
-}
-```
-
-## Quick start
-
-```php
-require_once __DIR__ . '/pasm-program.php';
-use pasm\PASMProgram;
-
-$prog = new PASMProgram();
-$v = $prog->vector([10, 20, 30]);
-$v->add(40);
-
-// optional user ASM; omit for default sum body
-$prog->asm(<<<'ASM'
-        MOVI  rdx  0
-        MOVI  bdx  0
-loop:   LOAD32 cdx ecx bdx
-        ADD    rdx rdx cdx
-        ADD    bdx bdx 4
-        DEC    ah
-        CMP    ah  0
-        JNZ    loop
-        RET    rdx
-ASM);
-
-$package = $prog->finalize();
-echo $package->runUnified(); // 100
-echo bin2hex($package->toBytecode());
-```
+`PASMProgramException` → `PASMAssembleException` | `PASMFinalizeException` | `PASMExecuteException`  
+`PASMExprException` for bad expressions.
 
 ```bash
+php examples/expr-to-bytecode.php
 php examples/program-php-asm-oop.php
 ```

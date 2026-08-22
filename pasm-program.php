@@ -3,16 +3,12 @@
  * PASM whole-program builder
  *
  * Layers:
- *   - canonical blocks  — immutable algorithmic identity (executor, not binary bytecode)
- *   - OOP containers    — hot data; scalar ints lower into a bytecode prelude
- *   - ASM frame         — free-form assembly
- *   - PHP frame         — arbitrary PHP (runs as PHP)
- *   - named kernels     — extra bytecode routines
- *
- * finalize() builds a unified binary stream when possible:
- *   [container prelude ASM → bytecode] + [main ASM frame → bytecode]
- * Canonical blocks remain on the canonical executor; they are not fused into
- * the binary ISA. PHP stages stay callables.
+ *   - canonical blocks
+ *   - OOP containers (integer scalars lower into bytecode prelude)
+ *   - ASM frame
+ *   - expr() — PHP-like integer assignments/operators → PASM bytecode
+ *   - PHP frame (arbitrary PHP, not compiled)
+ *   - named kernels
  */
 
 namespace pasm;
@@ -22,14 +18,11 @@ require_once __DIR__ . '/pasm-canonical.php';
 require_once __DIR__ . '/pasm-oop-containers.php';
 require_once __DIR__ . '/pasm-bytecode.php';
 require_once __DIR__ . '/pasm-bytecode-optimized.php';
+require_once __DIR__ . '/pasm-expr.php';
 
 use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
-
-/* ================================================================== */
-/* Errors                                                             */
-/* ================================================================== */
 
 class PASMProgramException extends RuntimeException
 {
@@ -40,13 +33,8 @@ class PASMProgramException extends RuntimeException
         int $code = 0,
         ?Throwable $previous = null,
     ) {
-        parent::__construct($this->format($message), $code, $previous);
-    }
-
-    private function format(string $message): string
-    {
         $ctx = $this->context === [] ? '' : ' ' . json_encode($this->context, JSON_UNESCAPED_SLASHES);
-        return "[PASMProgram:{$this->phase}] {$message}{$ctx}";
+        parent::__construct("[PASMProgram:{$this->phase}] {$message}{$ctx}", $code, $previous);
     }
 }
 
@@ -73,8 +61,6 @@ class PASMFinalizeException extends PASMProgramException
         parent::__construct($message, 'finalize', $context, 0, $previous);
     }
 }
-
-/* ================================================================== */
 
 final class PASMTrackedContainer
 {
@@ -124,9 +110,12 @@ final class PASMProgram
     private array $phpStages = [];
 
     private string $asmFrame = '';
+    /** @var string[] expr source chunks lowered into the unified stream */
+    private array $exprChunks = [];
+    private PASMExprCompiler $exprCompiler;
+
     private int $nextP = 0;
     private bool $optimize;
-    /** Max integer values auto-emitted into the bytecode prelude per container. */
     private int $preludeValueLimit = 256;
 
     public function __construct(?PASMRuntime $runtime = null, bool $optimize = true)
@@ -137,6 +126,7 @@ final class PASMProgram
             $this->frames   = new PASMFramePool();
             $this->frame    = $this->frames->create('program');
             $this->optimize = $optimize;
+            $this->exprCompiler = new PASMExprCompiler();
         } catch (Throwable $e) {
             throw new PASMProgramException('Failed to initialize program', 'init', [], 0, $e);
         }
@@ -145,6 +135,7 @@ final class PASMProgram
     public function runtime(): PASMRuntime { return $this->runtime; }
     public function frame(): PASMRegisterFrame { return $this->frame; }
     public function table(): PASMCanonicalTable { return $this->table; }
+    public function exprVars(): array { return $this->exprCompiler->vars(); }
 
     public function setPreludeValueLimit(int $n): self
     {
@@ -155,15 +146,12 @@ final class PASMProgram
         return $this;
     }
 
-    /* ---------- canonical blocks ---------- */
+    /* ---------- blocks / containers ---------- */
 
     public function block(string $name, array $commands, array $schema = []): PASMCanonicalBlock
     {
-        if ($name === '') {
-            throw new InvalidArgumentException('Block name must be non-empty');
-        }
-        if ($commands === []) {
-            throw new InvalidArgumentException("Block {$name} has no commands");
+        if ($name === '' || $commands === []) {
+            throw new InvalidArgumentException('Block name and commands required');
         }
         try {
             $b = $this->table->define($name, $commands, $schema);
@@ -174,33 +162,26 @@ final class PASMProgram
         }
     }
 
-    /* ---------- OOP containers ---------- */
-
     public function vector(iterable $items = []): PASMTrackedContainer
     {
         return $this->track('vector', Vector::forFrame($this->frame, null, $items));
     }
-
     public function stack(iterable $items = []): PASMTrackedContainer
     {
         return $this->track('stack', Stack::forFrame($this->frame, null, $items));
     }
-
     public function queue(iterable $items = []): PASMTrackedContainer
     {
         return $this->track('queue', Queue::forFrame($this->frame, null, $items));
     }
-
     public function deque(iterable $items = []): PASMTrackedContainer
     {
         return $this->track('deque', Deque::forFrame($this->frame, null, $items));
     }
-
     public function map(iterable $items = []): PASMTrackedContainer
     {
         return $this->track('map', Map::forFrame($this->frame, null, $items));
     }
-
     public function set(iterable $items = []): PASMTrackedContainer
     {
         return $this->track('set', Set::forFrame($this->frame, null, $items));
@@ -242,21 +223,49 @@ final class PASMProgram
         return $this->asmFrame;
     }
 
-    public function compileAsm(): string
+    /**
+     * Lower PHP-like integer statements to PASM assembly and queue them
+     * into the unified bytecode stream.
+     *
+     * Examples:
+     *   $prog->expr('$addedto = 0; $addedto = $addedto + 1; $addedto++; $addedto += 1;');
+     */
+    public function expr(string $source): self
     {
-        return $this->assemble($this->asmFrame, 'asm-frame');
+        if (trim($source) === '') {
+            throw new InvalidArgumentException('expr source must be non-empty');
+        }
+        try {
+            // compile for validation + register allocation; store source for unified build
+            $this->exprCompiler->compile($source);
+            $this->exprChunks[] = $source;
+            return $this;
+        } catch (PASMExprException $e) {
+            throw new PASMAssembleException($e->getMessage(), ['expr' => $source], $e);
+        }
     }
 
-    public function runAsm(): mixed
+    /** Compile expr source alone → bytecode (does not mutate program unified stream). */
+    public function compileExpr(string $source): string
     {
         try {
-            $code = $this->compileAsm();
+            $c = new PASMExprCompiler($this->exprCompiler->vars());
+            return $c->compileToBytecode($source, $this->optimize);
+        } catch (PASMExprException $e) {
+            throw new PASMAssembleException($e->getMessage(), [], $e);
+        }
+    }
+
+    public function runExpr(string $source): mixed
+    {
+        try {
+            $code = $this->compileExpr($source);
             $vm = new PASMOptimizedBytecodeVM($this->runtime);
             return $vm->run($code);
         } catch (PASMProgramException $e) {
             throw $e;
         } catch (Throwable $e) {
-            throw new PASMExecuteException('ASM frame execution failed', [], $e);
+            throw new PASMExecuteException('expr execution failed', [], $e);
         }
     }
 
@@ -286,8 +295,6 @@ final class PASMProgram
         return array_keys($this->phpStages);
     }
 
-    /* ---------- assembly helper ---------- */
-
     private function assemble(string $source, string $label): string
     {
         if (trim($source) === '') {
@@ -297,40 +304,18 @@ final class PASMProgram
             $assembler = new PASMOptimizingAssembler($this->optimize);
             return $assembler->compile($source);
         } catch (Throwable $e) {
-            throw new PASMAssembleException(
-                "Failed to assemble {$label}: {$e->getMessage()}",
-                ['label' => $label],
-                $e
-            );
+            throw new PASMAssembleException("Failed to assemble {$label}: {$e->getMessage()}", ['label' => $label], $e);
         }
     }
 
-    /**
-     * Build ASM that materializes integer scalar values from linear containers
-     * into the memory arena and leaves:
-     *   ecx = base of first linear dump
-     *   ah  = element count of first linear dump
-     *   adx = containerId of first linear container (if any)
-     *
-     * Non-integer / nested values are skipped (not representable in the integer ISA).
-     */
     private function buildContainerPreludeAsm(array $bindings): array
     {
-        // returns [asm:string, meta:array]
-        $lines = [];
-        $lines[] = '; --- auto prelude: container scalars → arena ---';
+        $lines = ['; --- auto prelude: container scalars → arena ---'];
         $meta = ['bases' => [], 'counts' => [], 'skipped_non_int' => 0];
-
-        $firstBaseRegSet = false;
-        $arenaCursor = 0;
+        $first = false;
 
         foreach ($bindings as $reg => $m) {
-            $values = $m['values'] ?? [];
-            if (!is_array($values)) {
-                continue;
-            }
-            // Map/Set may be associative; use values list
-            $flat = array_values($values);
+            $flat = array_values($m['values'] ?? []);
             $ints = [];
             foreach ($flat as $v) {
                 if (is_int($v)) {
@@ -345,53 +330,66 @@ final class PASMProgram
             if ($ints === []) {
                 continue;
             }
-
             $n = count($ints);
-            $bytes = $n * 4;
             try {
-                $base = $this->runtime->alloc(max(8, $bytes));
+                $base = $this->runtime->alloc(max(8, $n * 4));
             } catch (Throwable $e) {
-                throw new PASMFinalizeException('Arena alloc failed during prelude', ['reg' => $reg, 'bytes' => $bytes], $e);
+                throw new PASMFinalizeException('Arena alloc failed', ['reg' => $reg], $e);
             }
-
             foreach ($ints as $i => $v) {
                 $this->runtime->store32($base + $i * 4, $v);
             }
-
             $meta['bases'][$reg] = $base;
             $meta['counts'][$reg] = $n;
-
-            // Emit MOVI that document the binding for the main frame (optional bookkeeping in comments)
             $lines[] = "; container {$reg} kind={$m['kind']} id={$m['containerId']} base={$base} count={$n}";
-
-            if (!$firstBaseRegSet) {
+            if (!$first) {
                 $lines[] = "        MOVI  ecx  {$base}";
                 $lines[] = "        MOVI  ah   {$n}";
                 $lines[] = "        MOVI  adx  {$m['containerId']}";
-                $firstBaseRegSet = true;
+                $first = true;
             }
-
-            $arenaCursor = max($arenaCursor, $base + $bytes);
         }
-
-        if (!$firstBaseRegSet) {
-            $lines[] = '; (no integer container values to lower)';
+        if (!$first) {
+            $lines[] = '; (no integer container values)';
             $lines[] = '        MOVI  ecx  0';
             $lines[] = '        MOVI  ah   0';
             $lines[] = '        MOVI  adx  0';
         }
-
         return [implode("\n", $lines), $meta];
     }
 
-    /**
-     * Unified assembly = container prelude + user ASM frame.
-     * This is the closest “all-inclusive” binary path for data + user code.
-     */
+    private function buildExprAsm(): string
+    {
+        if ($this->exprChunks === []) {
+            return '';
+        }
+        // One compiler instance so variable→register map is stable across chunks
+        $c = new PASMExprCompiler($this->exprCompiler->vars());
+        $parts = [];
+        foreach ($this->exprChunks as $src) {
+            $parts[] = $c->compile($src);
+        }
+        // Drop intermediate RETs except the last compile's RET — re-join without duplicate RET
+        // compile() always ends with RET; strip all but keep final
+        $asm = implode("\n", $parts);
+        // Leave as-is: multiple RET means early exit of unified stream if expr is last — OK for expr-only.
+        // When mixed with user ASM after expr, strip trailing RET from all but last expr chunk.
+        if (count($parts) > 1) {
+            $fixed = [];
+            foreach ($parts as $i => $p) {
+                if ($i < count($parts) - 1) {
+                    $p = preg_replace('/^\s*RET\s+\w+\s*$/m', '; (expr chunk end)', $p) ?? $p;
+                }
+                $fixed[] = $p;
+            }
+            $asm = implode("\n", $fixed);
+        }
+        return "; --- expr chunks ---\n" . $asm;
+    }
+
     public function buildUnifiedAsm(array $bindings = []): string
     {
         if ($bindings === [] && $this->containers !== []) {
-            // best-effort snapshot without full finalize side effects
             foreach ($this->containers as $t) {
                 try {
                     $t->container->flush();
@@ -411,11 +409,18 @@ final class PASMProgram
         }
 
         [$prelude] = $this->buildContainerPreludeAsm($bindings);
+        $exprAsm = $this->buildExprAsm();
         $user = trim($this->asmFrame);
-        if ($user === '') {
-            // default body: return sum of prelude buffer if ah>0, else RET adx
-            $user = <<<'ASM'
-; default body: sum mem[ecx .. ecx+4*(ah-1)]
+
+        $parts = [$prelude];
+        if ($exprAsm !== '') {
+            $parts[] = $exprAsm;
+        }
+        if ($user !== '') {
+            $parts[] = "; --- user ASM frame ---\n" . $user;
+        } elseif ($exprAsm === '') {
+            $parts[] = <<<'ASM'
+; default body: sum mem[ecx ..]
         MOVI  rdx  0
         MOVI  bdx  0
         CMP   ah   0
@@ -429,30 +434,31 @@ loop:   LOAD32 cdx ecx bdx
 done:   RET    rdx
 ASM;
         }
+        // If we have expr (with RET) and no user ASM, expr provides RET.
+        // If user ASM follows expr, strip final RET from expr section.
+        if ($exprAsm !== '' && $user !== '') {
+            $parts[1] = preg_replace('/^\s*RET\s+\w+\s*$/m', '; (fall through to user ASM)', $parts[1]) ?? $parts[1];
+        }
 
-        return $prelude . "\n; --- user ASM frame ---\n" . $user;
+        return implode("\n", $parts);
     }
 
     public function compileUnified(): string
     {
-        $src = $this->buildUnifiedAsm();
-        return $this->assemble($src, 'unified');
+        return $this->assemble($this->buildUnifiedAsm(), 'unified');
     }
 
     public function runUnified(): mixed
     {
         try {
-            $code = $this->compileUnified();
             $vm = new PASMOptimizedBytecodeVM($this->runtime);
-            return $vm->run($code);
+            return $vm->run($this->compileUnified());
         } catch (PASMProgramException $e) {
             throw $e;
         } catch (Throwable $e) {
             throw new PASMExecuteException('Unified bytecode execution failed', [], $e);
         }
     }
-
-    /* ---------- finalize ---------- */
 
     public function finalize(): PASMProgramPackage
     {
@@ -496,6 +502,18 @@ ASM;
                 $kernelBytecode[$name] = $this->assemble($src, "kernel:{$name}");
             }
 
+            $exprBytecode = null;
+            if ($this->exprChunks !== []) {
+                try {
+                    $exprBytecode = (new PASMExprCompiler())->compileToBytecode(
+                        implode("\n", $this->exprChunks),
+                        $this->optimize
+                    );
+                } catch (Throwable $e) {
+                    throw new PASMAssembleException('expr compile failed', [], $e);
+                }
+            }
+
             return new PASMProgramPackage(
                 table:            $this->table,
                 blocks:           $this->blocks,
@@ -508,6 +526,8 @@ ASM;
                 unifiedBytecode:  $unifiedBytecode,
                 mainBytecode:     $mainBytecode,
                 kernelBytecode:   $kernelBytecode,
+                exprBytecode:     $exprBytecode,
+                exprVars:         $this->exprCompiler->vars(),
                 phpStages:        $this->phpStages,
             );
         } catch (PASMProgramException $e) {
@@ -532,10 +552,11 @@ final class PASMProgramPackage
         public readonly string $unifiedBytecode,
         public readonly ?string $mainBytecode,
         public readonly array $kernelBytecode,
+        public readonly ?string $exprBytecode,
+        public readonly array $exprVars,
         public readonly array $phpStages,
     ) {}
 
-    /** Primary all-inclusive binary output (prelude + user ASM). */
     public function toBytecode(): string
     {
         return $this->unifiedBytecode;
@@ -566,6 +587,19 @@ final class PASMProgramPackage
             return $vm->run($this->unifiedBytecode);
         } catch (Throwable $e) {
             throw new PASMExecuteException('Unified bytecode run failed', [], $e);
+        }
+    }
+
+    public function runExpr(): mixed
+    {
+        if ($this->exprBytecode === null) {
+            throw new PASMExecuteException('No expr() chunks were registered');
+        }
+        try {
+            $vm = new PASMOptimizedBytecodeVM($this->runtime);
+            return $vm->run($this->exprBytecode);
+        } catch (Throwable $e) {
+            throw new PASMExecuteException('expr bytecode run failed', [], $e);
         }
     }
 
@@ -610,25 +644,23 @@ final class PASMProgramPackage
     public function describe(): string
     {
         $lines = ['=== PASM Program Package ==='];
-        $lines[] = 'Canonical blocks:';
-        foreach ($this->blocks as $name => $b) {
-            $lines[] = "  - {$name}  id={$b->id}  cmds=" . count($b->commands);
-        }
+        $lines[] = 'Canonical blocks: ' . ($this->blocks === [] ? '(none)' : implode(', ', array_keys($this->blocks)));
         $lines[] = 'Container bindings:';
         foreach ($this->bindings as $reg => $m) {
             $lines[] = sprintf(
-                '  %s  %-7s  id=%d  segs=%s  values=%s',
+                '  %s  %-7s  id=%d  values=%s',
                 $reg,
                 $m['kind'],
                 $m['containerId'],
-                implode(',', $m['segments']),
                 json_encode($m['values'])
             );
         }
-        $lines[] = 'Unified ASM chars: ' . strlen($this->unifiedAsmSource);
-        $lines[] = 'Unified bytecode:  ' . strlen($this->unifiedBytecode) . ' bytes';
+        $lines[] = 'Expr vars → regs: ' . ($this->exprVars === [] ? '(none)' : json_encode($this->exprVars));
+        $lines[] = 'Unified bytecode: ' . strlen($this->unifiedBytecode) . ' bytes';
         $lines[] = '  hex: ' . bin2hex($this->unifiedBytecode);
-        $lines[] = 'User ASM frame: ' . (trim($this->asmSource) === '' ? '(default body)' : strlen($this->asmSource) . ' chars');
+        if ($this->exprBytecode !== null) {
+            $lines[] = 'Expr-only bytecode: ' . strlen($this->exprBytecode) . ' bytes';
+        }
         $lines[] = 'Kernels: ' . ($this->kernelBytecode === [] ? '(none)' : implode(', ', array_keys($this->kernelBytecode)));
         $lines[] = 'PHP stages: ' . ($this->phpStages === [] ? '(none)' : implode(', ', array_keys($this->phpStages)));
         return implode("\n", $lines);
