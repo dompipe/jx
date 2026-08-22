@@ -1,89 +1,82 @@
 <?php declare(strict_types=1);
 /**
- * Example: whole program with
- *   - canonical blocks
- *   - OOP containers
- *   - ASM frame
- *   - arbitrary PHP stages
+ * Example: containers + ASM lowered into one unified bytecode blob.
  *
- * Run from repo root:
  *   php examples/program-php-asm-oop.php
  */
 
 require_once __DIR__ . '/../pasm-program.php';
 
-use pasm\PASMProgram;
+use pasm\{
+    PASMProgram,
+    PASMProgramException,
+    PASMAssembleException,
+    PASMExecuteException,
+    PASMFinalizeException,
+};
 
-$prog = new PASMProgram();
+try {
+    $prog = new PASMProgram();
 
-// --- canonical algorithmic core ---
-$prog->block('add-two', [
-    ['ADD', 'R2', 'R0', 'R1'],
-    ['RET', 'R2'],
-]);
+    $prog->block('add-two', [
+        ['ADD', 'R2', 'R0', 'R1'],
+        ['RET', 'R2'],
+    ]);
 
-// --- OOP data ---
-$v = $prog->vector([10, 20, 30]);
-$v->add(40);
+    $v = $prog->vector([10, 20, 30]);
+    $v->add(40);
 
-$s = $prog->stack();
-$s->push(100);
-$s->push(200);
+    $s = $prog->stack();
+    $s->push(100);
+    $s->push(200);
 
-// --- arbitrary PHP stage (runs as PHP, not compiled to bytecode) ---
-$prog->php('prepare-arena', function (PASMProgram $p): void {
-    $rt = $p->runtime();
-    $base = $rt->alloc(16);
-    $rt->store32($base + 0, 10);
-    $rt->store32($base + 4, 20);
-    $rt->store32($base + 8, 30);
-    $rt->store32($base + 12, 40);
-    \pasm\PASM::$ecx = $base;
-    \pasm\PASM::$ah = 4;
-    echo "[php] arena prepared at ecx={$base}\n";
-});
-
-$prog->php('report', function ($ctx): void {
-    // works with PASMProgram or PASMProgramPackage
-    echo "[php] report stage ran\n";
-    if (method_exists($ctx, 'describe')) {
-        echo $ctx->describe(), "\n";
-    }
-});
-
-// --- ASM frame: free-form assembly ---
-$prog->asm(<<<'ASM'
-; sum four u32 values at ecx (count in ah)
+    // Optional user ASM; if omitted, a default sum-over-prelude body is used
+    $prog->asm(<<<'ASM'
+; sum prelude buffer at ecx (count ah)
         MOVI  rdx  0
         MOVI  bdx  0
+        CMP   ah   0
+        JZ    done
 loop:   LOAD32 cdx ecx bdx
         ADD    rdx rdx cdx
         ADD    bdx bdx 4
         DEC    ah
         CMP    ah  0
         JNZ    loop
-        RET    rdx
+done:   RET    rdx
 ASM);
 
-// Run PHP setup before finalize
-$prog->runPhp('prepare-arena');
+    $prog->php('report', function ($pkg): void {
+        echo "[php] unified bytes = ", strlen($pkg->toBytecode()), "\n";
+    });
 
-// Optional: run ASM before finalize (uses prepared arena)
-echo "ASM result (pre-finalize): ", $prog->runAsm(), "\n";
+    $package = $prog->finalize();
 
-// Complete the program
-$package = $prog->finalize();
+    echo $package->describe(), "\n\n";
 
-echo "\n", $package->describe(), "\n\n";
+    echo "Unified bytecode result: ", $package->runUnified(), "\n";
+    // 10+20+30+40 = 100 (first linear container)
 
-// Canonical block
-$package->frame->set('R0', 40);
-$package->frame->set('R1', 2);
-$r = $package->invoke('add-two');
-echo "add-two => {$r['result']}\n";
+    $package->frame->set('R0', 40);
+    $package->frame->set('R1', 2);
+    $r = $package->invoke('add-two');
+    echo "add-two => {$r['result']}\n";
 
-// Re-run ASM from package (ah was consumed; re-prepare if needed)
-$package->runPhp('prepare-arena');
-echo "ASM result (package): ", $package->runAsm(), "\n";
+    $package->runPhp('report');
 
-$package->runPhp('report');
+} catch (PASMAssembleException $e) {
+    fwrite(STDERR, "ASSEMBLE ERROR: {$e->getMessage()}\n");
+    exit(1);
+} catch (PASMFinalizeException $e) {
+    fwrite(STDERR, "FINALIZE ERROR: {$e->getMessage()}\n");
+    exit(1);
+} catch (PASMExecuteException $e) {
+    fwrite(STDERR, "EXECUTE ERROR: {$e->getMessage()}\n");
+    exit(1);
+} catch (PASMProgramException $e) {
+    fwrite(STDERR, "PROGRAM ERROR: {$e->getMessage()}\n");
+    exit(1);
+} catch (Throwable $e) {
+    fwrite(STDERR, "ERROR: {$e->getMessage()}\n");
+    exit(1);
+}
