@@ -1,0 +1,4 @@
+string $a = "hi";
+string $b = "!";
+$a = $a . $b;
+$n = strlen($a);

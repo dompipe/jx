@@ -1,0 +1,2 @@
+string $body = net_http_get("example.com", "/", 80);
+$n = strlen($body);
