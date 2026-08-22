@@ -1,0 +1,6 @@
+object $o = {};
+$o.x = 10;
+$o.y = 5;
+string $name = "pt";
+$o.label = $name;
+$s = $o.x + $o.y;

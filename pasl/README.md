@@ -1,69 +1,71 @@
-# PASL — PHP-like language → native binary / Windows EXE
+# PASL — PHP-like → native binary / Windows EXE
 
-**Write a tiny PHP-style program. Compile it. Run it like an `.exe`.**
+**Write PHP-style code. Compile. Run like an `.exe`.**
 
-Includes **integers**, **complex**, **strings**, and **network** (C/EXE path).
+## Types (complete)
 
-## Synopsis
+| Type | Example | Path |
+|------|---------|------|
+| **int** | `$x = 1; $x++;` | all targets |
+| **complex** | `complex $z = 3+4i;` | numeric core |
+| **string** | `string $s = "hi"; $s = $s . "!";` | C / EXE |
+| **array** | `array $a = [10,20,30]; $x = $a[0];` | C / EXE |
+| **bag (object)** | `object $o = {}; $o.x = 1;` | C / EXE |
+| **network** | `net_http_get("host", "/", 80)` | C / EXE |
+
+## Quick start
 
 ```bash
-php pasl/pasl-run.php --c -o sum.c -c '$sum=0; $i=5; while($i){ $sum=$sum+$i; $i--; }'
-gcc -O2 -o sum sum.c && ./sum; echo $?    # 15
-
-# Strings
-php pasl/pasl-run.php --c -o s.c examples/strings.pasl
-gcc -O2 -o s s.c && ./s; echo $?          # 3
-
-# Network (HTTP GET)
-php pasl/pasl-run.php --c -o net.c examples/http_get.pasl
-gcc -O2 -o net net.c && ./net; echo $?
+php pasl/pasl-run.php --c -o app.c examples/arrays.pasl
+gcc -O2 -o app app.c && ./app; echo $?
 
 # Windows EXE
-x86_64-w64-mingw32-gcc -O2 -o app.exe app.c -lws2_32
+x86_64-w64-mingw32-gcc -O2 -o app.exe app.c
 ```
 
-## Strings & network
+## Arrays
 
 ```pasl
-string $a = "hello";
-$a = $a . " world";
-$n = strlen($a);
-$t = substr($a, 0, 5);
-if ($a == "hello world") { }
-
-$fd = net_connect("example.com", 80);
-net_send($fd, "GET / HTTP/1.0\r\nHost: example.com\r\n\r\n");
-string $resp = net_recv($fd, 4096);
-net_close($fd);
-
-string $body = net_http_get("example.com", "/", 80);
+array $a = [10, 20, 30];
+$a[1] = 7;
+$x = $a[0] + $a[1] + $a[2];  // 47
+$n = count($a);               // 3
 ```
 
-| Feature | C / EXE | x86/ARM freestanding |
-|---------|---------|----------------------|
-| Integers, loops | yes | yes |
-| **Strings** | **yes** | numeric only |
-| **Network** | **yes** (sockets/Winsock) | no |
+## Bags (non-classical)
 
-## Benchmarks (numeric core, PHP 8.3.6, 1000 iters)
+```pasl
+object $o = {};
+$o.x = 10;
+$o.y = 5;
+$s = $o.x + $o.y;  // 15
+```
 
-| Program | Bytes | IR µs | x86 µs | ARM µs | PASM µs | x86 compiles/s |
-|---------|------:|------:|-------:|-------:|--------:|---------------:|
-| tiny | 11 | 9.1 | 12.0 | 12.6 | 11.6 | ~84 000 |
-| loop | 48 | 26.5 | 32.8 | 37.1 | 32.5 | ~30 000 |
-| nested | 66 | 57.2 | 52.9 | 48.8 | 43.4 | ~19 000 |
-| long40 | 325 | 257.5 | 271.1 | 283.3 | 270.3 | ~3 700 |
+## Benchmarks (toC, 500 iters, PHP 8.3.6)
 
-O(n) scaling: ~0.8–1.0 µs per source byte. Re-run: `php pasl/bench/bench.php 1000`
+| Case | Bytes | µs | compiles/s |
+|------|------:|---:|-----------:|
+| num_tiny | 11 | 11.7 | ~85k |
+| num_loop | 41 | 30.6 | ~33k |
+| str_concat | 55 | 37.4 | ~27k |
+| bag_fields | 44 | 38.3 | ~26k |
+| **arr_sum** | 51 | 46.0 | ~22k |
+| mixed | 82 | 57.2 | ~17k |
 
-## Targets
+```bash
+php pasl/bench/bench-all.php 500
+```
 
-| Artifact | How |
-|----------|-----|
-| Linux/macOS binary | `--c` → gcc/clang |
-| **Windows EXE** | `--c` → mingw or `cl` |
-| x86-64 ELF | `--x86` + nasm + ld |
-| AArch64 ELF | `--arm` + as + ld |
-| PASM | `--pasm` |
+## Docs
 
-See [build-native.md](build-native.md), [PASL_Manual.md](PASL_Manual.md), `pasl-strnet.php`.
+- **[PASL_Programming_Guide.pdf](PASL_Programming_Guide.pdf)** — full step-by-step manual
+- [PASL_Programming_Guide.md](PASL_Programming_Guide.md) — same in Markdown
+- [build-native.md](build-native.md) — Linux binary + Windows EXE
+
+## Pipeline
+
+```
+source → IR (O(n)) → C → gcc/mingw → ELF / .exe
+```
+
+Silent by default. Exit status = result.
