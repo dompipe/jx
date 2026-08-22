@@ -1,0 +1,3 @@
+// JS-simple fetch — one call, full URL
+string $r = fetch("http://example.com/");
+$n = strlen($r);
