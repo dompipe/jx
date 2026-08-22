@@ -1,70 +1,88 @@
-# PASL — PHP-like → native binary / Windows EXE
+# PASL — PHP-like language → native binary / Windows EXE
 
-**Write PHP-style code. Compile. Run like an `.exe`.**
-
-## Package entry (unified)
+**One require. Compile. Run like an `.exe`.**
 
 ```php
-require 'pasl/pasl.php';   // core + strnet + pasl\Package
-
+require 'pasl/pasl.php';
 use pasl\Package;
-echo Package::toC('$x=1;');                          // numeric
-echo Package::toC('array $a=[1,2]; $x=$a[0];');      // auto full surface
-echo Package::toX86('$x=1;');
-Package::hasStrnet();  // true when strnet present
+echo Package::toC($source);   // auto-picks numeric vs full surface
 ```
-
-CLI uses the same facade (`pasl-run.php` → `Package::compile`).
-
-## Types (complete)
-
-| Type | Example | Path |
-|------|---------|------|
-| **int** | `$x = 1; $x++;` | all targets |
-| **complex** | `complex $z = 3+4i;` | numeric core |
-| **string** | `string $s = "hi"; $s = $s . "!";` | C / EXE |
-| **array** | `array $a = [10,20,30]; $x = $a[0];` | C / EXE |
-| **bag (object)** | `object $o = {}; $o.x = 1;` | C / EXE |
-| **network** | `net_http_get("host", "/", 80)` | C / EXE |
-
-## Quick start
 
 ```bash
 php pasl/pasl-run.php --c -o app.c examples/arrays.pasl
 gcc -O2 -o app app.c && ./app; echo $?
 
-# Windows EXE
-x86_64-w64-mingw32-gcc -O2 -o app.exe app.c
+# HTTPS / live need OpenSSL:
+gcc -O2 -o app app.c -lssl -lcrypto
 ```
 
-## Arrays
+## What you get
+
+| Capability | Example | Target |
+|------------|---------|--------|
+| Integers & control | `$x++; while ($i) {…}` | C / x86 / ARM / PASM |
+| Complex | `complex $z = 3+4i;` | numeric core |
+| Strings | `string $s = "hi";` | C / EXE |
+| Arrays | `array $a = [1,2,3];` | C / EXE |
+| Bags | `object $o = {}; $o.x = 1;` | C / EXE |
+| `fetch` (HTTP + HTTPS/TLS) | `fetch("https://…")` | C / EXE + OpenSSL |
+| Live pages | `live_file` / `live_dom` / `live_run` | C / EXE |
+
+Silent by default. **Exit status = result**.
+
+## Package layout (integrated)
+
+```
+pasl.php              ← single entry
+pasl-package.php      ← pasl\Package auto-route
+pasl-front + pasl-back ← numeric O(n)
+pasl-strnet.php       ← strings, arrays, bags, fetch, live, TLS
+pasl-run.php          ← CLI
+examples/
+```
+
+## Live updates — refresh vs smooth
+
+**Does it act like pressing the browser Refresh button?**
+
+| Mode | Like F5? | What you can lose |
+|------|----------|-------------------|
+| **`live_file` + meta refresh** | **Yes** — whole document | Scroll, focus, typing in that page |
+| **`/plain` meta refresh** | **Yes** — whole page | Same as F5 |
+| **`live_dom` + iframe `/stream`** | **Only the slot** | Slot content; **outer shell stays** |
+
+Meta-refresh / backing-file modes **are** full document reloads (like F5). That can drop scroll, focus, and in-progress form fields in the reloaded document.
+
+**Smoother without a SPA:** `live_dom` + multipart `/stream` — outer chrome is not torn down; only the connected slot is replaced.
 
 ```pasl
-array $a = [10, 20, 30];
-$a[1] = 7;
-$x = $a[0] + $a[1] + $a[2];  // 47
-$n = count($a);               // 3
+// Stable outer shell:
+live_dom("pasl-root", "slot content");
+live_run(8765, 2);
+
+// Full-document refresh (like F5):
+live_file("/tmp/pasl-live.html");
+live_set("content");
+live_run(8765, 2);
 ```
 
-## Bags (non-classical)
+## CLI
 
-```pasl
-object $o = {};
-$o.x = 10;
-$o.y = 5;
-$s = $o.x + $o.y;  // 15
+```text
+php pasl/pasl-run.php [--c|--strnet|--x86|--arm|--pasm] [--bin] [-o out] [-c 'src'|file]
 ```
 
-## Benchmarks (toC via Package, 300 iters, PHP 8.3.6)
+## Examples
 
-| Case | Bytes | µs | compiles/s |
-|------|------:|---:|-----------:|
-| num_tiny | 11 | 11.8 | ~85k |
-| num_loop | 41 | 31.3 | ~32k |
-| str_concat | 55 | 37.9 | ~26k |
-| bag_fields | 44 | 39.0 | ~26k |
-| arr_sum | 51 | 46.5 | ~22k |
-| mixed | 82 | 58.0 | ~17k |
+`arrays` · `bags` · `strings` · `fetch` · `fetch_https` · `live_file` · `live_dom`
+
+## Benchmarks
+
+| Case | µs | compiles/s |
+|------|---:|-----------:|
+| num_tiny | ~12 | ~85k |
+| arr_sum | ~46 | ~22k |
+| mixed | ~58 | ~17k |
 
 ```bash
 php pasl/bench/bench-all.php 500
@@ -72,22 +90,7 @@ php pasl/bench/bench-all.php 500
 
 ## Docs
 
-- [PASL_Programming_Guide.md](PASL_Programming_Guide.md)
 - [PASL_Programming_Guide.pdf](PASL_Programming_Guide.pdf)
-- [build-native.md](build-native.md)
+- [PASL_Programming_Guide.md](PASL_Programming_Guide.md)
 
-## Layout
-
-| File | Role |
-|------|------|
-| `pasl.php` | **Single require** — loads core + strnet + Package |
-| `pasl-package.php` | `pasl\Package` auto-router |
-| `pasl-front.php` / `pasl-back.php` | Numeric O(n) compiler |
-| `pasl-strnet.php` | Full surface (strings/arrays/bags/net) |
-| `pasl-run.php` | CLI via Package |
-
-```
-source → Package::toC → IR → C → gcc/mingw → ELF / .exe
-```
-
-Silent by default. Exit status = result.
+*PASL integrated · github.com/dompipe/pasm-v2*
