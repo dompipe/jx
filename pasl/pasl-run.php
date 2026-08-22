@@ -1,11 +1,12 @@
 #!/usr/bin/env php
 <?php declare(strict_types=1);
 /**
- * PASL O(n) CLI — silent by default
- *   --c --bin --x86 --arm --pasm
+ * PASL CLI — numeric + full surface via pasl\Package
  */
 require_once __DIR__ . '/pasl.php';
-use pasl\{Compiler, PaslException};
+
+use pasl\Package;
+use pasl\PaslException;
 
 $print = false;
 $mode = 'c';
@@ -21,6 +22,7 @@ while ($argv !== []) {
     match (true) {
         $a === '--print', $a === '-v' => $print = true,
         $a === '--c' => $mode = 'c',
+        $a === '--strnet', $a === '--net', $a === '--strings', $a === '--full' => $mode = 'strnet',
         $a === '--x86', $a === '-x86' => $mode = 'x86',
         $a === '--arm', $a === '-arm', $a === '--aarch64' => $mode = 'arm',
         $a === '--pasm', $a === '-pasm' => $mode = 'pasm',
@@ -28,64 +30,46 @@ while ($argv !== []) {
         $a === '--exe' => $mode = 'c',
         $a === '-o' => $out = array_shift($argv),
         $a === '-c' => $inline = array_shift($argv),
-        $a === '-h', $a === '--help' => (print(
-            "Usage: pasl-run.php [--c|--x86|--arm|--pasm] [--bin] [-o out] [-c src|file] [--print]\n"
-        ) || exit(0)),
+        $a === '-h', $a === '--help' => (static function (): void {
+            fwrite(STDERR, "PASL CLI — require only pasl/pasl.php (strnet included when present)\n"
+                . "  --c|--strnet|--x86|--arm|--pasm  --bin  -o path  -c 'src'|file\n");
+            exit(0);
+        })(),
         default => $file = $a,
     };
 }
 
 try {
     $src = $inline ?? ($file !== null ? file_get_contents($file) : null);
-    if ($src === false || $src === null) {
-        fwrite(STDERR, "No input\n");
-        exit(1);
+    if ($src === null || $src === false || $src === '') {
+        fwrite(STDERR, "PASL: no source\n");
+        exit(2);
     }
-    $c = new Compiler(true);
-    $code = match ($mode) {
-        'x86' => $c->toX86($src),
-        'arm' => $c->toArm($src),
-        'pasm' => $c->toPasmAsm($src),
-        default => $c->toC($src),
-    };
-    $ext = match ($mode) {
-        'x86', 'arm' => '.s',
-        'pasm' => '.asm',
-        default => '.c',
-    };
-    $dest = $out;
-    if ($dest === null && $file !== null) {
-        $dest = preg_replace('/\.pasl$/', '', $file) . $ext;
+
+    $result = Package::compile($src, $mode);
+    $code = $result['code'];
+    $backend = $result['backend'];
+
+    if ($out !== null) {
+        file_put_contents($out, $code);
     }
-    if ($dest !== null) {
-        file_put_contents($dest, $code);
-    }
-    if ($print || $dest === null) {
+    if ($print || $out === null) {
         echo $code;
     }
-    if ($doBin) {
-        $cfile = ($dest !== null && str_ends_with($dest, '.c')) ? $dest : sys_get_temp_dir() . '/pasl_tmp.c';
-        if ($cfile !== $dest) {
-            file_put_contents($cfile, $code);
+
+    if ($doBin && in_array($backend, ['c', 'strnet'], true)) {
+        $cFile = $out ?? (sys_get_temp_dir() . '/pasl_' . getmypid() . '.c');
+        if ($out === null) {
+            file_put_contents($cFile, $code);
         }
-        $binOut = '/tmp/' . basename(preg_replace('/\.c$/', '', $cfile));
-        if ($binOut === '/tmp/' || str_ends_with($binOut, '/')) {
-            $binOut = '/tmp/pasl_out';
-        }
-        $cmd = 'gcc -O2 -o ' . escapeshellarg($binOut) . ' ' . escapeshellarg($cfile) . ' 2>&1';
-        exec($cmd, $lines, $rc);
-        if ($rc !== 0) {
+        $bin = sys_get_temp_dir() . '/pasl_' . getmypid() . '_bin';
+        exec('gcc -O2 -o ' . escapeshellarg($bin) . ' ' . escapeshellarg($cFile) . ' 2>&1', $lines, $st);
+        if ($st !== 0) {
             fwrite(STDERR, implode("\n", $lines) . "\n");
-            exit($rc);
+            exit($st ?: 1);
         }
-        if ($print) {
-            fwrite(STDERR, "binary: {$binOut}\n");
-        }
+        fwrite(STDERR, "PASL: binary {$bin}\n");
     }
-    exit(0);
-} catch (PaslException $e) {
-    fwrite(STDERR, $e->getMessage() . "\n");
-    exit(1);
 } catch (Throwable $e) {
     fwrite(STDERR, $e->getMessage() . "\n");
     exit(1);
