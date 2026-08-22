@@ -1,0 +1,5 @@
+$addedto = 0;
+$addedto = $addedto + 1;
+$addedto++;
+$addedto += 1;
+$addedto = $addedto * 2;

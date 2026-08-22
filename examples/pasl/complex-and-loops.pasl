@@ -1,0 +1,29 @@
+// PASL example: loops + complex numbers
+// Compile: php pasm-run.php -o complex.pbc examples/pasl/complex-and-loops.pasl
+// Run:     php pasm-run.php --print complex.pbc
+
+$sum = 0;
+$i = 5;
+while ($i) {
+    $sum = $sum + $i;
+    $i--;
+}
+
+$j = 0;
+for ($k = 0; $k != 4; $k++) {
+    $j = $j + 1;
+}
+
+complex $z = 3+4i;
+complex $w = 1-2i;
+complex $p = $z * $w;
+
+$mode = 2;
+select ($mode) {
+    case 1:
+        $sum = $sum + 100;
+    case 2:
+        $sum = $sum + $j;
+    default:
+        $sum = $sum + 999;
+}
