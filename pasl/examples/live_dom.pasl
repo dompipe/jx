@@ -1,0 +1,2 @@
+live_dom("pasl-root", "hello DOM connector");
+live_run(8765, 2);
