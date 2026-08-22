@@ -2,6 +2,20 @@
 
 **Write PHP-style code. Compile. Run like an `.exe`.**
 
+## Package entry (unified)
+
+```php
+require 'pasl/pasl.php';   // core + strnet + pasl\Package
+
+use pasl\Package;
+echo Package::toC('$x=1;');                          // numeric
+echo Package::toC('array $a=[1,2]; $x=$a[0];');      // auto full surface
+echo Package::toX86('$x=1;');
+Package::hasStrnet();  // true when strnet present
+```
+
+CLI uses the same facade (`pasl-run.php` → `Package::compile`).
+
 ## Types (complete)
 
 | Type | Example | Path |
@@ -41,16 +55,16 @@ $o.y = 5;
 $s = $o.x + $o.y;  // 15
 ```
 
-## Benchmarks (toC, 500 iters, PHP 8.3.6)
+## Benchmarks (toC via Package, 300 iters, PHP 8.3.6)
 
 | Case | Bytes | µs | compiles/s |
 |------|------:|---:|-----------:|
-| num_tiny | 11 | 11.7 | ~85k |
-| num_loop | 41 | 30.6 | ~33k |
-| str_concat | 55 | 37.4 | ~27k |
-| bag_fields | 44 | 38.3 | ~26k |
-| **arr_sum** | 51 | 46.0 | ~22k |
-| mixed | 82 | 57.2 | ~17k |
+| num_tiny | 11 | 11.8 | ~85k |
+| num_loop | 41 | 31.3 | ~32k |
+| str_concat | 55 | 37.9 | ~26k |
+| bag_fields | 44 | 39.0 | ~26k |
+| arr_sum | 51 | 46.5 | ~22k |
+| mixed | 82 | 58.0 | ~17k |
 
 ```bash
 php pasl/bench/bench-all.php 500
@@ -58,14 +72,22 @@ php pasl/bench/bench-all.php 500
 
 ## Docs
 
-- **[PASL_Programming_Guide.pdf](PASL_Programming_Guide.pdf)** — full step-by-step manual
-- [PASL_Programming_Guide.md](PASL_Programming_Guide.md) — same in Markdown
-- [build-native.md](build-native.md) — Linux binary + Windows EXE
+- [PASL_Programming_Guide.md](PASL_Programming_Guide.md)
+- [PASL_Programming_Guide.pdf](PASL_Programming_Guide.pdf)
+- [build-native.md](build-native.md)
 
-## Pipeline
+## Layout
+
+| File | Role |
+|------|------|
+| `pasl.php` | **Single require** — loads core + strnet + Package |
+| `pasl-package.php` | `pasl\Package` auto-router |
+| `pasl-front.php` / `pasl-back.php` | Numeric O(n) compiler |
+| `pasl-strnet.php` | Full surface (strings/arrays/bags/net) |
+| `pasl-run.php` | CLI via Package |
 
 ```
-source → IR (O(n)) → C → gcc/mingw → ELF / .exe
+source → Package::toC → IR → C → gcc/mingw → ELF / .exe
 ```
 
 Silent by default. Exit status = result.
