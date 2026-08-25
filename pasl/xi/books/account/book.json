@@ -1,0 +1,10 @@
+{
+  "id": "account",
+  "title": "Account Book",
+  "spine": ["login", "profile"],
+  "leaves": {
+    "login":   { "mode": "state-ready", "channels": ["user"] },
+    "profile": { "mode": "state-ready", "channels": ["user"] }
+  },
+  "drops": { "enabled": false }
+}

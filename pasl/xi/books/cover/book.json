@@ -1,0 +1,23 @@
+{
+  "id": "cover",
+  "title": "Cover Book",
+  "spine": ["home", "about", "end"],
+  "leaves": {
+    "home":  { "mode": "state-ready", "channels": ["user", "drop", "leaf.home"] },
+    "about": { "mode": "state-ready", "channels": ["user"] },
+    "end":   { "mode": "normalized",  "channels": ["user"] }
+  },
+  "tables": {
+    "grid1": {
+      "channel": "leaf.home",
+      "axis": "y",
+      "key": "rows"
+    }
+  },
+  "drops": {
+    "enabled": true,
+    "channel": "drop",
+    "dir": "inbox",
+    "accept": ["*.json"]
+  }
+}
