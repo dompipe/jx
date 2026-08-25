@@ -1,0 +1,9 @@
+{
+  "books_root": "books",
+  "data_root": "data",
+  "default_book": "cover",
+  "ssl": false,
+  "dry": true,
+  "allow_input": true,
+  "allow_output": true
+}
