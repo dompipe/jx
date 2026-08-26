@@ -149,6 +149,7 @@ class Bag
     private int $used = 0;
     /** @var array<string,mixed> */ private array $cells = [];
     /** @var array<string,mixed> */ private array $props = [];
+    /** @var array<string,array<string,mixed>> */ private array $bindings = [];
     /** @var array<string,RefSign> */ private array $refs = [];
     /** @var array<string,array{node:string,expires:int,generation:int,oneShot:bool}> */ private array $liveTokens = [];
     /** @var array<string,int> */ private array $generations = [];
@@ -292,6 +293,81 @@ class Bag
 
     public function prop(string $key): mixed { return $this->props[$key] ?? null; }
 
+    /**
+     * Bind this Bag to a named external data source without storing a live
+     * connection/client. The host resolves the source and listener later.
+     *
+     * source -> through/listener -> at node -> mode -> with options
+     */
+    public function bind(
+        string $source,
+        string $through,
+        string $at = '_default',
+        string $mode = 'auto',
+        array $with = [],
+    ): string {
+        $source = $this->normalizeBindingName($source, 'source');
+        $through = $this->normalizeBindingName($through, 'listener');
+        $at = $this->normalizeNode($at);
+        $mode = strtolower(trim($mode));
+        if (!in_array($mode, ['auto', 'poll', 'notify', 'manual'], true)) {
+            throw new JxException('Unsupported Bag binding mode', 'bag.bind', true, ['mode' => $mode]);
+        }
+
+        $options = Boundary::import($with);
+        $id = substr(hash('sha256', implode("\0", [
+            (string)$this->id,
+            $source,
+            $through,
+            $at,
+            $mode,
+            serialize($options),
+        ])), 0, 24);
+
+        $this->bindings[$id] = [
+            'id' => $id,
+            'source' => $source,
+            'through' => $through,
+            'at' => $at,
+            'mode' => $mode,
+            'with' => $options,
+        ];
+        return $id;
+    }
+
+    /** Remove one external data dependency from this Bag. */
+    public function unbind(string $id): bool
+    {
+        if (!isset($this->bindings[$id])) return false;
+        unset($this->bindings[$id]);
+        return true;
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function bindings(): array
+    {
+        return array_values($this->bindings);
+    }
+
+    /** Replace binding metadata from a trusted serialized descriptor. */
+    public function restoreBindings(array $bindings): void
+    {
+        $this->bindings = [];
+        foreach ($bindings as $binding) {
+            if (!is_array($binding)) continue;
+            $source = (string)($binding['source'] ?? '');
+            $through = (string)($binding['through'] ?? '');
+            if ($source === '' || $through === '') continue;
+            $this->bind(
+                $source,
+                $through,
+                (string)($binding['at'] ?? '_default'),
+                (string)($binding['mode'] ?? 'auto'),
+                is_array($binding['with'] ?? null) ? $binding['with'] : [],
+            );
+        }
+    }
+
     public function absorb(Bag $source, ?array $keys = null, string $prefix = ''): void
     {
         foreach ($keys ?? $source->keys() as $key) {
@@ -310,6 +386,15 @@ class Bag
             'get' => $this->get($args[0], isset($args[1]) ? (string)$args[1] : null),
             'write' => (function () use ($args) { $this->write((string)$args[0], $args[1] ?? null); return $this; })(),
             'read' => $this->read((string)$args[0], $args[1] ?? null),
+            'bind' => $this->bind(
+                (string)($args[0] ?? ''),
+                (string)($args[1] ?? ''),
+                (string)($args[2] ?? '_default'),
+                (string)($args[3] ?? 'auto'),
+                is_array($args[4] ?? null) ? $args[4] : [],
+            ),
+            'unbind' => $this->unbind((string)($args[0] ?? '')),
+            'bindings' => $this->bindings(),
             'quotient' => $this->quotient(),
             'capacity' => $this->capacity(),
             'used' => $this->used(),
@@ -329,6 +414,20 @@ class Bag
         $node = trim($node);
         if ($node === '' || strlen($node) > 256 || str_contains($node, "\0")) throw new JxException('Invalid Bag node', 'bag', true);
         return $node;
+    }
+
+    private function normalizeBindingName(string $value, string $what): string
+    {
+        $value = trim($value);
+        if (
+            $value === ''
+            || strlen($value) > 256
+            || str_contains($value, "\0")
+            || preg_match('/[^a-z0-9._:-]/i', $value)
+        ) {
+            throw new JxException("Invalid Bag binding {$what}", 'bag.bind', true, [$what => $value]);
+        }
+        return $value;
     }
 
     private function sizeOf(mixed $data): int
@@ -627,6 +726,8 @@ final class SmartTable
             ['bag.set','Bag','write-bag',true,'underwritten-only',0.90,'inline','checked-longform'],
             ['bag.commit','Bag','write-bag',true,'underwritten-only',0.90,'inline','checked-longform'],
             ['bag.write','Bag','write-bag',false,'underwritten-only',0.92,'inline','checked-longform'],
+            ['bag.bind','Bag','io',false,'book-local',0.90,'runtime','checked-longform'],
+            ['bag.unbind','Bag','io',false,'book-local',0.95,'runtime','checked-longform'],
             ['bag.quotient','Bag','read',false,'pure',1.00,'inline','checked-longform'],
             ['task.push','Task','write-bag',false,'task-local',0.95,'inline','checked-longform'],
             ['task.id','Task','read',false,'pure',1.00,'inline','checked-longform'],
