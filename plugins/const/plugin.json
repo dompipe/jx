@@ -1,6 +1,6 @@
 {
   "id": "const",
   "entry": "bootstrap.php",
-  "depends": ["core"],
+  "depends": [],
   "targets": ["windows", "mac", "linux", "web"]
 }

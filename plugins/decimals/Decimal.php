@@ -6,7 +6,8 @@
 namespace jx;
 
 if (!class_exists(JxException::class, false)) {
-    require_once dirname(__DIR__, 2) . '/jx.php';
+    $root = require __DIR__ . '/runtime-root.php';
+    require_once $root . '/jx.php';
 }
 
 final class Decimal

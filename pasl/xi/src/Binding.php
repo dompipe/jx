@@ -50,8 +50,8 @@ final class Binding
 
     public function forward(): string
     {
-        $this->history[] = $this->cursor;
         if ($this->cursor < count($this->spine) - 1) {
+            $this->history[] = $this->cursor;
             $this->cursor++;
         }
         return $this->here();
@@ -59,9 +59,14 @@ final class Binding
 
     public function back(): string
     {
-        if ($this->history !== []) {
-            $this->cursor = (int)array_pop($this->history);
-        } elseif ($this->cursor > 0) {
+        while ($this->history !== []) {
+            $previous = (int)array_pop($this->history);
+            if ($previous !== $this->cursor) {
+                $this->cursor = $previous;
+                return $this->here();
+            }
+        }
+        if ($this->cursor > 0) {
             $this->cursor--;
         }
         return $this->here();
@@ -73,7 +78,9 @@ final class Binding
         if ($i === false) {
             return $this->here();
         }
-        $this->history[] = $this->cursor;
+        if ($i !== $this->cursor) {
+            $this->history[] = $this->cursor;
+        }
         $this->cursor = (int)$i;
         return $this->here();
     }

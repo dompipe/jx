@@ -27,6 +27,11 @@ gcc -O2 -o app app.c -lssl -lcrypto
 | Bags | `object $o = {}; $o.x = 1;` | C / EXE |
 | `fetch` (HTTP + HTTPS/TLS) | `fetch("https://…")` | C / EXE + OpenSSL |
 | Live pages | `live_file` / `live_dom` / `live_run` | C / EXE |
+| Book leaves | `"pasl": "programs/home.pasl"` | Browser PASM VM |
+| Native windows | `jx_host_open` / `jx_host_poll` | Win32 / X11 C ABI |
+
+Browser, Win32, and X11 are peer OS hosts. Books and PASL stay above that host
+boundary and exchange `jx.host/1` JSON drops. See `host/README.md`.
 
 Silent by default. **Exit status = result**.
 

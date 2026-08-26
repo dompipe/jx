@@ -1,9 +1,10 @@
 {
   "id": "cover",
   "title": "Cover Book",
+  "window": { "id": "cover-main", "title": "JX Cover Book", "width": 960, "height": 720 },
   "spine": ["home", "about", "end"],
   "leaves": {
-    "home":  { "mode": "state-ready", "channels": ["user", "drop", "leaf.home"] },
+    "home":  { "mode": "state-ready", "channels": ["user", "drop", "leaf.home"], "pasl": "programs/home.pasl" },
     "about": { "mode": "state-ready", "channels": ["user"] },
     "end":   { "mode": "normalized",  "channels": ["user"] }
   },

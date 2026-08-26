@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jx-lang.dev/schema/host-drop-v1.json",
+  "title": "JX host drop",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "type", "host", "window", "book", "leaf", "sequence", "payload"],
+  "properties": {
+    "version": { "const": "jx.host/1" },
+    "type": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+    "host": { "enum": ["browser", "win32", "x11"] },
+    "window": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$", "maxLength": 96 },
+    "book": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$", "maxLength": 96 },
+    "leaf": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$", "maxLength": 96 },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "payload": { "type": "object" }
+  }
+}
