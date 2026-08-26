@@ -21,6 +21,7 @@ pluginSmoke(Plugins::has('audio-analysis'), 'Audio analysis plugin registered');
 pluginSmoke(Plugins::isExtensionOf('audio-fx', 'media'), 'AudioFX extends Media');
 pluginSmoke(in_array('chart.candles', Plugins::get('charts')->capabilities(), true), 'candles capability');
 pluginSmoke(in_array('media.mp4', Plugins::get('media')->capabilities(), true), 'mp4 capability');
+pluginSmoke(in_array('media.control-bindings', Plugins::get('media')->capabilities(), true), 'media control-binding capability');
 pluginSmoke(in_array('audio.frequency-buckets', Plugins::get('audio-analysis')->capabilities(), true), 'audio bucket capability');
 
 $market = Bag::underwrite(32_768);
@@ -58,6 +59,25 @@ pluginSmoke($mp3Desc['type'] === 'audio', 'mp3 becomes audio control');
 pluginSmoke($mp3Desc['mime'] === 'audio/mpeg', 'mp3 MIME');
 pluginSmoke(($mp3Desc['with']['volume'] ?? null) === 0.75, 'mp3 volume');
 pluginSmoke(($mp3Desc['extensions'] ?? null) === [], 'base mp3 has no processing extensions');
+pluginSmoke(($mp3Desc['controlBindings'] ?? null) === [], 'base mp3 has no control listeners');
+
+$controlled = $mp3
+    ->listen('play-button', 'submit', 'play')
+    ->listen('pause-button', 'submit', 'pause')
+    ->listen('volume-control', 'change', 'volume', 'value')
+    ->listen('scrubber', 'change', 'seek', 'value')
+    ->listen('mute-toggle', 'change', 'muted', 'checked');
+$controlledDesc = $controlled->jsonSerialize();
+pluginSmoke(count($controlledDesc['controlBindings']) === 5, 'mp3 carries control listeners');
+pluginSmoke(($controlledDesc['controlBindings'][0]['from']['control'] ?? null) === 'play-button', 'play source control');
+pluginSmoke(($controlledDesc['controlBindings'][0]['to']['action'] ?? null) === 'play', 'play action');
+pluginSmoke(!array_key_exists('value', $controlledDesc['controlBindings'][0]['from']), 'play does not require a value');
+pluginSmoke(($controlledDesc['controlBindings'][2]['with']['as'] ?? null) === 'float', 'volume binding coerces to float');
+pluginSmoke(($controlledDesc['controlBindings'][4]['from']['value'] ?? null) === 'checked', 'mute reads checked field');
+pluginSmoke(($controlledDesc['controlBindings'][4]['with']['as'] ?? null) === 'boolean', 'mute binding coerces to boolean');
+$firstControlBinding = (string)$controlledDesc['controlBindings'][0]['id'];
+$unlistened = $controlled->unlisten($firstControlBinding)->jsonSerialize();
+pluginSmoke(count($unlistened['controlBindings']) === 4, 'unlisten removes one control binding');
 
 $enhanced = $mp3->extend('audio-fx', [
     'gain_db' => 1.5,
@@ -136,6 +156,14 @@ try {
     $failed = true;
 }
 pluginSmoke($failed, 'invalid media binding id rejected');
+
+$failed = false;
+try {
+    $mp3->listen('bad-control', 'change', 'launch-missiles', 'value');
+} catch (JxException) {
+    $failed = true;
+}
+pluginSmoke($failed, 'unknown Media control action rejected');
 
 $failed = false;
 try {
