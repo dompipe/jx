@@ -20,7 +20,7 @@ The JX v0.1 books read from the human-facing language down into the engine. Shar
 14. Complex numbers
 15. The browser is a host, not the language
 16. **Web Hosting: Apache outside, JX inside** — `JX_v0.1_Web_Hosting.md`
-17. **SQL as a first-class JX object** — `JX_v0.1_SQL.md`
+17. **SQL as a first-class JX object; live SQL Binding into Bags and Pages** — `JX_v0.1_SQL.md`
 18. **NoSQL as a sibling persistence object** — next shared chapter
 19. Learn by building one small Book
 20. The habits JX v0.1 wants to teach
@@ -34,6 +34,7 @@ How does it look and line up?
 What does it do?
 Where does it run?
 Where does durable relational data go?
+How does persistence change the active Page?
 Where does non-relational data go?
 ```
 
@@ -45,7 +46,10 @@ Controls
       -> PASL / PASM
          -> Browser / Apache / native host
             -> SQL
-               -> NoSQL
+               -> Binding
+                  -> Bags
+                     -> Page patch
+                        -> NoSQL
 ```
 
 ## Engine Manual reading order
@@ -76,7 +80,7 @@ Controls
 24. Controls are a compiler/host contract
 25. **Page Style resolution, Collectors, Anchors, Images, and Transparency** — `JX_v0.1_Page_Style.md`
 26. **Apache / web deployment and persistent JX hosting** — `JX_v0.1_Web_Hosting.md`
-27. **SQL security, adapters, transactions, and Bag synchronization** — `JX_v0.1_SQL.md`
+27. **SQL security, adapters, transactions, Bag synchronization, and live Binding** — `JX_v0.1_SQL.md`
 28. **NoSQL adapters and Bag synchronization** — next shared chapter
 29. Rhetorical roles can become compiler evidence
 30. Libraries should lower with the Book
@@ -121,10 +125,22 @@ Book / Bags
           -> other PDO-backed adapter
 ```
 
+Live persistence then resolves through Binding rather than through hard-coded Page lookups:
+
+```text
+named SQL source
+    -> Binding listener
+       -> Bag sign / set / commit
+          -> dependent Controls / Collectors / Style
+             -> Page patch
+```
+
+Binding snapshots keep names, destinations, modes, scopes, and revision tokens; live PDO handles, passwords, certificates, and private keys remain server-side.
+
 SQL results come back through the JX boundary and can be committed into Bags; credentials and live database handles never cross into the browser.
 
-NoSQL follows as its own sibling object rather than being disguised as SQL.
+NoSQL follows as its own sibling object rather than being disguised as SQL, while reusing the same Binding -> Bag -> Page relationship where appropriate.
 
 ## Shared application mnemonic
 
-> **Controls say what exists. Bags hold what changes. Collectors gather. Anchors place. Style paints and spaces. PASL makes it act. Apache guards the doorway. SQL persists relations. NoSQL persists its native model.**
+> **Controls say what exists. Bags hold what changes. Collectors gather. Anchors place. Style paints and spaces. PASL makes it act. Apache guards the doorway. SQL persists relations. Binding carries persistence into Bags and Pages. NoSQL persists its native model.**
