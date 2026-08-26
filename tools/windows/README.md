@@ -33,6 +33,22 @@ build\windows\jx.exe book open language localhost:8766
 build\windows\jx.exe window-server open language localhost:8766 --browser
 ```
 
+## Compiled spec contract
+
+`jx-spec-contract.exe` is a small compiled Windows executable generated from
+the current JX language/control specs. It does not require PHP to print its
+contract; it proves the Book/Page/Bag host ontology, Control/Image family
+taxonomy, image pins, paint points, `IMG_DOTTED`, and `IMG_BLUR` can be lowered
+into executable code.
+
+Build and verify:
+
+```powershell
+tools\windows\build-spec-contract.ps1
+build\windows\jx-spec-contract.exe --smoke
+build\windows\jx-spec-contract.exe --contract
+```
+
 Install into the Windows PATH when ready:
 
 ```powershell
