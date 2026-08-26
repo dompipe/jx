@@ -11,6 +11,11 @@ require_once dirname(__DIR__) . '/jx.php';
 require_once __DIR__ . '/Flow.php';
 require_once __DIR__ . '/SQL.php';
 require_once __DIR__ . '/BindingCoercion.php';
+require_once __DIR__ . '/Plugin.php';
+
+// Bundled host-neutral plugins. Hosts still choose their rendering backend.
+require_once __DIR__ . '/plugins/Charts.php';
+require_once __DIR__ . '/plugins/Media.php';
 
 $control = dirname(__DIR__) . '/pasl/xi/src/Control.php';
 if (is_file($control)) require_once $control;
