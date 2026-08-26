@@ -7,6 +7,9 @@ This directory is the canonical language-level documentation for **JX v0.1**. PA
 | [SPEC.md](SPEC.md) | JX v0.1 language specification |
 | [RHETORIC.md](RHETORIC.md) | Rhetorical parameter order and paragraph flow |
 | [Flow.php](Flow.php) | Executable rhetorical adapter used by real examples |
+| [bootstrap.php](bootstrap.php) | Canonical one-time JX bootstrap for adapters/apps |
+| [SQL.php](SQL.php) | First-class secure SQL object |
+| [SQL.md](SQL.md) | SQL ownership, security, adapters, queries, transactions, and Bag synchronization |
 | [COMPILER.md](COMPILER.md) | Compiler direction and lowering |
 | [smart-table.md](smart-table.md) | Smart Table maker and native/Resistant selection |
 | [delivery.md](delivery.md) | Delivery deep paths |
@@ -35,7 +38,8 @@ SPEC
   -> CONTROL
   -> STYLE
   -> APACHE
-  -> SQL / NoSQL storage contract (next)
+  -> SQL
+  -> NoSQL (next)
   -> COMPILER
   -> PASM_MAP
   -> smart-table
