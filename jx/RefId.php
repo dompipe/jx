@@ -134,10 +134,13 @@ final class RefId implements JsonSerializable
             return $summary + ['view' => $projected];
         }
 
-        // The requested detailed view does not fit this RefId segment. Keep a
-        // bounded summary only; never reach into any neighboring object memory.
+        // Replace the same state node with a compact record. That frees the old
+        // detailed state's bytes instead of asking the segment for more space.
+        // If even the summary cannot fit, the RefId remains saturated and no
+        // external/object memory is touched.
         $this->saturated = true;
-        $this->remember('_state_summary', $summary + ['condensed' => true]);
+        $condensed = ['summary' => $summary + ['condensed' => true]];
+        $this->remember('_state', $condensed);
         return $summary + ['condensed' => true];
     }
 
@@ -207,7 +210,7 @@ final class RefId implements JsonSerializable
                 'filter' => $this->filter,
             ],
             'invocationDepth' => $this->invocationDepth,
-            'state' => $this->memory->read('_state_summary', $this->memory->read('_state')),
+            'state' => $this->memory->read('_state'),
         ];
     }
 
