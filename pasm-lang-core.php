@@ -14,10 +14,10 @@ class LangException extends RuntimeException
     public function __construct(
         string $message,
         public readonly string $phase = 'compile',
-        public readonly ?int $line = null,
+        public readonly ?int $sourceLine = null,
         ?Throwable $previous = null,
     ) {
-        $loc = $line !== null ? " line {$line}" : '';
+        $loc = $sourceLine !== null ? " line {$sourceLine}" : '';
         parent::__construct("[PASL:{$phase}{$loc}] {$message}", 0, $previous);
     }
 }

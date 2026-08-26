@@ -163,7 +163,7 @@ class Bag
     /** @var array<string,mixed> */
     private array $props = [];
 
-    private function __construct(int $capacity)
+    protected function __construct(int $capacity)
     {
         if ($capacity < 0) {
             throw new JxException('Bag capacity must be non-negative', 'bag');

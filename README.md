@@ -26,6 +26,8 @@ php examples/jx-smoke.php
 | `jx/INTRO.md` | Introduction materials |
 | `jx/INSTALL.md` | Install & plugin policy |
 | `jx/COMPILER.md` | Compiler pipeline |
+| `docs/history/` | Original-to-latest Markdown and blame conveyance |
+| `history/jx-lang/` | History-preserving snapshot of the earlier `jx-lang` tree |
 
 ## Plugins
 
@@ -47,6 +49,17 @@ php jx-install.php restore-full <timestamp>
 - Memory law, Books/Bags/Pages, Resistant path
 
 See `jx/INTRO.md` for the guided introduction.
+
+## Lineage
+
+This repository converges `dompipe/pasm-v2` and `dompipe/jx-lang` without
+flattening either Git history. The current implementation and canonical docs
+come from the later `pasm-v2` integration. The earlier standalone language
+design remains under `history/jx-lang/`, where `git log --follow` and
+`git blame --follow` can continue through its original commits.
+
+See [docs/history/README.md](docs/history/README.md) for source revisions,
+navigation, and provenance commands.
 
 ---
 
