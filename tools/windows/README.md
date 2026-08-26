@@ -49,6 +49,26 @@ build\windows\jx-spec-contract.exe --smoke
 build\windows\jx-spec-contract.exe --contract
 ```
 
+## Themed executable window
+
+`jx-themed-window.exe` is a native Windows Forms demo for the current Control,
+Image, and Theme contracts. It draws a moving image-like dial, mashes
+`spinClicks` with `zoom`, and shows `IMG_BLUR` / `IMG_DOTTED` style trails.
+
+Build and run:
+
+```powershell
+tools\windows\build-themed-window.ps1
+build\windows\jx-themed-window.exe
+```
+
+Controls:
+
+- `Space`: toggle the mash motion speed
+- `B`: blur trail
+- `D`: dotted trail
+- `Esc`: close
+
 Install into the Windows PATH when ready:
 
 ```powershell
