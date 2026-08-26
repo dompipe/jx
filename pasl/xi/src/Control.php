@@ -9,6 +9,12 @@
  */
 final class Control
 {
+    public const XY_CENTER = 'XY_CENTER';
+    public const XY_LT = 'XY_LT';
+    public const XY_RT = 'XY_RT';
+    public const XY_LB = 'XY_LB';
+    public const XY_RB = 'XY_RB';
+
     /** @param array<string, mixed> $props */
     private function __construct(
         private string $id,
@@ -88,12 +94,23 @@ final class Control
     /** @param array<string, mixed> $props */
     public static function image(string $id, string $label, string $src, string $mime = 'image/*', array $props = []): self
     {
+        $props['pin'] = self::imagePinFrom($props['pin'] ?? []);
         return self::make($id, 'image', $props + [
             'label' => $label,
             'src' => $src,
             'mime' => $mime,
             'alt' => $label,
         ]);
+    }
+
+    /** @return array{turningPoint:string,pathPoint:string,paintingPoint:string} */
+    public static function imagePin(string $turningPoint = self::XY_CENTER, string $pathPoint = self::XY_CENTER, string $paintingPoint = self::XY_CENTER): array
+    {
+        return [
+            'turningPoint' => self::xy($turningPoint),
+            'pathPoint' => self::xy($pathPoint),
+            'paintingPoint' => self::xy($paintingPoint),
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -223,7 +240,11 @@ final class Control
         $src = htmlspecialchars((string)($this->props['src'] ?? ''), ENT_QUOTES, 'UTF-8');
         $alt = htmlspecialchars((string)($this->props['alt'] ?? $this->id), ENT_QUOTES, 'UTF-8');
         $mime = htmlspecialchars((string)($this->props['mime'] ?? 'image/*'), ENT_QUOTES, 'UTF-8');
-        $html = '<figure id="' . $id . '" data-mime="' . $mime . '"><img src="' . $src . '" alt="' . $alt . '" style="max-width:100%;height:auto">';
+        $pin = self::imagePinFrom($this->props['pin'] ?? []);
+        $turning = htmlspecialchars($pin['turningPoint'], ENT_QUOTES, 'UTF-8');
+        $path = htmlspecialchars($pin['pathPoint'], ENT_QUOTES, 'UTF-8');
+        $paint = htmlspecialchars($pin['paintingPoint'], ENT_QUOTES, 'UTF-8');
+        $html = '<figure id="' . $id . '" data-mime="' . $mime . '" data-turning-point="' . $turning . '" data-path-point="' . $path . '" data-painting-point="' . $paint . '"><img src="' . $src . '" alt="' . $alt . '" style="max-width:100%;height:auto">';
         $html .= '<figcaption>' . $alt . ' <code>' . $mime . '</code></figcaption></figure>';
         $html .= '<input type="hidden" name="control[' . $id . ']" value="' . $src . '">';
         return $html;
@@ -238,5 +259,24 @@ final class Control
     private static function color(string $value): string
     {
         return preg_match('/^#[0-9a-f]{3,8}$/i', $value) ? $value : '#111';
+    }
+
+    /** @param mixed $pin @return array{turningPoint:string,pathPoint:string,paintingPoint:string} */
+    private static function imagePinFrom(mixed $pin): array
+    {
+        $pin = is_array($pin) ? $pin : [];
+        return self::imagePin(
+            (string)($pin['turningPoint'] ?? self::XY_CENTER),
+            (string)($pin['pathPoint'] ?? self::XY_CENTER),
+            (string)($pin['paintingPoint'] ?? self::XY_CENTER),
+        );
+    }
+
+    private static function xy(string $value): string
+    {
+        $value = strtoupper(trim($value));
+        return in_array($value, [self::XY_CENTER, self::XY_LT, self::XY_RT, self::XY_LB, self::XY_RB], true)
+            ? $value
+            : self::XY_CENTER;
     }
 }

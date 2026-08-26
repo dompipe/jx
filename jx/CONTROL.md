@@ -29,6 +29,30 @@ Control::image('logo.svg', 'SVG logo', $svgDataUri, 'image/svg+xml');
 Control::image('photo', 'Photo', '/assets/photo.jpg', 'image/jpeg');
 ```
 
+Image controls may also carry a pin contract:
+
+```php
+Control::image('image.any', 'Any image type', $src, 'image/*', [
+    'pin' => Control::imagePin(
+        Control::XY_CENTER, // turning point
+        Control::XY_LB,     // stuck-to-path point
+        Control::XY_RT,     // painting point
+    ),
+]);
+```
+
+Supported anchor constants:
+
+- `Control::XY_CENTER`
+- `Control::XY_LT`
+- `Control::XY_RT`
+- `Control::XY_LB`
+- `Control::XY_RB`
+
+The three image pin points have separate meanings. `turningPoint` is where the
+image rotates or turns. `pathPoint` is the point stuck to the movement path.
+`paintingPoint` is the point the host should treat as the image paint origin.
+
 Form posts carry control values in `control[<id>]`. Protocols decide which
 values to persist into Bags.
 
