@@ -1,26 +1,41 @@
-# Plugin target policy (allow gate)
+# Plugin target policy — hard reject
 
-A plugin is **allowed** only if it compiles (or is verified portable) for **all four** targets:
+A plugin is **allowed** only if it is portable to **all four**:
 
 | Target | Meaning |
 |--------|--------|
-| **windows** | PHP CLI / host on Windows |
-| **mac** | PHP CLI / host on macOS |
-| **linux** | PHP CLI / host on Linux |
-| **web** | jx web/hosting path (server-side Book under the hosting module; browser surfaces via jx protocol) |
+| **windows** | PHP host on Windows |
+| **mac** | PHP host on macOS |
+| **linux** | PHP host on Linux |
+| **web** | jx web/hosting path |
 
-## Rules
+## Non-portable = not possible (this version)
 
-1. `plugins/catalog.json` lists `required_targets: ["windows","mac","linux","web"]`.
-2. Each plugin must declare the same four in `targets` (catalog and/or `plugin.json`).
-3. `jx-install.php` runs **check-targets** before any install. Missing or failing a target → **install denied**.
-4. Checks are portable PHP (no OS-specific extensions required for core plugins). Platform-specific code must be gated and still provide a working path on every target.
-5. **web (jx)** means the plugin must not assume a TTY-only environment: no hard dependency on CLI-only APIs for its core `provides` list.
+If a plugin is not portable, it is **outside the requests of the current state of programming**. A later jx version might support it; **this one does not**. It is **not possible** to install or use it here.
+
+Result: **HARD REJECT** — install aborted. No partial install.
+
+## Multi-error log: `jxerr.log`
+
+The checker does **not** stop at the first problem. It walks the plugin and **collects every** target/portability error, then:
+
+1. Writes the full list to **`jxerr.log`** at the repo root (append, timestamped blocks)
+2. Prints a **condensed** multi-error summary to stderr
+
+Example block in `jxerr.log`:
+
+```
+==== jxerr 2026-08-25T20:44:00+00:00 [install:badplug] ====
+1. Plugin 'badplug': missing required target 'mac'
+2. Plugin 'badplug' [x.php]: dl() is not portable — outside this version; cannot use
+3. Plugin 'badplug': HARD REJECT — non-portable or incomplete targets...
+==== end (3 errors) ====
+```
 
 ## Commands
 
 ```bash
-php jx-install.php check-targets           # all catalog plugins
-php jx-install.php check-targets decimals  # one plugin
-php jx-install.php install decimals        # runs check-targets first
+php jx-install.php check-targets
+php jx-install.php check-targets decimals
+php jx-install.php install <id>    # hard reject + jxerr.log on failure
 ```
