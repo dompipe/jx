@@ -12,6 +12,7 @@ php xi.php localhost:8766 start config.json --foreground</code></pre>
 <p>Concrete next tasks:</p>
 <ol>
   <li>Add a <code>jx book open</code> or equivalent command that launches XI for a Library and opens a Book.</li>
+  <li>Promote <code>jx window-server</code> into the parent desktop process, so Windows and Linux treat JX like a user-space Explorer/X11-style shell.</li>
   <li>Make the host protocol bidirectional enough for window close, focus, resize, leaf change, and drop acknowledgements.</li>
   <li>Compile and test the Win32 and X11 adapters on their native targets.</li>
   <li>Keep Book navigation and state provable without JavaScript.</li>

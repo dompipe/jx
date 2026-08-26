@@ -11,13 +11,18 @@ internal static class JxWindows
     {
         string root = FindRoot();
         string jxRun = Path.Combine(root, "jx-run.php");
+        string windowServer = Path.Combine(root, "jx-window-server.php");
         string xi = Path.Combine(root, "pasl", "xi", "xi.php");
-        string xiConfig = Path.Combine(root, "pasl", "xi", "config.json");
 
         if (args.Length == 0 || args[0] == "-h" || args[0] == "--help")
         {
             Usage();
             return 0;
+        }
+
+        if (args[0] == "window-server" || args[0] == "windows")
+        {
+            return RunPhp(windowServer, args.Skip(1).ToArray());
         }
 
         if (args[0] == "xi")
@@ -30,7 +35,7 @@ internal static class JxWindows
             string book = args.Length >= 3 ? args[2] : "cover";
             string hostport = args.Length >= 4 ? args[3] : "localhost:8766";
             Console.WriteLine("jx: opening Book {0} at http://{1}/?book={0}", book, hostport);
-            return RunPhp(xi, new[] { hostport, "start", xiConfig, "--foreground" });
+            return RunPhp(windowServer, new[] { "open", book, hostport });
         }
 
         return RunPhp(jxRun, args);
@@ -42,11 +47,13 @@ internal static class JxWindows
         Console.WriteLine();
         Console.WriteLine("Usage:");
         Console.WriteLine("  jx.exe [jx-run args...]");
+        Console.WriteLine("  jx.exe window-server <start|stop|status|open> [...]");
         Console.WriteLine("  jx.exe xi <host:port> <start|stop|status> [config.json] [--foreground]");
         Console.WriteLine("  jx.exe book open [book] [host:port]");
         Console.WriteLine();
         Console.WriteLine("Examples:");
         Console.WriteLine("  jx.exe --print examples\\hello.jx");
+        Console.WriteLine("  jx.exe window-server status localhost:8766");
         Console.WriteLine("  jx.exe xi localhost:8766 status");
         Console.WriteLine("  jx.exe book open language localhost:8766");
     }

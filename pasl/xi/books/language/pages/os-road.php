@@ -7,6 +7,7 @@ include __DIR__ . '/_nav.php';
 <h1>Toward an OS-like window environment</h1>
 <p>The long direction is not merely "a better webserver." The long direction is a window environment where the same Book model can be hosted by different operating systems, and where JX can become the language glue between executable logic, durable state, package install, and windows.</p>
 <p>That makes the browser useful without making it sacred. If browsers change, disappear, or become the wrong host for some work, the Book model should survive. A Book should still have a spine, leaves, Bags, drops, protocols, and a window. The host should adapt around that contract.</p>
+<p>On a Windows desktop, this points at a self-made Windows-like environment running on top of Windows itself. Windows supplies the installed OS, drivers, files, and process base; JX supplies its own desktop/window server, Book launcher, package rules, and application surfaces. That lets JX grow like a user-space OS shell before it ever has to become a bare-metal operating system.</p>
 <div class="road-grid">
   <section class="road-panel">
     <h2>X11 replacement energy</h2>

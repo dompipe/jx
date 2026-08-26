@@ -8,7 +8,6 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <time.h>
 #include <unistd.h>
 
 #ifndef JX_ROOT_COMPILED
@@ -158,51 +157,13 @@ static int run_php_wait(int argc, char **argv, const char *script, bool quiet)
     return 1;
 }
 
-static bool command_exists(const char *cmd)
-{
-    char probe[256];
-    snprintf(probe, sizeof(probe), "command -v %s >/dev/null 2>&1", cmd);
-    return system(probe) == 0;
-}
-
-static void open_url(const char *url)
-{
-    pid_t pid = fork();
-    if (pid < 0) {
-        die("failed to fork opener: %s", strerror(errno));
-    }
-    if (pid == 0) {
-        FILE *nullout = freopen("/dev/null", "w", stdout);
-        FILE *nullerr = freopen("/dev/null", "w", stderr);
-        (void)nullout;
-        (void)nullerr;
-        if (command_exists("wslview")) {
-            execlp("wslview", "wslview", url, (char *)NULL);
-        }
-        if (command_exists("xdg-open")) {
-            execlp("xdg-open", "xdg-open", url, (char *)NULL);
-        }
-        if (command_exists("powershell.exe")) {
-            execlp("powershell.exe", "powershell.exe", "-NoProfile", "-Command", "Start-Process", url, (char *)NULL);
-        }
-        _exit(127);
-    }
-}
-
-static void sleep_ms(int ms)
-{
-    struct timespec ts;
-    ts.tv_sec = ms / 1000;
-    ts.tv_nsec = (long)(ms % 1000) * 1000000L;
-    nanosleep(&ts, NULL);
-}
-
 static void usage(void)
 {
     puts("jx WSL native launcher");
     puts("");
     puts("Usage:");
     puts("  jx [jx-run args...]");
+    puts("  jx window-server <start|stop|status|open> [...]");
     puts("  jx xi <host:port> <start|stop|status> [config.json] [--foreground]");
     puts("  jx book open [book] [host:port]");
     puts("");
@@ -216,16 +177,20 @@ int main(int argc, char **argv)
 {
     char *root = find_root(argv[0]);
     char *jx_run = join2(root, "jx-run.php");
+    char *window_server = join2(root, "jx-window-server.php");
     char *xi = join2(root, "pasl/xi/xi.php");
-    char *xi_config = join2(root, "pasl/xi/config.json");
 
     if (argc <= 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
         usage();
         free(root);
         free(jx_run);
+        free(window_server);
         free(xi);
-        free(xi_config);
         return 0;
+    }
+
+    if (strcmp(argv[1], "window-server") == 0 || strcmp(argv[1], "windows") == 0) {
+        exec_php(argc - 2, argv + 2, window_server);
     }
 
     if (strcmp(argv[1], "xi") == 0) {
@@ -238,33 +203,21 @@ int main(int argc, char **argv)
         char url[512];
         snprintf(url, sizeof(url), "http://%s/?book=%s", hostport, book);
 
-        char *status_args[] = {
+        char *open_args[] = {
+            "open",
+            (char *)book,
             (char *)hostport,
-            "status",
             NULL
         };
-        int already_running = run_php_wait(2, status_args, xi, true) == 0;
-
-        if (!already_running) {
-            char *start_args[] = {
-                (char *)hostport,
-                "start",
-                xi_config,
-                NULL
-            };
-            int started = run_php_wait(3, start_args, xi, false);
-            if (started != 0) {
-                return started;
-            }
-            sleep_ms(250);
+        int opened = run_php_wait(3, open_args, window_server, false);
+        if (opened != 0) {
+            return opened;
         }
-
-        open_url(url);
         printf("jx: opening Book %s in a WSL window host: %s\n", book, url);
         free(root);
         free(jx_run);
+        free(window_server);
         free(xi);
-        free(xi_config);
         return 0;
     }
 

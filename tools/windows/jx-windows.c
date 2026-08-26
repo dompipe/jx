@@ -144,11 +144,13 @@ static void usage(void)
     puts("");
     puts("Usage:");
     puts("  jx.exe [jx-run args...]");
+    puts("  jx.exe window-server <start|stop|status|open> [...]");
     puts("  jx.exe xi <host:port> <start|stop|status> [config.json] [--foreground]");
     puts("  jx.exe book open [book] [host:port]");
     puts("");
     puts("Examples:");
     puts("  jx.exe --print examples\\hello.jx");
+    puts("  jx.exe window-server status localhost:8766");
     puts("  jx.exe xi localhost:8766 status");
     puts("  jx.exe book open language localhost:8766");
 }
@@ -157,16 +159,20 @@ int main(int argc, char **argv)
 {
     char *root = find_root(argv[0]);
     char *jx_run = join2(root, "jx-run.php");
+    char *window_server = join2(root, "jx-window-server.php");
     char *xi = join2(root, "pasl\\xi\\xi.php");
-    char *xi_config = join2(root, "pasl\\xi\\config.json");
 
     if (argc <= 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
         usage();
         free(root);
         free(jx_run);
+        free(window_server);
         free(xi);
-        free(xi_config);
         return 0;
+    }
+
+    if (strcmp(argv[1], "window-server") == 0 || strcmp(argv[1], "windows") == 0) {
+        exec_php(argc - 2, argv + 2, window_server);
     }
 
     if (strcmp(argv[1], "xi") == 0) {
@@ -180,13 +186,12 @@ int main(int argc, char **argv)
         fflush(stdout);
 
         char *args[] = {
+            "open",
+            (char *)book,
             (char *)hostport,
-            "start",
-            xi_config,
-            "--foreground",
             NULL
         };
-        exec_php(4, args, xi);
+        exec_php(3, args, window_server);
     }
 
     exec_php(argc - 1, argv + 1, jx_run);
