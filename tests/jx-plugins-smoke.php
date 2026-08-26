@@ -16,7 +16,9 @@ function pluginSmoke(bool $ok, string $message): void
 
 pluginSmoke(Plugins::has('charts'), 'Charts plugin registered');
 pluginSmoke(Plugins::has('media'), 'Media plugin registered');
+pluginSmoke(Plugins::has('audio-fx'), 'AudioFX plugin registered');
 pluginSmoke(Plugins::has('audio-analysis'), 'Audio analysis plugin registered');
+pluginSmoke(Plugins::isExtensionOf('audio-fx', 'media'), 'AudioFX extends Media');
 pluginSmoke(in_array('chart.candles', Plugins::get('charts')->capabilities(), true), 'candles capability');
 pluginSmoke(in_array('media.mp4', Plugins::get('media')->capabilities(), true), 'mp4 capability');
 pluginSmoke(in_array('audio.frequency-buckets', Plugins::get('audio-analysis')->capabilities(), true), 'audio bucket capability');
@@ -55,6 +57,22 @@ $mp3Desc = $mp3->jsonSerialize();
 pluginSmoke($mp3Desc['type'] === 'audio', 'mp3 becomes audio control');
 pluginSmoke($mp3Desc['mime'] === 'audio/mpeg', 'mp3 MIME');
 pluginSmoke(($mp3Desc['with']['volume'] ?? null) === 0.75, 'mp3 volume');
+pluginSmoke(($mp3Desc['extensions'] ?? null) === [], 'base mp3 has no processing extensions');
+
+$enhanced = $mp3->extend('audio-fx', [
+    'gain_db' => 1.5,
+    'bass_db' => 2.0,
+    'treble_db' => 1.0,
+    'stereo_width' => 1.1,
+    'compressor' => true,
+    // Deliberately unknown today: proves the extension owns open future fields.
+    'future_tone_model' => 'warm-v2',
+]);
+$enhancedDesc = $enhanced->jsonSerialize();
+pluginSmoke(count($enhancedDesc['extensions']) === 1, 'enhanced mp3 has one extension');
+pluginSmoke(($enhancedDesc['extensions'][0]['plugin'] ?? null) === 'audio-fx', 'AudioFX extension id');
+pluginSmoke(($enhancedDesc['extensions'][0]['with']['gain_db'] ?? null) === 1.5, 'AudioFX gain normalized');
+pluginSmoke(($enhancedDesc['extensions'][0]['with']['future_tone_model'] ?? null) === 'warm-v2', 'AudioFX preserves future fields');
 
 // Simple spectrum form: bucket count only, host chooses 0..Nyquist from the decoded stream.
 $spectrum = AudioAnalysisPlugin::spectrum('theme', 'audio', 'spectrum', 24, [
@@ -118,6 +136,14 @@ try {
     $failed = true;
 }
 pluginSmoke($failed, 'invalid media binding id rejected');
+
+$failed = false;
+try {
+    $mp3->extend('audio-fx', ['bass_db' => 100]);
+} catch (JxException) {
+    $failed = true;
+}
+pluginSmoke($failed, 'invalid AudioFX range rejected');
 
 $failed = false;
 try {
