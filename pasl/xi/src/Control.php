@@ -114,6 +114,37 @@ final class Control
         ];
     }
 
+    /** @param list<array{x:int|float,y:int|float}> $points @param array<string, mixed> $props */
+    public static function polygon(string $refId, array $points, array $props = []): array
+    {
+        return [
+            'op' => 'polygon',
+            'refId' => self::name($refId, 'polygon'),
+            'points' => self::points($points),
+        ] + $props;
+    }
+
+    /** @param list<array{x:int|float,y:int|float}> $points @param array<string, mixed> $props */
+    public static function curvedShape(string $refId, array $points, array $props = []): array
+    {
+        return [
+            'op' => 'curvedShape',
+            'refId' => self::name($refId, 'curved-shape'),
+            'points' => self::points($points),
+            'smooth' => max(0.0, min(1.0, (float)($props['smooth'] ?? 0.5))),
+        ] + $props;
+    }
+
+    /** @param array<string, mixed> $props */
+    public static function path(string $refId, string $d, array $props = []): array
+    {
+        return [
+            'op' => 'path',
+            'refId' => self::name($refId, 'path'),
+            'd' => self::pathData($d),
+        ] + $props;
+    }
+
     /** @param array<string, mixed> $props */
     public static function image(string $id, string $label, string $src, string $mime = 'image/*', array $props = []): self
     {
@@ -262,11 +293,74 @@ final class Control
                 $svg .= '<rect x="' . (int)($op['x'] ?? 0) . '" y="' . (int)($op['y'] ?? 0) . '" width="' . max(1, (int)($op['width'] ?? 16)) . '" height="' . max(1, (int)($op['height'] ?? 16)) . '" fill="' . self::color((string)($op['fill'] ?? '#ddd')) . '"/>';
             } elseif ($kind === 'curve') {
                 $svg .= $this->renderCurve($op);
+            } elseif ($kind === 'polygon') {
+                $svg .= $this->renderPolygon($op);
+            } elseif ($kind === 'curvedShape') {
+                $svg .= $this->renderCurvedShape($op);
+            } elseif ($kind === 'path') {
+                $svg .= $this->renderPath($op);
             }
         }
         $svg .= '</svg>';
         $svg .= '<input type="hidden" name="control[' . $id . ']" value="drawing-contract">';
         return $svg;
+    }
+
+    /** @param array<string, mixed> $op */
+    private function renderPolygon(array $op): string
+    {
+        $points = self::points(is_array($op['points'] ?? null) ? $op['points'] : []);
+        if (count($points) < 3) {
+            return '';
+        }
+        $pairs = [];
+        foreach ($points as $point) {
+            $pairs[] = (int)$point['x'] . ',' . (int)$point['y'];
+        }
+        $ref = htmlspecialchars((string)($op['refId'] ?? 'polygon'), ENT_QUOTES, 'UTF-8');
+        return '<polygon data-ref="' . $ref . '" points="' . htmlspecialchars(implode(' ', $pairs), ENT_QUOTES, 'UTF-8') . '" fill="' . self::color((string)($op['fill'] ?? '#dbeafe')) . '" stroke="' . self::color((string)($op['stroke'] ?? '#111827')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 2)) . '"/>';
+    }
+
+    /** @param array<string, mixed> $op */
+    private function renderCurvedShape(array $op): string
+    {
+        $points = self::points(is_array($op['points'] ?? null) ? $op['points'] : []);
+        if (count($points) < 3) {
+            return '';
+        }
+        $d = $this->smoothClosedPath($points);
+        $ref = htmlspecialchars((string)($op['refId'] ?? 'curved-shape'), ENT_QUOTES, 'UTF-8');
+        return '<path data-ref="' . $ref . '" data-shape="curved" d="' . htmlspecialchars($d, ENT_QUOTES, 'UTF-8') . '" fill="' . self::color((string)($op['fill'] ?? '#fef3c7')) . '" stroke="' . self::color((string)($op['stroke'] ?? '#b45309')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 2)) . '"/>';
+    }
+
+    /** @param array<string, mixed> $op */
+    private function renderPath(array $op): string
+    {
+        $d = self::pathData((string)($op['d'] ?? ''));
+        if ($d === '') {
+            return '';
+        }
+        $ref = htmlspecialchars((string)($op['refId'] ?? 'path'), ENT_QUOTES, 'UTF-8');
+        return '<path data-ref="' . $ref . '" data-evoker="svg-path" d="' . htmlspecialchars($d, ENT_QUOTES, 'UTF-8') . '" fill="' . self::color((string)($op['fill'] ?? 'none')) . '" stroke="' . self::color((string)($op['stroke'] ?? '#7c3aed')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 3)) . '"/>';
+    }
+
+    /** @param list<array{x:int,y:int}> $points */
+    private function smoothClosedPath(array $points): string
+    {
+        $first = $points[0];
+        $d = 'M ' . $first['x'] . ' ' . $first['y'];
+        for ($i = 1; $i < count($points); $i++) {
+            $prev = $points[$i - 1];
+            $point = $points[$i];
+            $cx = (int)(($prev['x'] + $point['x']) / 2);
+            $cy = (int)(($prev['y'] + $point['y']) / 2);
+            $d .= ' Q ' . $prev['x'] . ' ' . $prev['y'] . ' ' . $cx . ' ' . $cy;
+        }
+        $last = $points[count($points) - 1];
+        $cx = (int)(($last['x'] + $first['x']) / 2);
+        $cy = (int)(($last['y'] + $first['y']) / 2);
+        $d .= ' Q ' . $last['x'] . ' ' . $last['y'] . ' ' . $cx . ' ' . $cy . ' Z';
+        return $d;
     }
 
     /** @param array<string, mixed> $op */
@@ -377,7 +471,32 @@ final class Control
 
     private static function color(string $value): string
     {
+        if (strtolower(trim($value)) === 'none') {
+            return 'none';
+        }
         return preg_match('/^#[0-9a-f]{3,8}$/i', $value) ? $value : '#111';
+    }
+
+    /** @param list<array{x:int|float,y:int|float}> $points @return list<array{x:int,y:int}> */
+    private static function points(array $points): array
+    {
+        $out = [];
+        foreach ($points as $point) {
+            if (!is_array($point)) {
+                continue;
+            }
+            $out[] = [
+                'x' => (int)($point['x'] ?? 0),
+                'y' => (int)($point['y'] ?? 0),
+            ];
+        }
+        return $out;
+    }
+
+    private static function pathData(string $d): string
+    {
+        $d = trim($d);
+        return preg_match('/^[MmZzLlHhVvCcSsQqTtAa0-9,.\-\s]+$/', $d) ? substr($d, 0, 4096) : '';
     }
 
     /** @param mixed $display @return array{visible:bool,blur:int,cover:bool,coverLabel:string} */

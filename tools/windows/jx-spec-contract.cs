@@ -59,6 +59,11 @@ namespace Jx.SpecContract
                 "\"role\":\"switch\"",
                 "\"kind\":\"tradeOff\"",
                 "\"event\":\"control.image.view.changed\"",
+                "\"event\":\"pointer.path.seek\"",
+                "\"op\":\"polygon\"",
+                "\"op\":\"curvedShape\"",
+                "\"op\":\"path\"",
+                "\"evoker\":\"svg-path\"",
                 "\"kind\":\"spinClicks\"",
                 "\"clicksPerDegree\":12",
                 "\"kind\":\"zoom\"",
@@ -104,6 +109,10 @@ namespace Jx.SpecContract
             Toggle(w);
             ImageControl(w);
             DrawingControl(w);
+            w.ArrayEnd();
+            w.Name("events");
+            w.ArrayStart();
+            PointerSeekEvent(w);
             w.ArrayEnd();
             w.ObjEnd();
             return w.ToString();
@@ -177,8 +186,63 @@ namespace Jx.SpecContract
             MashTheme(w);
             w.Name("ops");
             w.ArrayStart();
+            Polygon(w);
+            CurvedShape(w);
+            SvgPath(w);
             LineWithImage(w, "dotted-path", 24, 108, 336, 88, true, ImgDotted, 24);
             w.ArrayEnd();
+            w.ObjEnd();
+        }
+
+        private static void Polygon(Json w)
+        {
+            w.ObjStart();
+            w.Prop("family", "Control");
+            w.Prop("op", "polygon");
+            w.Prop("refId", "triangle-shape");
+            w.Name("points");
+            w.ArrayStart();
+            Point(w, 258, 24);
+            Point(w, 334, 76);
+            Point(w, 280, 124);
+            w.ArrayEnd();
+            w.ObjEnd();
+        }
+
+        private static void CurvedShape(Json w)
+        {
+            w.ObjStart();
+            w.Prop("family", "Control");
+            w.Prop("op", "curvedShape");
+            w.Prop("refId", "soft-shape");
+            w.Prop("smooth", 0.72);
+            w.Name("points");
+            w.ArrayStart();
+            Point(w, 134, 116);
+            Point(w, 174, 98);
+            Point(w, 222, 128);
+            Point(w, 184, 162);
+            Point(w, 142, 150);
+            w.ArrayEnd();
+            w.ObjEnd();
+        }
+
+        private static void SvgPath(Json w)
+        {
+            w.ObjStart();
+            w.Prop("family", "Control");
+            w.Prop("op", "path");
+            w.Prop("refId", "svg-evoker");
+            w.Prop("evoker", "svg-path");
+            w.Prop("d", "M 40 42 C 76 6 118 74 156 42 S 238 78 316 42");
+            w.ObjEnd();
+        }
+
+        private static void Point(Json w, int x, int y)
+        {
+            w.ObjStart();
+            w.Prop("x", x);
+            w.Prop("y", y);
             w.ObjEnd();
         }
 
@@ -269,6 +333,17 @@ namespace Jx.SpecContract
             w.Prop("mime", "image/png");
             w.ObjEnd();
             w.Prop("reason", "View display switched off");
+            w.ObjEnd();
+        }
+
+        private static void PointerSeekEvent(Json w)
+        {
+            w.ObjStart();
+            w.Prop("family", "theme");
+            w.Prop("kind", "event");
+            w.Prop("event", "pointer.path.seek");
+            w.Prop("target", "motion-curve");
+            w.Prop("effect", "move-control-to-nearest-phase");
             w.ObjEnd();
         }
 

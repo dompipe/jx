@@ -186,6 +186,31 @@ Control::line('sweep-line', ['x' => 0, 'y' => 40], ['x' => 160, 'y' => 40], true
 The fourth argument is `pong`. When `pong` is true, the host contract means the
 line travels start-to-finish and finish-to-start instead of one-way motion.
 
+Drawing controls also support explicit shapes and SVG-style path evokers:
+
+```php
+Control::polygon('triangle-shape', [
+    ['x' => 258, 'y' => 24],
+    ['x' => 334, 'y' => 76],
+    ['x' => 280, 'y' => 124],
+]);
+
+Control::curvedShape('soft-shape', [
+    ['x' => 134, 'y' => 116],
+    ['x' => 174, 'y' => 98],
+    ['x' => 222, 'y' => 128],
+], ['smooth' => 0.72]);
+
+Control::path(
+    'svg-evoker',
+    'M 40 42 C 76 6 118 74 156 42 S 238 78 316 42',
+    ['fill' => 'none', 'stroke' => '#be185d'],
+);
+```
+
+`path()` is the SVG path evoker. It preserves the path language as a host
+contract while letting native renderers map it to their own path APIs.
+
 Drawing controls also support movement paths:
 
 ```php

@@ -36,6 +36,9 @@ $controls = [
     Control::drawing('drawing.surface', 'Drawing surface', 360, 180, [
         ['op' => 'rect', 'x' => 16, 'y' => 18, 'width' => 112, 'height' => 72, 'fill' => '#dbeafe'],
         ['op' => 'circle', 'cx' => 196, 'cy' => 78, 'r' => 38, 'fill' => '#f59e0b'],
+        Control::polygon('triangle-shape', [['x' => 258, 'y' => 24], ['x' => 334, 'y' => 76], ['x' => 280, 'y' => 124]], ['fill' => '#dcfce7', 'stroke' => '#166534', 'width' => 2]),
+        Control::curvedShape('soft-shape', [['x' => 134, 'y' => 116], ['x' => 174, 'y' => 98], ['x' => 222, 'y' => 128], ['x' => 184, 'y' => 162], ['x' => 142, 'y' => 150]], ['fill' => '#fef3c7', 'stroke' => '#b45309', 'width' => 2, 'smooth' => 0.72]),
+        Control::path('svg-evoker', 'M 40 42 C 76 6 118 74 156 42 S 238 78 316 42', ['fill' => 'none', 'stroke' => '#be185d', 'width' => 3]),
         Control::line('sweep-line', ['x' => 26, 'y' => 150], ['x' => 330, 'y' => 34], true) + ['stroke' => '#111827', 'width' => 3, 'theme' => $mashTheme],
         Control::curve('motion-curve', ['smooth' => 0.82, 'spin' => $spinTheme, 'zoom' => $zoomTheme, 'mash' => $mashTheme], ['x' => 24, 'y' => 108], ['x' => 92, 'y' => 20], ['x' => 228, 'y' => 166], ['x' => 336, 'y' => 88]) + ['stroke' => '#7c3aed', 'width' => 4],
     ]),

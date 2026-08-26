@@ -11,6 +11,7 @@ namespace Jx.ThemedWindow
         private readonly Timer timer = new Timer();
         private readonly List<PointF> trail = new List<PointF>();
         private float phase;
+        private string lastEvent = "click the path or dial";
         private bool mashEnabled = true;
         private bool blurTrail = true;
         private bool dottedTrail;
@@ -38,6 +39,7 @@ namespace Jx.ThemedWindow
             };
 
             KeyDown += OnKeyDown;
+            MouseDown += OnMouseDown;
             Load += delegate { timer.Start(); };
         }
 
@@ -48,6 +50,28 @@ namespace Jx.ThemedWindow
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new ThemedWindow());
             return 0;
+        }
+
+        private void OnMouseDown(object sender, MouseEventArgs e)
+        {
+            RectangleF stage = new RectangleF(44, 78, ClientSize.Width - 88, ClientSize.Height - 154);
+            float nearest = NearestPhase(stage, e.Location);
+            PointF target = PathPoint(stage, nearest);
+            float dx = e.X - target.X;
+            float dy = e.Y - target.Y;
+            if (Math.Sqrt(dx * dx + dy * dy) <= 76)
+            {
+                phase = nearest;
+                trail.Clear();
+                lastEvent = "event: pointer.path.seek phase " + phase.ToString("0.000");
+                Invalidate();
+            }
+            else if (e.Button == MouseButtons.Left)
+            {
+                mashEnabled = !mashEnabled;
+                lastEvent = "event: mash.toggle " + (mashEnabled ? "on" : "off");
+                Invalidate();
+            }
         }
 
         private void OnKeyDown(object sender, KeyEventArgs e)
@@ -196,8 +220,9 @@ namespace Jx.ThemedWindow
             {
                 g.DrawString("JX themed executable window", new Font(FontFamily.GenericSansSerif, 18, FontStyle.Bold), title, 44, 28);
                 g.DrawString("Theme::mash([spinClicks, zoom]) | IMG_BLUR / IMG_DOTTED replacement-image motion", SystemFonts.MessageBoxFont, muted, 46, 56);
-                g.DrawString("Space mash " + (mashEnabled ? "on" : "off") + "    B blur trail    D dotted trail    Esc close", SystemFonts.MessageBoxFont, muted, 48, stage.Bottom + 18);
+                g.DrawString("Click path/dial to seek    Space mash " + (mashEnabled ? "on" : "off") + "    B blur trail    D dotted trail    Esc close", SystemFonts.MessageBoxFont, muted, 48, stage.Bottom + 18);
                 g.DrawString("degree 1 -> 2: 12 clicks    current click: " + clickStep.ToString("00") + "    zoom: " + zoom.ToString("0.00"), SystemFonts.MessageBoxFont, green, 48, stage.Bottom + 44);
+                g.DrawString(lastEvent, SystemFonts.MessageBoxFont, muted, 48, stage.Bottom + 68);
             }
         }
 
@@ -227,6 +252,26 @@ namespace Jx.ThemedWindow
         private static float EaseOut(float t)
         {
             return 1f - (float)Math.Pow(1f - t, 3);
+        }
+
+        private static float NearestPhase(RectangleF stage, Point point)
+        {
+            float bestT = 0f;
+            double bestD = double.MaxValue;
+            for (int i = 0; i <= 120; i++)
+            {
+                float t = i / 120f;
+                PointF p = PathPoint(stage, t);
+                double dx = point.X - p.X;
+                double dy = point.Y - p.Y;
+                double d = dx * dx + dy * dy;
+                if (d < bestD)
+                {
+                    bestD = d;
+                    bestT = t;
+                }
+            }
+            return bestT;
         }
     }
 }

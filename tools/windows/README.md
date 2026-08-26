@@ -64,6 +64,7 @@ build\windows\jx-themed-window.exe
 
 Controls:
 
+- click path/dial: move the mashed control to that position on the curve
 - `Space`: toggle the mash motion speed
 - `B`: blur trail
 - `D`: dotted trail
