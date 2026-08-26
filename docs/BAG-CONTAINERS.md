@@ -49,12 +49,90 @@ This preserves the existing engine rule:
 | record | fixed dense slots / fixed field offsets | named fields |
 | vector | contiguous indexed storage | ordered sequence |
 | stack | contiguous storage + LIFO law | stack |
-| queue | power-of-two ring | FIFO queue |
-| deque | double-ended power-of-two ring | deque |
+| queue | pointer/ring FIFO | FIFO queue |
+| deque | double-ended pointer/ring | deque |
 | map | target-native hash | keyed values |
 | set | target-native hash set | unique values |
 
 `nativeLayout()` exposes the compiler hint for the Canonical Shadow Machine. It is not the canonical data itself.
+
+## Bag hot-operation mnemonics
+
+PASM/JX uses a small canonical command family. Readable aliases are resolved at parse/link time and do not survive into the executable shadow.
+
+| Canonical | Meaning | Common aliases |
+|---|---|---|
+| `BPUSH` | insert according to Bag discipline | `PUSH`, `APPEND`, `ADD`, `ENQUEUE`, `ENQ`, `QPUSH`, `SPUSH`, `VAPPEND` |
+| `BPOP` | remove according to Bag discipline | `POP`, `TAKE`, `DEQUEUE`, `DEQ`, `QPOP`, `SPOP`, `VPOP` |
+| `BPUSHF` | push deque front | `PUSHF`, `PUSHFRONT`, `UNSHIFT`, `DPUSHF` |
+| `BPUSHB` | push deque back | `PUSHB`, `PUSHBACK`, `DPUSHB` |
+| `BPOPF` | pop deque front | `POPF`, `POPFRONT`, `SHIFT`, `DPOPF` |
+| `BPOPB` | pop deque back | `POPB`, `POPBACK`, `DPOPB` |
+| `BPEEK` | read current element without removal | `PEEK`, `TOP`, `FRONT` |
+| `BRESERVE` | reserve a hot operation region | `RESERVE`, `ENSURE` |
+| `BDIRTY` | mark native shadow dirty once | `DIRTY` |
+| `BSYNC` | cross canonical Bag boundary | `SYNC`, `CHECKPOINT`, `COMMITBAG` |
+
+The key rule is **one canonical opcode, many compile-time names**. Aliases exist for programmer vocabulary only; the runtime never performs an alias lookup.
+
+### Discipline-aware meaning
+
+`BPUSH` and `BPOP` adapt to the Bag discipline:
+
+```text
+vector: BPUSH = append      BPOP = pop-back
+stack:  BPUSH = push        BPOP = pop
+queue:  BPUSH = enqueue     BPOP = dequeue
+deque:  BPUSH = push-back   BPOP = pop-front
+```
+
+Record Bags do not use cursor push/pop. Their named fields resolve once to dense slots and then fixed native offsets.
+
+## Two-instruction hot path
+
+For fixed-width sequential Bags, the native lowering keeps cursor/head/tail registers resident across a hot region.
+
+`BPUSH` for vector/stack:
+
+```asm
+mov [cursor], value
+add cursor, width
+```
+
+`BPOP` for vector/stack:
+
+```asm
+sub cursor, width
+mov value, [cursor]
+```
+
+`BPUSH` for queue/deque tail:
+
+```asm
+mov [tail], value
+add tail, width
+```
+
+`BPOP` for queue/deque head:
+
+```asm
+mov value, [head]
+add head, width
+```
+
+Explicit deque ends use the same two-instruction forms with the appropriate head/tail direction.
+
+Bounds and growth are deliberately hoisted. `BRESERVE` can guard a region with approximately three instructions:
+
+```asm
+lea tmp, [cursor+bytes]
+cmp tmp, end
+ja .bag_grow
+```
+
+After that guard, each push/pop in the reserved region remains two instructions. Wrap, reallocation, underflow recovery, canonical synchronization and revision updates are out-of-line slow paths.
+
+A native region marks the Bag dirty once rather than incrementing canonical revision on every operation. The revision/checkpoint cost is paid when the region synchronizes through `BSYNC`.
 
 ## Checkpoint ABI
 
@@ -80,13 +158,7 @@ A native ELF/EXE shadow can then lower those slots to `offsetof()`/fixed offsets
 
 ## Queue and Deque
 
-Queues and deques use power-of-two capacities, making ring selection:
-
-```text
-slot = index & mask
-```
-
-instead of a general modulo operation. Growth doubles capacity and preserves logical order.
+Queue/deque native shadows should prefer register-resident head/tail pointers in hot regions. Wrap handling is an out-of-line path. A power-of-two ring remains the fallback representation where pointer residency is not profitable or when a target backend prefers mask indexing.
 
 ## Tests
 
@@ -94,6 +166,7 @@ Run:
 
 ```bash
 php test-jx-bag-containers.php
+php test-pasm-bag-hotops.php
 php benchmark-jx-bag-containers.php 1000000 7
 ```
 
