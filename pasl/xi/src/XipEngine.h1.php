@@ -4,7 +4,10 @@ final class XipEngine {
         if (!is_dir($this->dataRoot)) mkdir($this->dataRoot, 0755, true);
     }
     public function handle(array $http): array {
+        $path = (string)($http['path'] ?? '/');
+        if (str_starts_with($path, '/jx/assets/')) return $this->asset($path);
         $req = $this->normalize($http);
+        if ($path === '/jx/drop') return $this->acceptHostDrop($req, $http);
         $book = Book::load($this->booksRoot, $req['book']);
         if ($book === null) return $this->html(404, '<h1>Book not found</h1>');
         $bus = new ChannelBus($book->channelsDir($this->dataRoot));
@@ -29,11 +32,55 @@ final class XipEngine {
             $leaf = $bind->here();
             $path = $book->pagePath($leaf);
             $html = ($path && is_file($path)) ? $this->renderLeaf($path, $bind, $buffer, $book, $bus) : '<h1>Missing leaf</h1>';
-            return ['status' => 200, 'body' => $this->wrapDocument($book, $bind, $html)];
+            return ['status' => 200, 'body' => $this->wrapDocument($book, $bind, $html, $this->browserProgram($book, $leaf))];
         });
         $this->saveBinding($book, $bind);
         $bus->save();
         return ['status' => (int)($out['status'] ?? 200), 'headers' => ['Content-Type' => 'text/html; charset=utf-8'], 'body' => (string)($out['body'] ?? '')];
+    }
+
+    /** @return array{status:int,headers:array<string,string>,body:string} */
+    private function asset(string $path): array {
+        $name = basename($path);
+        if (!in_array($name, ['pasl-vm.js', 'jx-browser-host.js'], true)) return $this->html(404, '<h1>Asset not found</h1>');
+        $file = dirname(__DIR__, 2) . '/browser/' . $name;
+        if (!is_file($file)) return $this->html(404, '<h1>Asset not found</h1>');
+        return ['status' => 200, 'headers' => ['Content-Type' => 'text/javascript; charset=utf-8'], 'body' => (string)file_get_contents($file)];
+    }
+
+    /** @return array{status:int,headers:array<string,string>,body:string} */
+    private function acceptHostDrop(array $req, array $http): array {
+        if (($req['method'] ?? '') !== 'POST') return $this->json(405, ['error' => 'POST required']);
+        $raw = $http['json'] ?? null;
+        if (!is_array($raw)) return $this->json(400, ['error' => 'JSON object required']);
+        $book = Book::load($this->booksRoot, $req['book']);
+        if ($book === null) return $this->json(404, ['error' => 'Book not found']);
+        try { $drop = JxHostProtocol::drop($raw, $book->id()); }
+        catch (InvalidArgumentException $e) { return $this->json(400, ['error' => $e->getMessage()]); }
+        if ($drop['book'] !== $book->id()) return $this->json(409, ['error' => 'Drop Book mismatch']);
+
+        $bus = new ChannelBus($book->channelsDir($this->dataRoot));
+        $host = $bus->channel('host');
+        $host->set('last', $drop);
+        $host->set('sequence', $drop['sequence']);
+        $dropBag = $bus->channel($book->dropChannel());
+        $dropBag->set('last', $drop);
+        $n = 0;
+        foreach ($drop['payload'] as $key => $value) {
+            if ($n++ >= 64) break;
+            if (is_scalar($value) || is_array($value) || $value === null) $dropBag->set((string)$key, $value);
+        }
+        $bus->save();
+        return $this->json(202, ['accepted' => true, 'sequence' => $drop['sequence']]);
+    }
+
+    private function browserProgram(Book $book, string $leaf): ?string {
+        $file = $book->paslPath($leaf);
+        if ($file === null) return null;
+        require_once dirname(__DIR__, 2) . '/pasl-front.php';
+        require_once dirname(__DIR__, 2) . '/pasl-back.php';
+        require_once dirname(__DIR__, 2) . '/pasl-package.php';
+        return \pasl\Package::toPasmAsm((string)file_get_contents($file));
     }
     private function buildPipe(Book $book, Binding $bind, ChannelBus $bus): SegmentPipe {
         $formSeg = function (Bag $b, array $r) use ($book): Bag {

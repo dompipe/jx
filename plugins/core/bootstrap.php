@@ -2,7 +2,7 @@
 /** core plugin — loads main jx runtime mass */
 namespace jx\plugins\core;
 
-$root = dirname(__DIR__, 2);
+$root = require __DIR__ . '/runtime-root.php';
 require_once $root . '/jx.php';
 
 return [

@@ -5,11 +5,15 @@
 ## Quick start
 
 ```bash
+# Install commands, PATH integration, and shared plugin storage
+sudo php jx-install.php install-system   # Linux/macOS
+php jx-install.php install-system        # Windows
+
 # Install required plugins (one-by-one, with pre + full backups)
-php jx-install.php install-required
+jx-install install-required
 
 # Run
-php jx-run.php --print examples/hello.jx
+jx --print examples/hello.jx
 php examples/jx-smoke.php
 ```
 
@@ -20,7 +24,7 @@ php examples/jx-smoke.php
 | `jx.php` | Core runtime (Bag, Task, Page, Book, Delivery, Complex, SmartTable, Sym) |
 | `jx-lang.php` / `jx-run.php` | Language engine + executable compiler |
 | `plugins/` | **Single source directory** for all module plugins |
-| `host/modules/` | Active installed plugins |
+| `host/modules/` | Per-plugin links to shared active packages |
 | `host/backups/pre/` | Snapshot before each new plugin install |
 | `host/backups/full/` | Full install snapshot (restore / redirect) |
 | `jx/INTRO.md` | Introduction materials |
@@ -28,6 +32,19 @@ php examples/jx-smoke.php
 | `jx/COMPILER.md` | Compiler pipeline |
 | `docs/history/` | Original-to-latest Markdown and blame conveyance |
 | `history/jx-lang/` | History-preserving snapshot of the earlier `jx-lang` tree |
+
+## Books and OS hosts
+
+Books and Bindings are runtime state, not browser objects. The same Book can be
+presented by three operating-system hosts:
+
+- **browser**: PASL compiles to PASM and executes in the page VM
+- **win32**: the stable C ABI maps windows and events to Win32
+- **x11**: the same ABI maps windows and events to Xlib
+
+All hosts exchange versioned `jx.host/1` JSON drops, so replacing a browser or
+native window system does not replace the Book, leaf history, channels, or PASL
+program. See `pasl/host/README.md` and the runnable XIP Cover Book.
 
 ## Plugins
 
@@ -49,6 +66,34 @@ php jx-install.php restore-full <timestamp>
 - Memory law, Books/Bags/Pages, Resistant path
 
 See `jx/INTRO.md` for the guided introduction.
+
+## System layout
+
+| Platform | Commands | Shared active plugins |
+|----------|----------|-----------------------|
+| Linux | `/etc/bin/jx`, `/etc/bin/jx-install` | `/etc/jx/plugins` |
+| macOS | `/usr/local/bin/jx`, `/usr/local/bin/jx-install` | `/usr/local/share/jx/plugins` |
+| Windows | `%LOCALAPPDATA%\jx\bin` (User PATH) | `%ProgramData%\jx\plugins` |
+
+Plugins are independent packages. A Book or library links only the packages it
+uses:
+
+```bash
+jx-install link decimals book /path/to/book
+jx-install link delivery library /path/to/library
+jx-install unlink decimals book /path/to/book
+jx-install uninstall decimals
+```
+
+Preview or remove system integration with:
+
+```bash
+php jx-install.php install-system --dry-run
+jx-install uninstall-system
+```
+
+System uninstall backs up shared plugins before removing them. Add
+`--keep-plugins` to retain the independent package store.
 
 ## Lineage
 

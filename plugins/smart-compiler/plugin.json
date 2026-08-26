@@ -1,6 +1,6 @@
 {
   "id": "smart-compiler",
   "entry": "bootstrap.php",
-  "depends": ["core"],
+  "depends": [],
   "targets": ["windows", "mac", "linux", "web"]
 }

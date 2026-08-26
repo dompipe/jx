@@ -107,8 +107,12 @@ final class Server
         }
 
         $post = [];
+        $json = null;
         $ct = $headers['content-type'] ?? '';
-        if (str_starts_with($ct, 'application/x-www-form-urlencoded') || $method === 'POST') {
+        if (str_starts_with($ct, 'application/json')) {
+            $decoded = json_decode($body, true);
+            $json = is_array($decoded) ? $decoded : null;
+        } elseif (str_starts_with($ct, 'application/x-www-form-urlencoded') || $method === 'POST') {
             parse_str($body, $post);
         }
 
@@ -117,12 +121,13 @@ final class Server
             'path'   => $path,
             'get'    => $query,
             'post'   => $post,
+            'json'   => $json,
             'files'  => [],
         ]);
 
         $status = (int)($result['status'] ?? 200);
         $bodyOut = (string)($result['body'] ?? '');
-        $reason = $status === 404 ? 'Not Found' : 'OK';
+        $reason = match ($status) { 202 => 'Accepted', 400 => 'Bad Request', 404 => 'Not Found', 405 => 'Method Not Allowed', 409 => 'Conflict', default => 'OK' };
         $hdr = "HTTP/1.0 {$status} {$reason}\r\n";
         foreach ($result['headers'] ?? [] as $k => $v) {
             $hdr .= "{$k}: {$v}\r\n";

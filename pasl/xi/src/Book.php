@@ -51,6 +51,24 @@ final class Book
         return (string)($this->config['drops']['channel'] ?? 'drop');
     }
 
+    /** @return array<string, mixed> */
+    public function window(): array
+    {
+        $window = $this->config['window'] ?? [];
+        return is_array($window) ? $window : [];
+    }
+
+    public function paslPath(string $leafId): ?string
+    {
+        $meta = $this->leafMeta()[$leafId] ?? [];
+        $relative = is_array($meta) ? (string)($meta['pasl'] ?? '') : '';
+        if ($relative === '' || str_contains($relative, "\0")) {
+            return null;
+        }
+        $file = $this->root . '/' . ltrim(str_replace('\\', '/', $relative), '/');
+        return $this->jailed($file, $this->root) && is_file($file) ? $file : null;
+    }
+
     public function pagePath(string $leafId): ?string
     {
         $leafId = preg_replace('/[^a-z0-9_-]/i', '', $leafId) ?? '';
@@ -105,10 +123,17 @@ final class Book
         }
         if (!is_file($file)) {
             $parent = realpath(dirname($file));
-            return $parent !== false && str_starts_with($parent, $rootReal);
+            return $parent !== false && $this->inside($parent, $rootReal);
         }
         $real = realpath($file);
-        return $real !== false && str_starts_with($real, $rootReal);
+        return $real !== false && $this->inside($real, $rootReal);
+    }
+
+    private function inside(string $path, string $root): bool
+    {
+        $path = rtrim($path, '/\\');
+        $root = rtrim($root, '/\\');
+        return $path === $root || str_starts_with($path, $root . DIRECTORY_SEPARATOR);
     }
 
     public static function load(string $booksRoot, string $id): ?self

@@ -14,6 +14,7 @@ $bookId = htmlspecialchars($bind->bookId(), ENT_QUOTES, 'UTF-8');
 ?>
 <h1>Home (state-ready)</h1>
 <p>Hello, <strong id="id1"><?= $name !== '' ? $name : 'guest' ?></strong></p>
+<p>PASL browser result: <output data-pasl-result="cover-main">running</output></p>
 <?php if ($dropMsg !== ''): ?>
   <p class="meta">drop channel: <?= $dropMsg ?></p>
 <?php endif; ?>

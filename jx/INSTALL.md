@@ -11,11 +11,17 @@ plugins/                 ← only source of module plugins
 
 ```
 host/
-  modules/
+  modules/                 ← per-plugin links into shared package storage
   state.json
+  links.json               ← Book/library link registry
   backups/pre/<ts>/
   backups/full/<ts>/
+  backups/uninstall/<ts>/
 ```
+
+Each plugin directory is a complete package with its own `plugin.json`, entry
+file, runtime resolver, and root marker. Plugins share only the JX host
+contract; they do not depend on another plugin package or its install order.
 
 ## Allow gate (mandatory)
 
@@ -42,8 +48,45 @@ Details: `plugins/TARGETS.md`.
 3. Pre-backup before each install; full backup of total install for restore/redirect.
 
 ```bash
+sudo php jx-install.php install-system   # Linux/macOS
+php jx-install.php install-system        # Windows
+php jx-install.php install-system --dry-run
+
 php jx-install.php install-required
 php jx-install.php install intro
+php jx-install.php uninstall intro
+
+# Select packages at Book or library scope
+php jx-install.php link decimals book /path/to/book
+php jx-install.php link delivery library /path/to/library
+php jx-install.php unlink decimals book /path/to/book
+
 php jx-install.php backup-full
 php jx-install.php restore-full <timestamp>
+
+php jx-install.php uninstall-system
+php jx-install.php uninstall-system --keep-plugins
+php jx-install.php uninstall-system --dry-run
 ```
+
+## System locations
+
+| Platform | Command directory | Shared active plugins |
+|----------|-------------------|-----------------------|
+| Linux | `/etc/bin` | `/etc/jx/plugins` |
+| macOS | `/usr/local/bin` | `/usr/local/share/jx/plugins` |
+| Windows | `%LOCALAPPDATA%\jx\bin` | `%ProgramData%\jx\plugins` |
+
+The command directory is added to PATH. `host/modules/<plugin>` links each
+installed package independently; the entire modules directory is never bound
+as one opaque installation.
+
+Book and library links use `<context>/.jx/plugins/<plugin>`, with selections
+recorded in `<context>/.jx/plugins.json`. Packages contain no Book, library, or
+sibling-package paths, so the same package can be linked into any context.
+
+`uninstall <plugin>` takes a pre-uninstall backup and removes that plugin's
+Book/library links. `uninstall-system` validates ownership, backs up the shared
+store under `host/backups/uninstall/`, removes JX-owned launchers and PATH
+entries, and restores local module mode. `--keep-plugins` retains the shared
+package store.

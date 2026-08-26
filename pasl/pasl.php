@@ -14,7 +14,11 @@ require_once __DIR__ . '/pasl-back.php';
 
 $_pasl_strnet = __DIR__ . '/pasl-strnet.php';
 if (is_file($_pasl_strnet)) {
-    require_once $_pasl_strnet;
+    try {
+        require_once $_pasl_strnet;
+    } catch (\Throwable) {
+        // Numeric PASL remains usable when the optional full-surface payload is absent or damaged.
+    }
 }
 
 require_once __DIR__ . '/pasl-package.php';

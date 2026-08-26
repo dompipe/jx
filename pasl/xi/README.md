@@ -24,6 +24,19 @@ php xi.php localhost:8765 stop
 - **XIP** = form + protocol + page segments
 - **Drops** = JSON inbox → channel (next interaction, no refresh loop)
 - **Tables** = isolated Y-axis channels (iframe-like for devs)
+- **Windows** = Book surfaces hosted equivalently by browser, Win32, or X11
+- **PASL leaves** = compile to PASM and execute in the browser host
+
+Leaf metadata may name a PASL program and Book metadata may declare portable window bounds:
+
+```json
+{
+  "window": { "id": "main", "width": 960, "height": 720 },
+  "leaves": { "home": { "pasl": "programs/home.pasl" } }
+}
+```
+
+Browser PASL results and native host events use the versioned JSON format in `../host/drop.schema.json`.
 
 ## XipEngine source
 

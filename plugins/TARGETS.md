@@ -15,6 +15,17 @@ If a plugin is not portable, it is **outside the requests of the current state o
 
 Result: **HARD REJECT** — install aborted. No partial install.
 
+## Context-free package rule
+
+Every plugin must be installable without another plugin package. A non-empty
+`depends` list is a hard reject. Packages may use the stable JX host runtime,
+but must not encode sibling package paths, install order, Book paths, or
+library paths.
+
+Each package carries its own `runtime-root.php`. Installation adds a private
+`.jx-root` marker inside that package; Book and library consumers receive only
+an individual link to the selected package.
+
 ## Multi-error log: `jxerr.log`
 
 The checker does **not** stop at the first problem. It walks the plugin and **collects every** target/portability error, then:
