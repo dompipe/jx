@@ -22,6 +22,7 @@ php examples/jx-smoke.php
 | Path | Role |
 |------|------|
 | `jx.php` | Core runtime (Bag, Task, Page, Book, Delivery, Complex, SmartTable, Sym) |
+| `jx-bag-containers.php` | Bag-backed record/vector/stack/queue/deque/map/set disciplines |
 | `jx-lang.php` / `jx-run.php` | Language engine + executable compiler |
 | `plugins/` | **Single source directory** for all module plugins |
 | `host/modules/` | Per-plugin links to shared active packages |
@@ -30,8 +31,52 @@ php examples/jx-smoke.php
 | `jx/INTRO.md` | Introduction materials |
 | `jx/INSTALL.md` | Install & plugin policy |
 | `jx/COMPILER.md` | Compiler pipeline |
+| `docs/BAG-CONTAINERS.md` | Containers as Bag disciplines + native-shadow strategy |
 | `docs/history/` | Original-to-latest Markdown and blame conveyance |
 | `history/jx-lang/` | History-preserving snapshot of the earlier `jx-lang` tree |
+
+## Bags and containers
+
+Containers are now modeled as **Bag disciplines**, not as a second memory system. A Bag supplies ownership, capacity, identity and canonical checkpoint law; the discipline supplies the hot access strategy.
+
+```text
+Bag
+|- record -> fixed dense slots / native field offsets
+|- vector -> contiguous indexed storage
+|- stack  -> contiguous + LIFO
+|- queue  -> power-of-two ring + FIFO
+|- deque  -> double-ended power-of-two ring
+|- map    -> target-native hash
+`- set    -> target-native hash set
+```
+
+Use the container layer explicitly:
+
+```php
+require_once __DIR__ . '/jx.php';
+require_once __DIR__ . '/jx-bag-containers.php';
+
+$state = jx\BagContainers::record(4096, [
+    'health' => 'int',
+    'phi' => ['type' => 'int', 'default' => 0],
+]);
+$state->put('health', 100);
+
+$jobs = jx\BagContainers::queue(65536, 'Task');
+$jobs->enqueue($task);
+
+// Explicit canonical boundary; hot operations do not pay this cost.
+$jobs->checkpoint();
+```
+
+The invariant is: **be native while working; become canonical at the Bag boundary**. `nativeLayout()` is a compiler/shadow hint; `canonical()` is the authoritative state image. See `docs/BAG-CONTAINERS.md`.
+
+Regression and benchmark harnesses:
+
+```bash
+php test-jx-bag-containers.php
+php benchmark-jx-bag-containers.php 1000000 7
+```
 
 ## Books and OS hosts
 
@@ -64,6 +109,7 @@ php jx-install.php restore-full <timestamp>
 - Decimals (`plugins/decimals` → `jx\Decimal`)
 - Complex, Delivery, const, smart compiler, lang bridge
 - Memory law, Books/Bags/Pages, Resistant path
+- Bag-backed record/vector/stack/queue/deque/map/set disciplines
 
 See `jx/INTRO.md` for the guided introduction.
 
