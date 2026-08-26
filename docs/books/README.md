@@ -20,19 +20,21 @@ The JX v0.1 books read from the human-facing language down into the engine. Shar
 14. Complex numbers
 15. The browser is a host, not the language
 16. **Web Hosting: Apache outside, JX inside** — `JX_v0.1_Web_Hosting.md`
-17. **SQL and NoSQL persistence** — next shared chapter
-18. Learn by building one small Book
-19. The habits JX v0.1 wants to teach
-20. Where to read next
+17. **SQL as a first-class JX object** — `JX_v0.1_SQL.md`
+18. **NoSQL as a sibling persistence object** — next shared chapter
+19. Learn by building one small Book
+20. The habits JX v0.1 wants to teach
+21. Where to read next
 
-The visible-Page sequence is:
+The application sequence is:
 
 ```text
 What is on the Page?
 How does it look and line up?
 What does it do?
 Where does it run?
-Where does durable data go?
+Where does durable relational data go?
+Where does non-relational data go?
 ```
 
 That maps to:
@@ -42,7 +44,8 @@ Controls
    -> Style / Layout
       -> PASL / PASM
          -> Browser / Apache / native host
-            -> SQL / NoSQL persistence
+            -> SQL
+               -> NoSQL
 ```
 
 ## Engine Manual reading order
@@ -73,14 +76,15 @@ Controls
 24. Controls are a compiler/host contract
 25. **Page Style resolution, Collectors, Anchors, Images, and Transparency** — `JX_v0.1_Page_Style.md`
 26. **Apache / web deployment and persistent JX hosting** — `JX_v0.1_Web_Hosting.md`
-27. **SQL and NoSQL storage adapters** — next shared chapter
-28. Rhetorical roles can become compiler evidence
-29. Libraries should lower with the Book
-30. Plugins
-31. The gaps that matter most
-32. Optimization priorities
-33. What "native" should mean
-34. The end product
+27. **SQL security, adapters, transactions, and Bag synchronization** — `JX_v0.1_SQL.md`
+28. **NoSQL adapters and Bag synchronization** — next shared chapter
+29. Rhetorical roles can become compiler evidence
+30. Libraries should lower with the Book
+31. Plugins
+32. The gaps that matter most
+33. Optimization priorities
+34. What "native" should mean
+35. The end product
 
 For the engine reader, Style resolution belongs after the Control host contract because the renderer must resolve:
 
@@ -105,16 +109,22 @@ Internet
          -> Book / Page / Bags / PASL
 ```
 
-Then persistence resolves the durable-data boundary:
+Then SQL resolves the durable relational-data boundary:
 
 ```text
 Book / Bags
-    -> storage contract
-       -> SQL / NoSQL
+    -> SQL object
+       -> secure adapter
+          -> MySQL / MariaDB
+          -> PostgreSQL-family
+          -> SQLite3
+          -> other PDO-backed adapter
 ```
 
-Only after those contracts are resolved should a host or database adapter impose its own implementation details on the Book.
+SQL results come back through the JX boundary and can be committed into Bags; credentials and live database handles never cross into the browser.
 
-## Shared Page mnemonic
+NoSQL follows as its own sibling object rather than being disguised as SQL.
 
-> **Controls say what exists. Bags hold what changes. Collectors gather. Anchors place. Style paints and spaces. PASL makes it act. Apache guards the doorway. Storage keeps what must survive.**
+## Shared application mnemonic
+
+> **Controls say what exists. Bags hold what changes. Collectors gather. Anchors place. Style paints and spaces. PASL makes it act. Apache guards the doorway. SQL persists relations. NoSQL persists its native model.**
