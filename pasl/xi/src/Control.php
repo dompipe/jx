@@ -101,7 +101,7 @@ final class Control
         }
         $smooth = max(0.0, min(1.0, (float)($properties['smooth'] ?? 0.0)));
         $outProperties = ['smooth' => $smooth];
-        foreach (['spin', 'zoom', 'snowball'] as $key) {
+        foreach (['spin', 'zoom', 'mash'] as $key) {
             if (is_array($properties[$key] ?? null)) {
                 $outProperties[$key] = Theme::from($properties[$key]);
             }
@@ -298,7 +298,7 @@ final class Control
         $ref = htmlspecialchars((string)($op['refId'] ?? 'curve'), ENT_QUOTES, 'UTF-8');
         $properties = is_array($op['properties'] ?? null) ? $op['properties'] : [];
         $smooth = max(0.0, min(1.0, (float)($properties['smooth'] ?? 0.0)));
-        $themePayload = array_intersect_key($properties, array_flip(['spin', 'zoom', 'snowball']));
+        $themePayload = array_intersect_key($properties, array_flip(['spin', 'zoom', 'mash']));
         $theme = $themePayload !== [] ? ' data-motion-theme="' . htmlspecialchars((string)json_encode(Theme::from($themePayload), JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') . '"' : '';
         return '<path data-ref="' . $ref . '" data-motion="curve" data-smooth="' . htmlspecialchars((string)$smooth, ENT_QUOTES, 'UTF-8') . '"' . $theme . ' d="' . htmlspecialchars($d, ENT_QUOTES, 'UTF-8') . '" fill="none" stroke="' . self::color((string)($op['stroke'] ?? '#7c3aed')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 3)) . '"/>';
     }
@@ -589,11 +589,11 @@ final class Theme
     }
 
     /** @param list<array<string, mixed>> $motions @return array<string, mixed> */
-    public static function snowball(array $motions): array
+    public static function mash(array $motions): array
     {
         $out = [
             'family' => 'theme',
-            'kind' => 'snowball',
+            'kind' => 'mash',
             'motions' => [],
         ];
         foreach ($motions as $motion) {
@@ -627,8 +627,8 @@ final class Theme
                 (string)($theme['easing'] ?? 'linear'),
             );
         }
-        if ($kind === 'snowball' || $kind === 'mash') {
-            return self::snowball(is_array($theme['motions'] ?? null) ? $theme['motions'] : []);
+        if ($kind === 'mash' || $kind === 'snowball') {
+            return self::mash(is_array($theme['motions'] ?? null) ? $theme['motions'] : []);
         }
         return $theme;
     }

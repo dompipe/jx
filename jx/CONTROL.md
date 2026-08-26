@@ -55,7 +55,7 @@ same motion with zoom:
 ```php
 $spinTheme = Theme::spinClicks('spin.rate', 1, 2, 12, ['wrap' => true]);
 $zoomTheme = Theme::zoom(1.0, 1.35, 'ease-out');
-$snowballTheme = Theme::snowball([$spinTheme, $zoomTheme]);
+$mashTheme = Theme::mash([$spinTheme, $zoomTheme]);
 
 Control::spin('spin.rate', 'Spin control', 3, [
     'theme' => $spinTheme,
@@ -66,11 +66,11 @@ Control::line(
     ['x' => 26, 'y' => 150],
     ['x' => 330, 'y' => 34],
     true,
-) + ['theme' => $snowballTheme];
+) + ['theme' => $mashTheme];
 ```
 
 The host reads this as: between degree `1` and degree `2`, the spin consumes
-`12` clicks; the surrounding movement can snowball spin and zoom together. The
+`12` clicks; the surrounding movement can mash spin and zoom together. The
 host may grow scale, momentum, or visual weight while the control moves.
 
 Replacement control images use the same image family. Dials, buttons, and
@@ -195,7 +195,7 @@ Control::curve(
         'smooth' => 0.82,
         'spin' => $spinTheme,
         'zoom' => $zoomTheme,
-        'snowball' => $snowballTheme,
+        'mash' => $mashTheme,
     ],
     ['x' => 0, 'y' => 80],
     ['x' => 40, 'y' => 10],
@@ -210,6 +210,6 @@ should treat it as a motion contract a control can travel along.
 
 Curve properties are passed before the degree points. `smooth` is clamped from
 `0` to `1`, where `0` means direct geometric travel and `1` means maximally
-smoothed host interpolation. `spin`, `zoom`, and `snowball` are theme-family
+smoothed host interpolation. `spin`, `zoom`, and `mash` are theme-family
 contracts that let a host coordinate clicks, line travel, curve travel, and
 zooming without rewriting the underlying control.
