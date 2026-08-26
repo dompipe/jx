@@ -10,6 +10,8 @@ explicit:
 - JX supplies the user-space desktop/window server contract.
 - XI renders Book surfaces for now.
 - Books behave like application sections inside the JX window world.
+- Controls describe form inputs, spinners, drawings, and any MIME-backed image
+  source as host-neutral contracts.
 
 On Windows, the long direction is a self-made Windows-like environment running
 on a normal Windows-installed desktop PC. Windows remains the installed OS with

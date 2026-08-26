@@ -7,6 +7,7 @@ $leaves = [
     'jx' => 'JX',
     'books' => 'Books',
     'windows' => 'Windows',
+    'controls' => 'Controls',
     'os-road' => 'OS Road',
     'next' => 'Next'
 ];

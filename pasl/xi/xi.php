@@ -15,6 +15,7 @@ require $root . '/src/Binding.php';
 require $root . '/src/SegmentPipe.php';
 require $root . '/src/Ladder.php';
 require $root . '/src/Book.php';
+require $root . '/src/Control.php';
 require $root . '/src/HostProtocol.php';
 require $root . '/src/XipEngine.php';
 require $root . '/src/Server.php';

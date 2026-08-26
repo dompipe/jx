@@ -12,5 +12,5 @@ include __DIR__ . '/_nav.php';
   <input type="hidden" name="book" value="<?= $bookId ?>">
   <input type="hidden" name="protocol" value="book.turn">
   <input type="hidden" name="dir" value="forward">
-  <button type="submit">Continue to OS Road</button>
+  <button type="submit">Continue to Controls</button>
 </form>

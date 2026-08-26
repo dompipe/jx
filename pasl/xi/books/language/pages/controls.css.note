@@ -1,0 +1,2 @@
+Controls are rendered inline by Control.php for now. Native hosts should use
+Control::contract() or the data-control JSON, not CSS, as their source of truth.

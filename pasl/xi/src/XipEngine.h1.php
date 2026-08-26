@@ -88,6 +88,7 @@ final class XipEngine {
             foreach (($r['fields'] ?? []) as $k => $v) {
                 $k = (string)$k;
                 if (in_array($k, ['protocol','book','dir','table','y'], true)) { $b->set($k, is_scalar($v)?(string)$v:''); continue; }
+                if ($k === 'control' && is_array($v)) { $b->set('control', array_slice($v, 0, 64, true)); continue; }
                 if (preg_match('/secret|password|token|xi_/i', $k)) continue;
                 if (is_scalar($v) && strlen((string)$v) < 8192) $b->set($k, $v);
             }
