@@ -15,13 +15,16 @@ use jx\Plugins;
 /**
  * Host-neutral MP3/MP4 media Control.
  *
- * Media may come from an application asset/URL or from a Bag node. A Bag can
- * itself be bound to SQL, NoSQL, a channel, or another host data source. The
- * plugin never stores a live database/client handle.
+ * The base player is intentionally small: source, playback state/options,
+ * events, Bag binding, Style, and an extension chain. Sound processing belongs
+ * to plugins that extend `media`, not to the base MP3/MP4 contract.
  */
 final class MediaControl implements JsonSerializable
 {
     public const TYPES = ['audio', 'video'];
+
+    /** @var list<array{plugin:string,version:string,with:array<string,mixed>}> */
+    private array $extensions = [];
 
     /** @param array<string,mixed> $source
      *  @param array<string,mixed> $with
@@ -48,6 +51,7 @@ final class MediaControl implements JsonSerializable
     public function mime(): string { return $this->mime; }
     public function source(): array { return $this->source; }
     public function options(): array { return $this->with; }
+    public function extensions(): array { return $this->extensions; }
 
     /** Name the exact Bag binding returned by Bag::bind(). */
     public function boundBy(string $bindingId): self
@@ -57,6 +61,32 @@ final class MediaControl implements JsonSerializable
         }
         $copy = clone $this;
         $copy->source['binding'] = self::bindingId($bindingId);
+        return $copy;
+    }
+
+    /**
+     * Attach an installed plugin that explicitly extends `media`.
+     *
+     * The extension receives its own open, boundary-safe option map. The base
+     * player remains unaware of EQ, compression, spatialization, visualization,
+     * or later processing vocabulary.
+     */
+    public function extend(string $plugin, array $with = []): self
+    {
+        $plugin = self::name($plugin, 'plugin');
+        if (!Plugins::isExtensionOf($plugin, 'media')) {
+            throw new JxException('Plugin does not extend Media', 'plugin.media', true, ['plugin' => $plugin]);
+        }
+
+        $options = self::extensionOptions($with);
+        $descriptor = Plugins::get($plugin);
+
+        $copy = clone $this;
+        $copy->extensions[] = [
+            'plugin' => $plugin,
+            'version' => $descriptor->version(),
+            'with' => $options,
+        ];
         return $copy;
     }
 
@@ -80,6 +110,7 @@ final class MediaControl implements JsonSerializable
             'mime' => $this->mime,
             'source' => $this->source,
             'with' => $this->with,
+            'extensions' => $this->extensions,
             'events' => ['play', 'pause', 'ended', 'time', 'seek', 'volume', 'error'],
         ];
     }
@@ -120,12 +151,7 @@ final class MediaControl implements JsonSerializable
      */
     private static function options(array $with, string $type): array
     {
-        $with = Boundary::import($with);
-        foreach (array_keys($with) as $key) {
-            if (preg_match('/secret|password|token/i', (string)$key)) {
-                throw new JxException('Secrets cannot be stored in media options', 'plugin.media', true, ['key' => $key]);
-            }
-        }
+        $with = self::safeOptions($with);
 
         foreach (['controls', 'autoplay', 'loop', 'muted'] as $flag) {
             if (array_key_exists($flag, $with)) $with[$flag] = (bool)$with[$flag];
@@ -152,6 +178,30 @@ final class MediaControl implements JsonSerializable
             throw new JxException('Unsupported media preload mode', 'plugin.media', true);
         }
         return $with;
+    }
+
+    private static function extensionOptions(array $with): array
+    {
+        return self::safeOptions($with);
+    }
+
+    private static function safeOptions(array $with): array
+    {
+        $with = Boundary::import($with);
+        self::assertNoSecrets($with);
+        return $with;
+    }
+
+    private static function assertNoSecrets(array $values, string $path = ''): void
+    {
+        foreach ($values as $key => $value) {
+            $name = (string)$key;
+            $full = $path === '' ? $name : $path . '.' . $name;
+            if (preg_match('/secret|password|token/i', $name)) {
+                throw new JxException('Secrets cannot be stored in media descriptors', 'plugin.media', true, ['key' => $full]);
+            }
+            if (is_array($value)) self::assertNoSecrets($value, $full);
+        }
     }
 
     private static function mime(string $mime, string $type): string
@@ -191,7 +241,7 @@ final class MediaPlugin implements JxPlugin
 
     public function id(): string { return 'media'; }
     public function version(): string { return self::VERSION; }
-    public function capabilities(): array { return ['media.mp3', 'media.mp4', 'media.audio', 'media.video']; }
+    public function capabilities(): array { return ['media.mp3', 'media.mp4', 'media.audio', 'media.video', 'media.extensions']; }
 
     /** mp3($named, $from, $with): direct asset/URL. */
     public static function mp3(string $named, string $from, array $with = []): MediaControl
