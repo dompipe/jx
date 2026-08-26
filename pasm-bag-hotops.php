@@ -18,6 +18,8 @@ use InvalidArgumentException;
  *   deque:  push-back / pop-front (default queue-like discipline)
  *
  * Explicit deque-end operations use BPUSHF/BPUSHB/BPOPF/BPOPB.
+ * BEMPLACE inserts into a contiguous Bag by calculating one insertion address,
+ * opening one overlap-safe bulk gap, then storing the inserted value.
  */
 final class PASMBagHotOp
 {
@@ -27,6 +29,7 @@ final class PASMBagHotOp
     public const BPUSHB = 'BPUSHB';
     public const BPOPF  = 'BPOPF';
     public const BPOPB  = 'BPOPB';
+    public const BEMPLACE = 'BEMPLACE';
     public const BPEEK  = 'BPEEK';
     public const BRESERVE = 'BRESERVE';
     public const BDIRTY = 'BDIRTY';
@@ -78,6 +81,14 @@ final class PASMBagHotOp
         'POPBACK' => self::BPOPB,
         'DPOPB' => self::BPOPB,
 
+        // Indexed contiguous insertion. One address calculation, one bulk move,
+        // one store; aliases disappear before execution.
+        'BEMPLACE' => self::BEMPLACE,
+        'EMPLACE' => self::BEMPLACE,
+        'INSERT' => self::BEMPLACE,
+        'BINSERT' => self::BEMPLACE,
+        'PACKIN' => self::BEMPLACE,
+
         // Support operations.
         'BPEEK' => self::BPEEK,
         'PEEK' => self::BPEEK,
@@ -118,14 +129,20 @@ final class PASMBagHotOp
     /**
      * Returns semantic lowering class. Actual machine registers/offsets are
      * allocated by the native backend and are not encoded into canonical JX.
+     *
+     * BEMPLACE operands are conceptually:
+     *   base, index, width, cursor, value
+     * where tail_bytes = cursor - insert. The native backend may inline the
+     * overlap-safe move (REP MOVS / vector copy) or use its target memmove
+     * intrinsic. The canonical hot operation remains one superinstruction.
      */
     public static function lowering(string $op, string $discipline): array
     {
         $op = self::canonical($op);
         $discipline = strtolower($discipline);
 
-        if ($discipline === 'record' && in_array($op, [self::BPUSH,self::BPOP,self::BPUSHF,self::BPUSHB,self::BPOPF,self::BPOPB], true)) {
-            throw new InvalidArgumentException('Record Bags lower through fixed slots/offsets, not push/pop cursors');
+        if ($discipline === 'record' && in_array($op, [self::BPUSH,self::BPOP,self::BPUSHF,self::BPUSHB,self::BPOPF,self::BPOPB,self::BEMPLACE], true)) {
+            throw new InvalidArgumentException('Record Bags lower through fixed slots/offsets, not cursor insertion');
         }
 
         return match ($op) {
@@ -143,6 +160,20 @@ final class PASMBagHotOp
             self::BPUSHB => ['kind'=>'tail-write-inc','asm'=>['mov [tail], value','add tail, width']],
             self::BPOPF => ['kind'=>'head-read-inc','asm'=>['mov value, [head]','add head, width']],
             self::BPOPB => ['kind'=>'tail-dec-read','asm'=>['sub tail, width','mov value, [tail]']],
+            self::BEMPLACE => match ($discipline) {
+                'vector','stack' => [
+                    'kind'=>'address-gap-pack-store',
+                    'asm'=>[
+                        'lea insert, [base+index*width]',
+                        'memmove [insert+width], [insert], cursor-insert',
+                        'mov [insert], value',
+                    ],
+                    'post'=>['add cursor, width'],
+                    'overlap_safe'=>true,
+                    'bulk_move'=>true,
+                ],
+                default => throw new InvalidArgumentException("BEMPLACE requires contiguous vector/stack discipline; {$discipline} uses ring/keyed insertion"),
+            },
             self::BPEEK => ['kind'=>'peek','asm'=>['mov value, [cursor-width]']],
             self::BRESERVE => ['kind'=>'region-reserve','asm'=>['lea tmp, [cursor+bytes]','cmp tmp, end','ja .bag_grow']],
             self::BDIRTY => ['kind'=>'dirty-once','asm'=>['or flags, BAG_DIRTY']],
