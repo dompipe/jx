@@ -59,9 +59,16 @@ final class Control
         ];
     }
 
-    /** @param array<int, array{x:int|float,y:int|float}> $degrees */
+    /**
+     * @param array<string, mixed>|array{x:int|float,y:int|float} $properties
+     * @param array<int, array{x:int|float,y:int|float}> $degrees
+     */
     public static function curve(string $refId, array ...$degrees): array
     {
+        $properties = [];
+        if ($degrees !== [] && !array_key_exists('x', $degrees[0]) && !array_key_exists('y', $degrees[0])) {
+            $properties = array_shift($degrees);
+        }
         $points = [];
         foreach ($degrees as $degree) {
             $points[] = [
@@ -69,10 +76,12 @@ final class Control
                 'y' => (int)($degree['y'] ?? 0),
             ];
         }
+        $smooth = max(0.0, min(1.0, (float)($properties['smooth'] ?? 0.0)));
         return [
             'op' => 'curve',
             'refId' => self::name($refId, 'curve'),
             'degrees' => $points,
+            'properties' => ['smooth' => $smooth],
         ];
     }
 
@@ -203,7 +212,9 @@ final class Control
             }
         }
         $ref = htmlspecialchars((string)($op['refId'] ?? 'curve'), ENT_QUOTES, 'UTF-8');
-        return '<path data-ref="' . $ref . '" data-motion="curve" d="' . htmlspecialchars($d, ENT_QUOTES, 'UTF-8') . '" fill="none" stroke="' . self::color((string)($op['stroke'] ?? '#7c3aed')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 3)) . '"/>';
+        $properties = is_array($op['properties'] ?? null) ? $op['properties'] : [];
+        $smooth = max(0.0, min(1.0, (float)($properties['smooth'] ?? 0.0)));
+        return '<path data-ref="' . $ref . '" data-motion="curve" data-smooth="' . htmlspecialchars((string)$smooth, ENT_QUOTES, 'UTF-8') . '" d="' . htmlspecialchars($d, ENT_QUOTES, 'UTF-8') . '" fill="none" stroke="' . self::color((string)($op['stroke'] ?? '#7c3aed')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 3)) . '"/>';
     }
 
     private function renderImage(): string

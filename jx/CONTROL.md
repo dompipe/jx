@@ -52,6 +52,7 @@ Drawing controls also support movement paths:
 ```php
 Control::curve(
     'motion-curve',
+    ['smooth' => 0.82],
     ['x' => 0, 'y' => 80],
     ['x' => 40, 'y' => 10],
     ['x' => 120, 'y' => 130],
@@ -62,3 +63,7 @@ Control::curve(
 `curve(degree1, degree2, degree3, ...)` stores the degree/control points as a
 path for movement. The HTML renderer shows it as an SVG path, but native hosts
 should treat it as a motion contract a control can travel along.
+
+Curve properties are passed before the degree points. `smooth` is clamped from
+`0` to `1`, where `0` means direct geometric travel and `1` means maximally
+smoothed host interpolation.
