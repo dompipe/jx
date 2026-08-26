@@ -52,7 +52,13 @@ namespace Jx.SpecContract
                 "\"mode\":\"" + ImgBlur + "\"",
                 "\"alternateMode\":\"" + ImgDotted + "\"",
                 "\"paintPoint\":\"XY_RT\"",
-                "\"visibleSwitch\":\"image.view\""
+                "\"visibleSwitch\":\"image.view\"",
+                "\"kind\":\"replacementSet\"",
+                "\"role\":\"dial\"",
+                "\"role\":\"button\"",
+                "\"role\":\"switch\"",
+                "\"kind\":\"tradeOff\"",
+                "\"event\":\"control.image.view.changed\""
             };
 
             foreach (string needle in required)
@@ -106,6 +112,7 @@ namespace Jx.SpecContract
             w.Prop("id", "image.view");
             w.Prop("label", "Image view switch");
             w.Prop("value", true);
+            ReplacementSet(w, "switch", "switch-off.png", "switch-on.png", "switch-cover.png");
             w.ObjEnd();
         }
 
@@ -116,6 +123,11 @@ namespace Jx.SpecContract
             w.Prop("type", "image");
             w.Prop("id", "image.any");
             w.Prop("mime", "image/*");
+            ReplacementSet(w, "button", "button-up.png", "button-down.png", "button-disabled.png");
+            w.Name("tradeOffs");
+            w.ArrayStart();
+            TradeOff(w);
+            w.ArrayEnd();
             w.Name("display");
             w.ObjStart();
             w.Prop("visibleSwitch", "image.view");
@@ -140,10 +152,63 @@ namespace Jx.SpecContract
             w.Prop("type", "drawing");
             w.Prop("id", "drawing.surface");
             w.Prop("smooth", 0.82);
+            ReplacementSet(w, "dial", "dial-000.png", "dial-090.png", "dial-180.png");
             w.Name("ops");
             w.ArrayStart();
             LineWithImage(w, "dotted-path", 24, 108, 336, 88, true, ImgDotted, 24);
             w.ArrayEnd();
+            w.ObjEnd();
+        }
+
+        private static void ReplacementSet(Json w, string role, string first, string second, string third)
+        {
+            w.Name("imageSet");
+            w.ObjStart();
+            w.Prop("family", "Image");
+            w.Prop("kind", "replacementSet");
+            w.Prop("role", role);
+            w.Name("states");
+            w.ObjStart();
+            ImageState(w, role == "dial" ? "0" : "off", first);
+            ImageState(w, role == "dial" ? "90" : "on", second);
+            ImageState(w, role == "dial" ? "180" : "cover", third);
+            w.ObjEnd();
+            w.ObjEnd();
+        }
+
+        private static void ImageState(Json w, string state, string filename)
+        {
+            w.Name(state);
+            w.ObjStart();
+            w.Prop("family", "Image");
+            w.Prop("kind", "img");
+            w.Prop("filename", "controls/" + filename);
+            w.Prop("mime", "image/png");
+            w.ObjEnd();
+        }
+
+        private static void TradeOff(Json w)
+        {
+            w.ObjStart();
+            w.Prop("family", "Image");
+            w.Prop("kind", "tradeOff");
+            w.Prop("eventId", "evt-image-view-toggle");
+            w.Prop("event", "control.image.view.changed");
+            w.Name("from");
+            w.ObjStart();
+            w.Prop("family", "Image");
+            w.Prop("kind", "img");
+            w.Prop("filename", "controls/button-up.png");
+            w.Prop("mime", "image/png");
+            w.ObjEnd();
+            w.Name("to");
+            w.ObjStart();
+            w.Prop("family", "Image");
+            w.Prop("kind", "img");
+            w.Prop("filename", "controls/button-disabled.png");
+            w.Prop("mime", "image/png");
+            w.ObjEnd();
+            w.Prop("reason", "View display switched off");
             w.ObjEnd();
         }
 

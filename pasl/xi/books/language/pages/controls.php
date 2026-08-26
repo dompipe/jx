@@ -9,11 +9,27 @@ $spin = (int)$store->get('spin.rate', 3);
 $imageVisible = (string)$store->get('image.view', '1') === '1';
 $image = (string)$store->get('image.any', 'data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20240%20120%22%3E%3Crect%20width%3D%22240%22%20height%3D%22120%22%20fill%3D%22%23f8f8f8%22/%3E%3Ccircle%20cx%3D%2260%22%20cy%3D%2260%22%20r%3D%2234%22%20fill%3D%22%230069a6%22/%3E%3Cpath%20d%3D%22M110%2085%20L150%2035%20L190%2085Z%22%20fill%3D%22%23b0413e%22/%3E%3Ctext%20x%3D%2212%22%20y%3D%22112%22%20font-size%3D%2214%22%3Eany%20image%20control%3C/text%3E%3C/svg%3E');
 $mime = str_starts_with($image, 'data:') && preg_match('#^data:([^;,]+)#', $image, $m) ? $m[1] : 'image/*';
+$switchImages = Image::replacementSet(Image::ROLE_SWITCH, [
+    'off' => Image::img('controls/switch-off.png', 'image/png'),
+    'on' => Image::img('controls/switch-on.png', 'image/png'),
+    'cover' => Image::img('controls/switch-cover.png', 'image/png'),
+]);
+$buttonImages = Image::replacementSet(Image::ROLE_BUTTON, [
+    'up' => Image::img('controls/button-up.png', 'image/png'),
+    'down' => Image::img('controls/button-down.png', 'image/png'),
+    'disabled' => Image::img('controls/button-disabled.png', 'image/png'),
+]);
+$dialImages = Image::replacementSet(Image::ROLE_DIAL, [
+    '0' => Image::img('controls/dial-000.png', 'image/png'),
+    '90' => Image::img('controls/dial-090.png', 'image/png'),
+    '180' => Image::img('controls/dial-180.png', 'image/png'),
+    '270' => Image::img('controls/dial-270.png', 'image/png'),
+]);
 
 $controls = [
     Control::text('title', 'Text input', $name),
-    Control::spin('spin.rate', 'Spin control', $spin, ['min' => -12, 'max' => 12, 'step' => 1, 'pin' => true]),
-    Control::toggle('image.view', 'Image view switch', $imageVisible),
+    Control::spin('spin.rate', 'Spin control', $spin, ['min' => -12, 'max' => 12, 'step' => 1, 'pin' => true, 'imageSet' => $dialImages]),
+    Control::toggle('image.view', 'Image view switch', $imageVisible, ['imageSet' => $switchImages]),
     Control::drawing('drawing.surface', 'Drawing surface', 360, 180, [
         ['op' => 'rect', 'x' => 16, 'y' => 18, 'width' => 112, 'height' => 72, 'fill' => '#dbeafe'],
         ['op' => 'circle', 'cx' => 196, 'cy' => 78, 'r' => 38, 'fill' => '#f59e0b'],
@@ -22,6 +38,16 @@ $controls = [
     ]),
     Control::image('image.any', 'Any image type', $image, $mime, [
         'alt' => 'Image contract accepts any MIME-backed image source',
+        'imageSet' => $buttonImages,
+        'tradeOffs' => [
+            Image::tradeOff(
+                'evt-image-view-toggle',
+                'control.image.view.changed',
+                Image::img('controls/button-up.png', 'image/png'),
+                $imageVisible ? Image::img('controls/button-up.png', 'image/png') : Image::img('controls/button-disabled.png', 'image/png'),
+                'The image control trades replacement images from the event stream when view display changes.'
+            ),
+        ],
         'display' => Control::imageDisplay($imageVisible, $imageVisible ? 0 : 8, !$imageVisible, 'Image view is switched off'),
         'pin' => Control::imagePin(
             Control::XY_CENTER,

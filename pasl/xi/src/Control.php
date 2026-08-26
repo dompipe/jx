@@ -110,6 +110,8 @@ final class Control
     {
         $props['pin'] = self::imagePinFrom($props['pin'] ?? []);
         $props['display'] = self::imageDisplayFrom($props['display'] ?? []);
+        $props['imageSet'] = Image::setFrom($props['imageSet'] ?? []);
+        $props['tradeOffs'] = Image::tradeOffsFrom($props['tradeOffs'] ?? []);
         return self::make($id, 'image', $props + [
             'label' => $label,
             'src' => $src,
@@ -296,6 +298,10 @@ final class Control
         $turning = htmlspecialchars($pin['turningPoint'], ENT_QUOTES, 'UTF-8');
         $path = htmlspecialchars($pin['pathPoint'], ENT_QUOTES, 'UTF-8');
         $paint = htmlspecialchars($pin['paintingPoint'], ENT_QUOTES, 'UTF-8');
+        $imageSet = Image::setFrom($this->props['imageSet'] ?? []);
+        $tradeOffs = Image::tradeOffsFrom($this->props['tradeOffs'] ?? []);
+        $imageSetJson = htmlspecialchars((string)json_encode($imageSet, JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8');
+        $tradeOffsJson = htmlspecialchars((string)json_encode($tradeOffs, JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8');
         $visible = $display['visible'] ? 'true' : 'false';
         $cover = $display['cover'] ? 'true' : 'false';
         $coverLabel = htmlspecialchars($display['coverLabel'], ENT_QUOTES, 'UTF-8');
@@ -308,7 +314,7 @@ final class Control
         }
         $paintControl = is_array($pin['paintControl'] ?? null) ? $pin['paintControl'] : [];
         $paintControlJson = htmlspecialchars((string)json_encode($paintControl, JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8');
-        $html = '<figure id="' . $id . '" data-mime="' . $mime . '" data-turning-point="' . $turning . '" data-path-point="' . $path . '" data-painting-point="' . $paint . '" data-paint-control="' . $paintControlJson . '" data-visible="' . $visible . '" data-blur="' . $display['blur'] . '" data-cover="' . $cover . '">';
+        $html = '<figure id="' . $id . '" data-mime="' . $mime . '" data-turning-point="' . $turning . '" data-path-point="' . $path . '" data-painting-point="' . $paint . '" data-paint-control="' . $paintControlJson . '" data-image-set="' . $imageSetJson . '" data-image-trade-offs="' . $tradeOffsJson . '" data-visible="' . $visible . '" data-blur="' . $display['blur'] . '" data-cover="' . $cover . '">';
         $html .= $this->renderPaintPreview($paintControl);
         $html .= '<img src="' . $src . '" alt="' . $alt . '" style="' . $imgStyle . '">';
         if ($display['cover']) {
@@ -398,6 +404,9 @@ final class Image
 {
     public const IMG_DOTTED = 'IMG_DOTTED';
     public const IMG_BLUR = 'IMG_BLUR';
+    public const ROLE_DIAL = 'dial';
+    public const ROLE_BUTTON = 'button';
+    public const ROLE_SWITCH = 'switch';
 
     /** @param array<string, mixed> $props @return array<string, mixed> */
     public static function img(string $filename, string $mime = 'image/*', array $props = []): array
@@ -428,6 +437,74 @@ final class Image
         ]);
     }
 
+    /** @param array<string, array<string, mixed>> $states @return array<string, mixed> */
+    public static function replacementSet(string $role, array $states): array
+    {
+        $out = [
+            'family' => 'image',
+            'kind' => 'replacementSet',
+            'role' => self::role($role),
+            'states' => [],
+        ];
+        foreach ($states as $state => $image) {
+            if (is_array($image)) {
+                $out['states'][self::state((string)$state)] = self::imgFrom($image);
+            }
+        }
+        return $out;
+    }
+
+    /** @param array<string, mixed> $from @param array<string, mixed> $to @return array<string, mixed> */
+    public static function tradeOff(string $eventId, string $event, array $from, array $to, string $reason = ''): array
+    {
+        return [
+            'family' => 'image',
+            'kind' => 'tradeOff',
+            'eventId' => self::state($eventId),
+            'event' => self::state($event),
+            'from' => self::imgFrom($from),
+            'to' => self::imgFrom($to),
+            'reason' => $reason,
+        ];
+    }
+
+    /** @param mixed $set @return array<string, mixed> */
+    public static function setFrom(mixed $set): array
+    {
+        if (!is_array($set)) {
+            return [];
+        }
+        if (($set['kind'] ?? '') === 'replacementSet') {
+            $states = is_array($set['states'] ?? null) ? $set['states'] : [];
+            return self::replacementSet((string)($set['role'] ?? self::ROLE_BUTTON), $states);
+        }
+        return $set;
+    }
+
+    /** @param mixed $tradeOffs @return list<array<string, mixed>> */
+    public static function tradeOffsFrom(mixed $tradeOffs): array
+    {
+        if (!is_array($tradeOffs)) {
+            return [];
+        }
+        $out = [];
+        foreach ($tradeOffs as $tradeOff) {
+            if (!is_array($tradeOff)) {
+                continue;
+            }
+            if (($tradeOff['kind'] ?? '') === 'tradeOff') {
+                $out[] = self::tradeOff(
+                    (string)($tradeOff['eventId'] ?? 'event'),
+                    (string)($tradeOff['event'] ?? 'image.trade'),
+                    is_array($tradeOff['from'] ?? null) ? $tradeOff['from'] : [],
+                    is_array($tradeOff['to'] ?? null) ? $tradeOff['to'] : [],
+                    (string)($tradeOff['reason'] ?? ''),
+                );
+            }
+        }
+        return $out;
+    }
+
     private static function filename(string $filename): string
     {
         $filename = trim($filename);
@@ -437,5 +514,29 @@ final class Image
     private static function spacing(int|float $value): int
     {
         return max(1, min(1024, (int)$value));
+    }
+
+    /** @param array<string, mixed> $image @return array<string, mixed> */
+    private static function imgFrom(array $image): array
+    {
+        return self::img(
+            (string)($image['filename'] ?? 'image'),
+            (string)($image['mime'] ?? 'image/*'),
+            array_diff_key($image, array_flip(['family', 'kind', 'filename', 'mime'])),
+        );
+    }
+
+    private static function role(string $role): string
+    {
+        $role = strtolower(trim($role));
+        return in_array($role, [self::ROLE_DIAL, self::ROLE_BUTTON, self::ROLE_SWITCH], true)
+            ? $role
+            : self::ROLE_BUTTON;
+    }
+
+    private static function state(string $state): string
+    {
+        $state = preg_replace('/[^a-z0-9._:-]/i', '', trim($state)) ?? '';
+        return $state !== '' ? substr($state, 0, 96) : 'state';
     }
 }

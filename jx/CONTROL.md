@@ -47,6 +47,37 @@ Image::dotted('spark.png', 'image/png', 24);
 Image::blur('neon-line.png', 'image/png', 8);
 ```
 
+Replacement control images use the same image family. Dials, buttons, and
+switches are not separate host primitives; they are roles in an image
+replacement set:
+
+```php
+$switchImages = Image::replacementSet(Image::ROLE_SWITCH, [
+    'off' => Image::img('controls/switch-off.png', 'image/png'),
+    'on' => Image::img('controls/switch-on.png', 'image/png'),
+    'cover' => Image::img('controls/switch-cover.png', 'image/png'),
+]);
+
+$dialImages = Image::replacementSet(Image::ROLE_DIAL, [
+    '0' => Image::img('controls/dial-000.png', 'image/png'),
+    '90' => Image::img('controls/dial-090.png', 'image/png'),
+]);
+```
+
+An event-sourced image trade-off records why one replacement image changed to
+another. The host should append or consume these as events, not infer them from
+the current markup:
+
+```php
+Image::tradeOff(
+    'evt-image-view-toggle',
+    'control.image.view.changed',
+    Image::img('controls/button-up.png', 'image/png'),
+    Image::img('controls/button-disabled.png', 'image/png'),
+    'View display switched off',
+);
+```
+
 Image controls intentionally allow any image type. SVG is one supported image
 source, not the special case:
 
@@ -60,6 +91,19 @@ Image controls may also carry a pin contract:
 
 ```php
 Control::image('image.any', 'Any image type', $src, 'image/*', [
+    'imageSet' => Image::replacementSet(Image::ROLE_BUTTON, [
+        'up' => Image::img('controls/button-up.png', 'image/png'),
+        'down' => Image::img('controls/button-down.png', 'image/png'),
+        'disabled' => Image::img('controls/button-disabled.png', 'image/png'),
+    ]),
+    'tradeOffs' => [
+        Image::tradeOff(
+            'evt-image-view-toggle',
+            'control.image.view.changed',
+            Image::img('controls/button-up.png', 'image/png'),
+            Image::img('controls/button-disabled.png', 'image/png'),
+        ),
+    ],
     'display' => Control::imageDisplay(
         true,  // visible
         0,     // blur pixels
