@@ -48,27 +48,57 @@ program. See `pasl/host/README.md` and the runnable XIP Cover Book.
 
 ### Current browser media status
 
-JX now has host-neutral plugin contracts for Charts, Media, and Audio Analysis.
-The Media plugin can describe MP3/MP4 controls, direct asset sources, Bag-backed
-sources, playback options, and media events. The Audio Analysis plugin can turn
-a media stream into evenly divided frequency buckets, optionally constrained by
-an explicit frequency range, and publish those rows into a Bag for Charts.
+JX now has host-neutral plugin contracts for Charts, Media, AudioFX, and Audio
+Analysis.
+
+The **base Media player is intentionally small**. MP3/MP4 Controls carry only the
+media source, Bag binding when used, normal playback options, Style, playback
+events, and an extension list. Equalizers, compressors, spatial processing,
+sound enhancement, visualization, or future audio processing do **not** belong
+inside the base player.
+
+A plain MP3 therefore serializes with an empty extension list. An optional
+plugin can extend Media without changing the MP3 contract:
+
+```php
+$player = MediaPlugin::mp3('theme', '/assets/theme.mp3', [
+    'controls' => true,
+    'volume' => 0.75,
+]);
+
+$enhanced = $player->extend('audio-fx', [
+    'gain_db' => 1.5,
+    'bass_db' => 2.0,
+    'stereo_width' => 1.1,
+    'compressor' => true,
+]);
+```
+
+`AudioFX` is the first proof of the plugin-for-plugin contract. It extends
+`media`, owns and validates its own sound-processing vocabulary, and deliberately
+preserves safe unknown fields so later versions can add processing ideas without
+expanding `MediaControl`.
+
+The Audio Analysis plugin can independently turn a media stream into evenly
+divided frequency buckets, optionally constrained by an explicit frequency
+range, and publish those rows into a Bag for Charts or algebra.
 
 The browser playback renderer itself is **not yet connected**. In other words,
-the current branch can serialize an MP3 player Control, bind its source, and
-describe its analysis pipeline, but it does not yet instantiate the final
-browser `<audio>` element from that descriptor. That renderer is a host task,
-not a Media-object change.
+the current branch can serialize an MP3 player Control, bind its source, attach
+optional processing descriptors, and describe its analysis pipeline, but it
+does not yet instantiate the final browser `<audio>` element from that
+descriptor. That renderer is a host task, not a Media-object change.
 
 The intended live path is:
 
 ```text
 MP3 / MP4
    -> Media plugin
-      -> browser/native media renderer
-         -> Audio Analysis plugin (optional)
-            -> Bag
-               -> Chart / algebra / Page
+      -> optional Media-extension plugins
+         -> browser/native media renderer
+            -> Audio Analysis plugin (optional)
+               -> Bag
+                  -> Chart / algebra / Page
 ```
 
 ## Plugins
@@ -89,6 +119,14 @@ Charts
 Media
   MP3 / audio
   MP4 / video
+  extension slots
+
+AudioFX (extends Media)
+  gain
+  EQ fields
+  compressor
+  stereo width
+  open future fields
 
 Audio Analysis
   bucket-only spectrum
@@ -199,7 +237,7 @@ visible separately from the hot-operation benchmark.
 | Platform | Commands | Shared active plugins |
 |----------|----------|-----------------------|
 | Linux | `/etc/bin/jx`, `/etc/bin/jx-install` | `/etc/jx/plugins` |
-| macOS | `/usr/local/bin/jx`, `/usr/local/bin/jx-install` | `/usr/local/share/jx/plugins` |
+| macOS | `/usr/local/bin/jx`, `/usr/local/share/jx/plugins` | `/usr/local/share/jx/plugins` |
 | Windows | `%LOCALAPPDATA%\jx\bin` (User PATH) | `%ProgramData%\jx\plugins` |
 
 Plugins are independent packages. A Book or library links only the packages it
