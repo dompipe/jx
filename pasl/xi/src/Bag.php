@@ -1,82 +1,129 @@
 <?php declare(strict_types=1);
+
+$jxRuntime = dirname(__DIR__, 3) . '/jx.php';
+if (!class_exists(\jx\Bag::class, false) && is_file($jxRuntime)) {
+    require_once $jxRuntime;
+}
+unset($jxRuntime);
+
 /**
- * Institutional bag — userland key/value payload only.
- * Secrets never belong here.
+ * XI compatibility adapter over the canonical JX Bag.
+ *
+ * XI historically exposed set(key, value). The canonical JX Bag deliberately
+ * keeps its own mutation law and uses write(node, value) for one-shot writes.
+ * This wrapper preserves the XI call surface while ensuring the storage,
+ * capacity accounting, RefSign authorization, and serialization all belong to
+ * one canonical jx\Bag.
+ *
+ * Secrets never belong in host-visible channel Bags.
  */
 final class Bag
 {
-    /** @param array<string, mixed> $data */
-    public function __construct(private array $data = []) {}
+    private \jx\Bag $inner;
 
-    public static function empty(): self
+    /** @param array<string,mixed> $data */
+    public function __construct(array $data = [], ?int $capacity = null)
     {
-        return new self();
+        $capacity ??= max(65_536, strlen(serialize($data)) * 2 + 256);
+        $this->inner = \jx\Bag::underwrite($capacity);
+
+        foreach ($data as $key => $value) {
+            $this->set((string)$key, $value);
+        }
     }
 
-    /** @param array<string, mixed> $data */
-    public static function from(array $data): self
+    public static function empty(int $capacity = 65_536): self
     {
-        $b = new self();
-        foreach ($data as $k => $v) {
-            $b->set((string)$k, $v);
-        }
-        return $b;
+        return new self([], $capacity);
+    }
+
+    /** @param array<string,mixed> $data */
+    public static function from(array $data, ?int $capacity = null): self
+    {
+        return new self($data, $capacity);
     }
 
     public function get(string $key, mixed $default = null): mixed
     {
-        return $this->data[$key] ?? $default;
+        return $this->inner->read($key, $default);
     }
 
+    /**
+     * XI compatibility order: set(key, value).
+     * Canonical lowering: jx\Bag::write(node, value).
+     */
     public function set(string $key, mixed $value): void
     {
         if (preg_match('/secret|password|token|xi_/i', $key)) {
             return;
         }
-        $this->data[$key] = $value;
+        $this->inner->write($key, $value);
     }
 
     public function has(string $key): bool
     {
-        return array_key_exists($key, $this->data);
+        return $this->inner->has($key);
     }
 
-    /** @return array<string, mixed> */
+    /** @return array<string,mixed> */
     public function all(): array
     {
-        return $this->data;
+        return $this->inner->all();
     }
 
     /** @param list<string> $keys */
     public function dilate(array $keys): self
     {
-        $out = self::empty();
-        foreach ($keys as $k) {
-            $out->set($k, $this->get($k));
+        $out = self::empty(max(65_536, $this->inner->capacity()));
+        foreach ($keys as $key) {
+            if ($this->has($key)) {
+                $out->set($key, $this->get($key));
+            }
         }
         return $out;
     }
 
-    /** @param array<string, mixed> $other */
+    /** @param array<string,mixed> $other */
     public function merge(array $other, ?array $allowKeys = null): void
     {
-        foreach ($other as $k => $v) {
-            $k = (string)$k;
-            if ($allowKeys !== null && !in_array($k, $allowKeys, true)) {
+        foreach ($other as $key => $value) {
+            $key = (string)$key;
+            if ($allowKeys !== null && !in_array($key, $allowKeys, true)) {
                 continue;
             }
-            $this->set($k, $v);
+            $this->set($key, $value);
         }
     }
 
     public function toJson(): string
     {
-        return json_encode($this->data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) ?: '{}';
+        return $this->inner->toJson();
     }
 
-    public static function fromJson(string $json): self
+    public static function fromJson(string $json, ?int $capacity = null): self
     {
-        $d = json_decode($json, true);
-        return is_array($d) ? self::from($d) : self::empty();
+        $data = json_decode($json, true);
+        return is_array($data) ? self::from($data, $capacity) : self::empty($capacity ?? 65_536);
+    }
+
+    /** Canonical Bag for SQL/Book/runtime boundaries that understand jx\Bag. */
+    public function canonical(): \jx\Bag
+    {
+        return $this->inner;
+    }
+
+    public function capacity(): int
+    {
+        return $this->inner->capacity();
+    }
+
+    public function used(): int
+    {
+        return $this->inner->used();
+    }
+
+    public function quotient(): int
+    {
+        return $this->inner->quotient();
     }
 }
