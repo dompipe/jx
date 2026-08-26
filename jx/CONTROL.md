@@ -177,14 +177,19 @@ Spin controls may be pinned:
 Control::spin('spin.rate', 'Spin control', 3, ['pin' => true]);
 ```
 
-Drawing controls support oscillating lines:
+Drawing controls support oscillating and resetting lines:
 
 ```php
-Control::line('sweep-line', ['x' => 0, 'y' => 40], ['x' => 160, 'y' => 40], true);
+Control::line('sweep-line', ['x' => 0, 'y' => 40], ['x' => 160, 'y' => 40], Control::pong());
+Control::line('reset-line', ['x' => 0, 'y' => 70], ['x' => 160, 'y' => 70], Control::reset(0.25, 0.75));
 ```
 
-The fourth argument is `pong`. When `pong` is true, the host contract means the
-line travels start-to-finish and finish-to-start instead of one-way motion.
+The fourth argument is the run behavior. `Control::pong()` travels forward and
+then backward. `Control::reset()` travels forward and jumps back to the
+beginning after a full run. Both accept `start` and `end` percentages from `0`
+to `1`; default is `0, 1`, while `0.25, 0.75` runs only the middle half of the
+motion span before ponging or resetting. Legacy `true` still normalizes to
+`Control::pong(0, 1)`.
 
 Drawing controls also support explicit shapes and SVG-style path evokers:
 

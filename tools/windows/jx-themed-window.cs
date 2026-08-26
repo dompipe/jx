@@ -11,6 +11,7 @@ namespace Jx.ThemedWindow
         private readonly Timer timer = new Timer();
         private readonly List<PointF> trail = new List<PointF>();
         private float phase;
+        private float resetPhase;
         private string lastEvent = "click the path or dial";
         private bool mashEnabled = true;
         private bool blurTrail = true;
@@ -30,10 +31,15 @@ namespace Jx.ThemedWindow
             timer.Tick += delegate
             {
                 phase += mashEnabled ? 0.011f : 0.004f;
+                resetPhase += 0.018f;
                 if (phase > 1f)
                 {
                     phase -= 1f;
                     trail.Clear();
+                }
+                if (resetPhase > 0.75f)
+                {
+                    resetPhase = 0.25f;
                 }
                 Invalidate();
             };
@@ -106,6 +112,7 @@ namespace Jx.ThemedWindow
             RectangleF stage = new RectangleF(44, 78, ClientSize.Width - 88, ClientSize.Height - 154);
             DrawChrome(g, stage);
             DrawPath(g, stage);
+            DrawResetRun(g, stage, resetPhase);
 
             PointF p = PathPoint(stage, phase);
             trail.Add(p);
@@ -222,7 +229,27 @@ namespace Jx.ThemedWindow
                 g.DrawString("Theme::mash([spinClicks, zoom]) | IMG_BLUR / IMG_DOTTED replacement-image motion", SystemFonts.MessageBoxFont, muted, 46, 56);
                 g.DrawString("Click path/dial to seek    Space mash " + (mashEnabled ? "on" : "off") + "    B blur trail    D dotted trail    Esc close", SystemFonts.MessageBoxFont, muted, 48, stage.Bottom + 18);
                 g.DrawString("degree 1 -> 2: 12 clicks    current click: " + clickStep.ToString("00") + "    zoom: " + zoom.ToString("0.00"), SystemFonts.MessageBoxFont, green, 48, stage.Bottom + 44);
-                g.DrawString(lastEvent, SystemFonts.MessageBoxFont, muted, 48, stage.Bottom + 68);
+                g.DrawString("reset-line: run 0.25 -> 0.75, then jump to start    " + lastEvent, SystemFonts.MessageBoxFont, muted, 48, stage.Bottom + 68);
+            }
+        }
+
+        private static void DrawResetRun(Graphics g, RectangleF stage, float phase)
+        {
+            float y = stage.Bottom - 34;
+            float x1 = stage.Left + 90;
+            float x2 = stage.Right - 90;
+            using (Pen rail = new Pen(Color.FromArgb(90, 255, 94, 94), 6))
+            using (Pen active = new Pen(Color.FromArgb(235, 255, 94, 94), 3))
+            using (SolidBrush dot = new SolidBrush(Color.FromArgb(255, 255, 230, 230)))
+            {
+                rail.StartCap = rail.EndCap = LineCap.Round;
+                active.StartCap = active.EndCap = LineCap.Round;
+                g.DrawLine(rail, x1, y, x2, y);
+                float start = x1 + (x2 - x1) * 0.25f;
+                float end = x1 + (x2 - x1) * 0.75f;
+                g.DrawLine(active, start, y, end, y);
+                float x = x1 + (x2 - x1) * phase;
+                g.FillEllipse(dot, x - 11, y - 11, 22, 22);
             }
         }
 

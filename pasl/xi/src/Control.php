@@ -67,19 +67,33 @@ final class Control
      * @param array{x:int|float,y:int|float} $finish
      * @param array<string, mixed>|null $image
      */
-    public static function line(string $refId, array $start, array $finish, bool $pong = false, ?array $image = null): array
+    public static function line(string $refId, array $start, array $finish, bool|array $pong = false, ?array $image = null): array
     {
+        $run = self::runFrom($pong);
         $line = [
             'op' => 'line',
             'refId' => self::name($refId, 'line'),
             'start' => ['x' => (int)($start['x'] ?? 0), 'y' => (int)($start['y'] ?? 0)],
             'finish' => ['x' => (int)($finish['x'] ?? 0), 'y' => (int)($finish['y'] ?? 0)],
-            'pong' => $pong,
+            'pong' => $run['type'] === 'pong',
+            'run' => $run,
         ];
         if ($image !== null) {
             $line['image'] = $image;
         }
         return $line;
+    }
+
+    /** @return array{type:string,start:float,end:float} */
+    public static function pong(int|float $start = 0.0, int|float $end = 1.0): array
+    {
+        return self::run('pong', $start, $end);
+    }
+
+    /** @return array{type:string,start:float,end:float} */
+    public static function reset(int|float $start = 0.0, int|float $end = 1.0): array
+    {
+        return self::run('reset', $start, $end);
     }
 
     /**
@@ -280,13 +294,15 @@ final class Control
             if ($kind === 'line') {
                 $start = is_array($op['start'] ?? null) ? $op['start'] : ['x' => $op['x1'] ?? 0, 'y' => $op['y1'] ?? 0];
                 $finish = is_array($op['finish'] ?? null) ? $op['finish'] : ['x' => $op['x2'] ?? 0, 'y' => $op['y2'] ?? 0];
-                $pong = !empty($op['pong']) ? ' data-pong="true"' : ' data-pong="false"';
+                $run = self::runFrom($op['run'] ?? ($op['pong'] ?? false));
+                $pong = $run['type'] === 'pong' ? ' data-pong="true"' : ' data-pong="false"';
+                $runAttr = ' data-run="' . htmlspecialchars($run['type'], ENT_QUOTES, 'UTF-8') . '" data-run-start="' . htmlspecialchars((string)$run['start'], ENT_QUOTES, 'UTF-8') . '" data-run-end="' . htmlspecialchars((string)$run['end'], ENT_QUOTES, 'UTF-8') . '"';
                 $ref = htmlspecialchars((string)($op['refId'] ?? 'line'), ENT_QUOTES, 'UTF-8');
                 $image = is_array($op['image'] ?? null) ? htmlspecialchars((string)json_encode($op['image'], JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') : '';
                 $imageAttr = $image !== '' ? ' data-image="' . $image . '"' : '';
                 $theme = is_array($op['theme'] ?? null) ? htmlspecialchars((string)json_encode(Theme::from($op['theme']), JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') : '';
                 $themeAttr = $theme !== '' ? ' data-motion-theme="' . $theme . '"' : '';
-                $svg .= '<line data-ref="' . $ref . '"' . $pong . $imageAttr . $themeAttr . ' x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="' . self::color((string)($op['stroke'] ?? '#111')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 2)) . '"/>';
+                $svg .= '<line data-ref="' . $ref . '"' . $pong . $runAttr . $imageAttr . $themeAttr . ' x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="' . self::color((string)($op['stroke'] ?? '#111')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 2)) . '"/>';
             } elseif ($kind === 'circle') {
                 $svg .= '<circle cx="' . (int)($op['cx'] ?? 0) . '" cy="' . (int)($op['cy'] ?? 0) . '" r="' . max(1, (int)($op['r'] ?? 8)) . '" fill="' . self::color((string)($op['fill'] ?? '#777')) . '"/>';
             } elseif ($kind === 'rect') {
@@ -452,12 +468,14 @@ final class Control
         $width = max(1, (int)($paintControl['width'] ?? 5));
         $glow = max(0.0, min(1.0, (float)($image['glow'] ?? $paintControl['glow'] ?? 0.75)));
         $ref = htmlspecialchars((string)($paintControl['refId'] ?? 'paint-line'), ENT_QUOTES, 'UTF-8');
-        $pong = !empty($paintControl['pong']) ? ' data-pong="true"' : ' data-pong="false"';
+        $run = self::runFrom($paintControl['run'] ?? ($paintControl['pong'] ?? false));
+        $pong = $run['type'] === 'pong' ? ' data-pong="true"' : ' data-pong="false"';
+        $runAttr = ' data-run="' . htmlspecialchars($run['type'], ENT_QUOTES, 'UTF-8') . '" data-run-start="' . htmlspecialchars((string)$run['start'], ENT_QUOTES, 'UTF-8') . '" data-run-end="' . htmlspecialchars((string)$run['end'], ENT_QUOTES, 'UTF-8') . '"';
         $imageJson = $image !== [] ? ' data-image="' . htmlspecialchars((string)json_encode($image, JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') . '"' : '';
         $opacity = htmlspecialchars((string)(0.25 + ($glow * 0.55)), ENT_QUOTES, 'UTF-8');
         $svg = '<svg class="image-paint-preview" viewBox="0 0 240 56" width="240" height="56" aria-hidden="true">';
         $svg .= '<filter id="' . $ref . '-glow"><feGaussianBlur stdDeviation="' . htmlspecialchars((string)(2 + ($glow * 5)), ENT_QUOTES, 'UTF-8') . '" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>';
-        $svg .= '<line data-ref="' . $ref . '"' . $pong . $imageJson . ' x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="' . $stroke . '" stroke-width="' . ($width + 8) . '" opacity="' . $opacity . '" filter="url(#' . $ref . '-glow)"/>';
+        $svg .= '<line data-ref="' . $ref . '"' . $pong . $runAttr . $imageJson . ' x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="' . $stroke . '" stroke-width="' . ($width + 8) . '" opacity="' . $opacity . '" filter="url(#' . $ref . '-glow)"/>';
         $svg .= '<line data-ref="' . $ref . '-core" x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="#ffffff" stroke-width="' . max(1, (int)ceil($width / 2)) . '"/>';
         $svg .= '</svg>';
         return $svg;
@@ -475,6 +493,35 @@ final class Control
             return 'none';
         }
         return preg_match('/^#[0-9a-f]{3,8}$/i', $value) ? $value : '#111';
+    }
+
+    /** @return array{type:string,start:float,end:float} */
+    private static function run(string $type, int|float $start, int|float $end): array
+    {
+        $type = $type === 'reset' ? 'reset' : 'pong';
+        $start = max(0.0, min(1.0, (float)$start));
+        $end = max(0.0, min(1.0, (float)$end));
+        if ($end < $start) {
+            [$start, $end] = [$end, $start];
+        }
+        return [
+            'type' => $type,
+            'start' => $start,
+            'end' => $end,
+        ];
+    }
+
+    /** @param mixed $run @return array{type:string,start:float,end:float} */
+    private static function runFrom(mixed $run): array
+    {
+        if (is_array($run)) {
+            return self::run(
+                (string)($run['type'] ?? ($run['reset'] ?? false ? 'reset' : 'pong')),
+                (float)($run['start'] ?? 0.0),
+                (float)($run['end'] ?? 1.0),
+            );
+        }
+        return self::run(!empty($run) ? 'pong' : 'reset', 0.0, 1.0);
     }
 
     /** @param list<array{x:int|float,y:int|float}> $points @return list<array{x:int,y:int}> */

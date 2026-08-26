@@ -60,6 +60,9 @@ namespace Jx.SpecContract
                 "\"kind\":\"tradeOff\"",
                 "\"event\":\"control.image.view.changed\"",
                 "\"event\":\"pointer.path.seek\"",
+                "\"type\":\"reset\"",
+                "\"start\":0.25",
+                "\"end\":0.75",
                 "\"op\":\"polygon\"",
                 "\"op\":\"curvedShape\"",
                 "\"op\":\"path\"",
@@ -169,7 +172,7 @@ namespace Jx.SpecContract
             w.Prop("pathPoint", "XY_LB");
             w.Prop("paintPoint", "XY_RT");
             w.Name("paintControl");
-            LineWithImage(w, "image-trail", 16, 42, 220, 42, false, ImgBlur, 8);
+            LineWithImage(w, "image-trail", 16, 42, 220, 42, "reset", 0.25, 0.75, ImgBlur, 8);
             w.ObjEnd();
             w.ObjEnd();
         }
@@ -189,7 +192,8 @@ namespace Jx.SpecContract
             Polygon(w);
             CurvedShape(w);
             SvgPath(w);
-            LineWithImage(w, "dotted-path", 24, 108, 336, 88, true, ImgDotted, 24);
+            LineWithImage(w, "dotted-path", 24, 108, 336, 88, "pong", 0.0, 1.0, ImgDotted, 24);
+            LineWithImage(w, "reset-line", 42, 166, 318, 166, "reset", 0.25, 0.75, ImgDotted, 24);
             w.ArrayEnd();
             w.ObjEnd();
         }
@@ -347,13 +351,19 @@ namespace Jx.SpecContract
             w.ObjEnd();
         }
 
-        private static void LineWithImage(Json w, string id, int x1, int y1, int x2, int y2, bool pong, string mode, int spacing)
+        private static void LineWithImage(Json w, string id, int x1, int y1, int x2, int y2, string runType, double runStart, double runEnd, string mode, int spacing)
         {
             w.ObjStart();
             w.Prop("family", "Control");
             w.Prop("op", "line");
             w.Prop("refId", id);
-            w.Prop("pong", pong);
+            w.Prop("pong", runType == "pong");
+            w.Name("run");
+            w.ObjStart();
+            w.Prop("type", runType);
+            w.Prop("start", runStart);
+            w.Prop("end", runEnd);
+            w.ObjEnd();
             w.Name("theme");
             MashTheme(w);
             w.Name("start");

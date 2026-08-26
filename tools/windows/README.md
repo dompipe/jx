@@ -54,6 +54,8 @@ build\windows\jx-spec-contract.exe --contract
 `jx-themed-window.exe` is a native Windows Forms demo for the current Control,
 Image, and Theme contracts. It draws a moving image-like dial, mashes
 `spinClicks` with `zoom`, and shows `IMG_BLUR` / `IMG_DOTTED` style trails.
+It also shows a red `reset` run over the `0.25..0.75` span that jumps back to
+the start after completing its range.
 
 Build and run:
 
