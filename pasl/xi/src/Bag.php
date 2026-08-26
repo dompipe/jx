@@ -12,8 +12,8 @@ unset($jxRuntime);
  * XI historically exposed set(key, value). The canonical JX Bag deliberately
  * keeps its own mutation law and uses write(node, value) for one-shot writes.
  * This wrapper preserves the XI call surface while ensuring the storage,
- * capacity accounting, RefSign authorization, data-source bindings, and
- * serialization all belong to one canonical jx\Bag.
+ * capacity accounting, RefSign authorization, data-source bindings,
+ * coercion, and serialization all belong to one canonical jx\Bag.
  *
  * Secrets never belong in host-visible channel Bags.
  */
@@ -50,6 +50,12 @@ final class Bag
         return $this->inner->read($key, $default);
     }
 
+    /** Read one Bag value through the canonical binding-coercion vocabulary. */
+    public function bound(string $key = '_default', string $as = 'raw'): mixed
+    {
+        return $this->inner->bound($key, $as);
+    }
+
     /**
      * XI compatibility order: set(key, value).
      * Canonical lowering: jx\Bag::write(node, value).
@@ -76,6 +82,8 @@ final class Bag
     /**
      * Bind this channel Bag to a named source through the canonical JX Bag.
      * No live SQL/NoSQL connection is retained here.
+     *
+     * Use `with['as']` for raw|string|algebra|number|integer|float|boolean|json.
      */
     public function bind(
         string $source,
@@ -115,7 +123,7 @@ final class Bag
         return $out;
     }
 
-    /** @param array<string,mixed> $other */
+    /** @param array<string, mixed> $other */
     public function merge(array $other, ?array $allowKeys = null): void
     {
         foreach ($other as $key => $value) {
