@@ -243,6 +243,151 @@ Internet
 
 Apache owns public HTTP/TLS. The SQL adapter owns database authentication/TLS/file security. The Book owns the application relationship between them.
 
+## Listening SQL: Binding changes the Page
+
+A Page should not repeatedly hunt for one hard-coded SQL instance. JX should let Binding describe a named persistence dependency and let the host resolve the actual connection from the Book.
+
+The reactive direction is:
+
+```text
+SQL source
+   -> Binding
+      -> Bag
+         -> Page
+```
+
+The core rule is:
+
+> **Binding remembers what to listen to. It does not store the live database connection.**
+
+A Binding can therefore remain serializable:
+
+```json
+{
+  "page": "users",
+  "kind": "sql",
+  "source": "main",
+  "listener": "active-users",
+  "into": "state",
+  "at": "users",
+  "mode": "auto"
+}
+```
+
+The live SQL object stays server-side in the Book/host. When `users` becomes the active Page, the host resolves the named source `main`, activates the named listener or refresh strategy, and commits the returned data into Bag `state` at node `users`.
+
+A rhetorical API can read:
+
+```php
+$binding->listen(
+    'users',
+    'main',
+    'active-users',
+    'state',
+    'users',
+);
+```
+
+Read it as:
+
+> On Page `users`, listen to `main.active-users`, into Bag `state` at `users`.
+
+The semantic order is Page -> source -> listener -> destination Bag -> node -> optional behavior.
+
+### Named sources and named queries
+
+Pages should depend on stable names such as:
+
+```text
+main.active-users
+```
+
+not on PDO handles, hostnames, driver setup, passwords, ports, or TLS material.
+
+An SQL object may name reusable queries/listeners:
+
+```php
+$main->query(
+    'active-users',
+    'SELECT id, name, status FROM users WHERE active = :active'
+);
+```
+
+Binding then depends on the name instead of embedding the connection machinery in the Page.
+
+### Navigation controls subscriptions
+
+Binding already owns Page navigation state, so listener lifetime belongs to that same lifecycle.
+
+```text
+Page opens
+   -> activate listeners for that Page
+   -> resolve named source
+   -> refresh / subscribe
+   -> commit results into Bags
+
+Page closes
+   -> deactivate listeners unique to that Page
+```
+
+Book-scoped listeners may remain active when deliberately declared as Book scoped.
+
+### Persistence changes flow through Bags
+
+SQL should never repaint the Page directly and should never bypass Bag law.
+
+```text
+Database changes
+      -> SQL listener notices
+      -> Binding refreshes named result
+      -> Boundary import
+      -> Bag sign / set / commit
+      -> dependent Controls / Collectors / Style resolve
+      -> Page patch
+```
+
+This lets database state affect both content and appearance. A theme Bag can receive values such as `#69F0AE`, `background-image`, or `background-opacity`, and the existing Style/Collector contract can repaint without reconstructing the entire Page.
+
+### Listening strategy is adapter-specific
+
+`listen` describes the desired behavior, not one database vendor's mechanism. With `mode = auto`, the SQL adapter should choose the strongest legal strategy available:
+
+```text
+PostgreSQL
+    -> LISTEN / NOTIFY when configured
+    -> otherwise revision/change-token polling
+
+MySQL / MariaDB
+    -> revision/change-token polling
+    -> optional future binlog/change-stream adapter
+
+SQLite3
+    -> local data-version/revision checks
+
+other SQL adapters
+    -> safe polling or a dedicated native notification mechanism
+```
+
+The Page should not change just because the Book changes database engines.
+
+### Binding snapshots never contain live credentials
+
+Binding may snapshot source names, listener names, modes, scope, destination Bags/nodes, and revision tokens. It must not snapshot PDO handles, database passwords, certificates, private keys, or other live connection material.
+
+That keeps the same Binding portable across browser hosting, Apache deployment, native hosts, Book restarts, and restored sessions.
+
+The same model prepares JX for NoSQL:
+
+```text
+SQL -----\
+          \
+NoSQL ----> Binding -> Bags -> Page
+          /
+Channel -/
+```
+
+**Implementation status:** the SQL object and the existing navigation/channel Binding are present now. The reactive SQL-listener registry and listener lifecycle described here are the next Binding implementation and must be execution-tested before they are described as completed runtime behavior.
+
 ## Next: NoSQL as its own object
 
 NoSQL should be a sibling, not a fake SQL dialect:
