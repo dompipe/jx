@@ -62,7 +62,7 @@ namespace Jx.SpecContract
                 "\"kind\":\"spinClicks\"",
                 "\"clicksPerDegree\":12",
                 "\"kind\":\"zoom\"",
-                "\"mode\":\"snowball\""
+                "\"kind\":\"snowball\""
             };
 
             foreach (string needle in required)
@@ -211,9 +211,7 @@ namespace Jx.SpecContract
         {
             w.ObjStart();
             w.Prop("family", "theme");
-            w.Prop("kind", "mash");
-            w.Prop("name", "spin-move-zoom");
-            w.Prop("mode", "snowball");
+            w.Prop("kind", "snowball");
             w.Name("motions");
             w.ArrayStart();
             SpinTheme(w);

@@ -27,7 +27,7 @@ $dialImages = Image::replacementSet(Image::ROLE_DIAL, [
 ]);
 $spinTheme = Theme::spinClicks('spin.rate', 1, 2, 12, ['wrap' => true]);
 $zoomTheme = Theme::zoom(1.0, 1.35, 'ease-out');
-$snowballTheme = Theme::mash('spin-move-zoom', [$spinTheme, $zoomTheme], 'snowball');
+$snowballTheme = Theme::snowball([$spinTheme, $zoomTheme]);
 
 $controls = [
     Control::text('title', 'Text input', $name),
@@ -37,7 +37,7 @@ $controls = [
         ['op' => 'rect', 'x' => 16, 'y' => 18, 'width' => 112, 'height' => 72, 'fill' => '#dbeafe'],
         ['op' => 'circle', 'cx' => 196, 'cy' => 78, 'r' => 38, 'fill' => '#f59e0b'],
         Control::line('sweep-line', ['x' => 26, 'y' => 150], ['x' => 330, 'y' => 34], true) + ['stroke' => '#111827', 'width' => 3, 'theme' => $snowballTheme],
-        Control::curve('motion-curve', ['smooth' => 0.82, 'spin' => $spinTheme, 'zoom' => $zoomTheme, 'mash' => $snowballTheme], ['x' => 24, 'y' => 108], ['x' => 92, 'y' => 20], ['x' => 228, 'y' => 166], ['x' => 336, 'y' => 88]) + ['stroke' => '#7c3aed', 'width' => 4],
+        Control::curve('motion-curve', ['smooth' => 0.82, 'spin' => $spinTheme, 'zoom' => $zoomTheme, 'snowball' => $snowballTheme], ['x' => 24, 'y' => 108], ['x' => 92, 'y' => 20], ['x' => 228, 'y' => 166], ['x' => 336, 'y' => 88]) + ['stroke' => '#7c3aed', 'width' => 4],
     ]),
     Control::image('image.any', 'Any image type', $image, $mime, [
         'alt' => 'Image contract accepts any MIME-backed image source',
