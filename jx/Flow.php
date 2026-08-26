@@ -7,11 +7,6 @@ namespace {
     if (is_file($control)) {
         require_once $control;
     }
-
-    $pasl = dirname(__DIR__) . '/pasl/pasl.php';
-    if (is_file($pasl)) {
-        require_once $pasl;
-    }
 }
 
 namespace jx {
@@ -119,7 +114,6 @@ final class Flow
 
         $points = [self::pointValue($from, 'from')];
         $properties = [];
-        $sawTo = false;
 
         foreach ($rest as $part) {
             $role = $part[self::ROLE] ?? null;
@@ -135,9 +129,6 @@ final class Flow
 
             if ($role === 'through' || $role === 'to' || $role === 'from') {
                 $points[] = self::pointValue($part, $role);
-                if ($role === 'to') {
-                    $sawTo = true;
-                }
                 continue;
             }
 
@@ -153,10 +144,6 @@ final class Flow
         if (count($points) < 2) {
             throw new JxException('curve() needs a beginning and a destination', 'flow', true);
         }
-
-        // A plain final point is still accepted for compatibility, but the
-        // rhetorical surface encourages an explicit to().
-        unset($sawTo);
 
         return \Control::curve($named, $properties, ...$points);
     }
@@ -229,6 +216,12 @@ final class Flow
     /** Compile source to a named PASL backend: compile(source, to). */
     public static function compile(string $source, string $to = 'c'): array
     {
+        if (!class_exists(\pasl\Package::class)) {
+            $pasl = dirname(__DIR__) . '/pasl/pasl.php';
+            if (is_file($pasl)) {
+                require_once $pasl;
+            }
+        }
         if (!class_exists(\pasl\Package::class)) {
             throw new JxException('PASL package compiler is unavailable', 'compile', true);
         }
