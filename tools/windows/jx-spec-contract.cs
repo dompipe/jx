@@ -63,6 +63,8 @@ namespace Jx.SpecContract
                 "\"type\":\"reset\"",
                 "\"start\":0.25",
                 "\"end\":0.75",
+                "\"kind\":\"output\"",
+                "\"callback\":\"controls.movementPicked\"",
                 "\"op\":\"polygon\"",
                 "\"op\":\"curvedShape\"",
                 "\"op\":\"path\"",
@@ -366,6 +368,11 @@ namespace Jx.SpecContract
             w.ObjEnd();
             w.Name("theme");
             MashTheme(w);
+            if (id == "reset-line")
+            {
+                w.Name("output");
+                MovementOutput(w, "controls.movementPicked", "reset-line", "reset");
+            }
             w.Name("start");
             w.ObjStart();
             w.Prop("x", x1);
@@ -385,6 +392,21 @@ namespace Jx.SpecContract
             w.Prop("mode", mode);
             w.Prop(mode == ImgBlur ? "every" : "spacing", spacing);
             w.Prop("alternateMode", mode == ImgBlur ? ImgDotted : ImgBlur);
+            w.ObjEnd();
+            w.ObjEnd();
+        }
+
+        private static void MovementOutput(Json w, string callback, string source, string run)
+        {
+            w.ObjStart();
+            w.Prop("family", "control");
+            w.Prop("kind", "output");
+            w.Prop("callback", callback);
+            w.Prop("at", "XY_RT");
+            w.Name("bag");
+            w.ObjStart();
+            w.Prop("source", source);
+            w.Prop("run", run);
             w.ObjEnd();
             w.ObjEnd();
         }

@@ -13,6 +13,8 @@ namespace Jx.ThemedWindow
         private float phase;
         private float resetPhase;
         private string lastEvent = "click the path or dial";
+        private PointF outputPoint = new PointF(72, 110);
+        private string outputBag = "callback: controls.curvePicked";
         private bool mashEnabled = true;
         private bool blurTrail = true;
         private bool dottedTrail;
@@ -69,6 +71,8 @@ namespace Jx.ThemedWindow
             {
                 phase = nearest;
                 trail.Clear();
+                outputPoint = target;
+                outputBag = "callback: controls.curvePicked\nbag.phase=" + phase.ToString("0.000") + "\nbag.run=mash\nbag.output=XY_CENTER";
                 lastEvent = "event: pointer.path.seek phase " + phase.ToString("0.000");
                 Invalidate();
             }
@@ -127,6 +131,7 @@ namespace Jx.ThemedWindow
             float zoom = mashEnabled ? 1.0f + 0.42f * EaseOut(phase) : 1.0f;
 
             DrawMashedControl(g, p, angle, zoom, clickStep);
+            DrawOutputBag(g);
             DrawUi(g, stage, clickStep, zoom);
         }
 
@@ -230,6 +235,27 @@ namespace Jx.ThemedWindow
                 g.DrawString("Click path/dial to seek    Space mash " + (mashEnabled ? "on" : "off") + "    B blur trail    D dotted trail    Esc close", SystemFonts.MessageBoxFont, muted, 48, stage.Bottom + 18);
                 g.DrawString("degree 1 -> 2: 12 clicks    current click: " + clickStep.ToString("00") + "    zoom: " + zoom.ToString("0.00"), SystemFonts.MessageBoxFont, green, 48, stage.Bottom + 44);
                 g.DrawString("reset-line: run 0.25 -> 0.75, then jump to start    " + lastEvent, SystemFonts.MessageBoxFont, muted, 48, stage.Bottom + 68);
+            }
+        }
+
+        private void DrawOutputBag(Graphics g)
+        {
+            string[] lines = outputBag.Split('\n');
+            float width = 260;
+            float height = 30 + lines.Length * 18;
+            float x = Math.Min(ClientSize.Width - width - 24, Math.Max(24, outputPoint.X + 28));
+            float y = Math.Min(ClientSize.Height - height - 88, Math.Max(84, outputPoint.Y - 24));
+            RectangleF box = new RectangleF(x, y, width, height);
+            using (SolidBrush bg = new SolidBrush(Color.FromArgb(220, 8, 12, 18)))
+            using (Pen border = new Pen(Color.FromArgb(220, 126, 231, 135), 1))
+            using (SolidBrush text = new SolidBrush(Color.FromArgb(245, 235, 255, 240)))
+            {
+                g.FillRectangle(bg, box);
+                g.DrawRectangle(border, box.X, box.Y, box.Width, box.Height);
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    g.DrawString(lines[i], SystemFonts.CaptionFont, text, box.X + 10, box.Y + 10 + i * 18);
+                }
             }
         }
 

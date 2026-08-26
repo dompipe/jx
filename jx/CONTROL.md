@@ -191,6 +191,28 @@ to `1`; default is `0, 1`, while `0.25, 0.75` runs only the middle half of the
 motion span before ponging or resetting. Legacy `true` still normalizes to
 `Control::pong(0, 1)`.
 
+Movement controls can also emit output where the control is picked. The output
+connector names a callback and carries the movement property bag:
+
+```php
+Control::line(
+    'reset-line',
+    ['x' => 0, 'y' => 70],
+    ['x' => 160, 'y' => 70],
+    Control::reset(0.25, 0.75),
+) + [
+    'output' => Control::output(
+        'controls.movementPicked',
+        Control::XY_RT,
+        ['source' => 'reset-line', 'run' => 'reset'],
+    ),
+];
+```
+
+Hosts should call the callback with the picked position, movement phase, run
+window, and any supplied `bag` values. The current renderer exposes this as
+`data-output`.
+
 Drawing controls also support explicit shapes and SVG-style path evokers:
 
 ```php

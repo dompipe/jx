@@ -40,8 +40,8 @@ $controls = [
         Control::curvedShape('soft-shape', [['x' => 134, 'y' => 116], ['x' => 174, 'y' => 98], ['x' => 222, 'y' => 128], ['x' => 184, 'y' => 162], ['x' => 142, 'y' => 150]], ['fill' => '#fef3c7', 'stroke' => '#b45309', 'width' => 2, 'smooth' => 0.72]),
         Control::path('svg-evoker', 'M 40 42 C 76 6 118 74 156 42 S 238 78 316 42', ['fill' => 'none', 'stroke' => '#be185d', 'width' => 3]),
         Control::line('sweep-line', ['x' => 26, 'y' => 150], ['x' => 330, 'y' => 34], Control::pong(0.0, 1.0)) + ['stroke' => '#111827', 'width' => 3, 'theme' => $mashTheme],
-        Control::line('reset-line', ['x' => 42, 'y' => 166], ['x' => 318, 'y' => 166], Control::reset(0.25, 0.75)) + ['stroke' => '#dc2626', 'width' => 4],
-        Control::curve('motion-curve', ['smooth' => 0.82, 'spin' => $spinTheme, 'zoom' => $zoomTheme, 'mash' => $mashTheme], ['x' => 24, 'y' => 108], ['x' => 92, 'y' => 20], ['x' => 228, 'y' => 166], ['x' => 336, 'y' => 88]) + ['stroke' => '#7c3aed', 'width' => 4],
+        Control::line('reset-line', ['x' => 42, 'y' => 166], ['x' => 318, 'y' => 166], Control::reset(0.25, 0.75)) + ['stroke' => '#dc2626', 'width' => 4, 'output' => Control::output('controls.movementPicked', Control::XY_RT, ['source' => 'reset-line', 'run' => 'reset'])],
+        Control::curve('motion-curve', ['smooth' => 0.82, 'spin' => $spinTheme, 'zoom' => $zoomTheme, 'mash' => $mashTheme], ['x' => 24, 'y' => 108], ['x' => 92, 'y' => 20], ['x' => 228, 'y' => 166], ['x' => 336, 'y' => 88]) + ['stroke' => '#7c3aed', 'width' => 4, 'output' => Control::output('controls.curvePicked', Control::XY_CENTER, ['source' => 'motion-curve', 'bag' => 'movement'])],
     ]),
     Control::image('image.any', 'Any image type', $image, $mime, [
         'alt' => 'Image contract accepts any MIME-backed image source',

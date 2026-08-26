@@ -96,6 +96,18 @@ final class Control
         return self::run('reset', $start, $end);
     }
 
+    /** @param array<string, mixed> $bag @return array<string, mixed> */
+    public static function output(string $callback, string $at = self::XY_CENTER, array $bag = []): array
+    {
+        return [
+            'family' => 'control',
+            'kind' => 'output',
+            'callback' => self::name($callback, 'control.output'),
+            'at' => self::xy($at),
+            'bag' => $bag,
+        ];
+    }
+
     /**
      * @param array<string, mixed>|array{x:int|float,y:int|float} $properties
      * @param array<int, array{x:int|float,y:int|float}> $degrees
@@ -302,7 +314,9 @@ final class Control
                 $imageAttr = $image !== '' ? ' data-image="' . $image . '"' : '';
                 $theme = is_array($op['theme'] ?? null) ? htmlspecialchars((string)json_encode(Theme::from($op['theme']), JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') : '';
                 $themeAttr = $theme !== '' ? ' data-motion-theme="' . $theme . '"' : '';
-                $svg .= '<line data-ref="' . $ref . '"' . $pong . $runAttr . $imageAttr . $themeAttr . ' x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="' . self::color((string)($op['stroke'] ?? '#111')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 2)) . '"/>';
+                $output = is_array($op['output'] ?? null) ? htmlspecialchars((string)json_encode(self::outputFrom($op['output']), JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') : '';
+                $outputAttr = $output !== '' ? ' data-output="' . $output . '"' : '';
+                $svg .= '<line data-ref="' . $ref . '"' . $pong . $runAttr . $imageAttr . $themeAttr . $outputAttr . ' x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="' . self::color((string)($op['stroke'] ?? '#111')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 2)) . '"/>';
             } elseif ($kind === 'circle') {
                 $svg .= '<circle cx="' . (int)($op['cx'] ?? 0) . '" cy="' . (int)($op['cy'] ?? 0) . '" r="' . max(1, (int)($op['r'] ?? 8)) . '" fill="' . self::color((string)($op['fill'] ?? '#777')) . '"/>';
             } elseif ($kind === 'rect') {
@@ -410,7 +424,9 @@ final class Control
         $smooth = max(0.0, min(1.0, (float)($properties['smooth'] ?? 0.0)));
         $themePayload = array_intersect_key($properties, array_flip(['spin', 'zoom', 'mash']));
         $theme = $themePayload !== [] ? ' data-motion-theme="' . htmlspecialchars((string)json_encode(Theme::from($themePayload), JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') . '"' : '';
-        return '<path data-ref="' . $ref . '" data-motion="curve" data-smooth="' . htmlspecialchars((string)$smooth, ENT_QUOTES, 'UTF-8') . '"' . $theme . ' d="' . htmlspecialchars($d, ENT_QUOTES, 'UTF-8') . '" fill="none" stroke="' . self::color((string)($op['stroke'] ?? '#7c3aed')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 3)) . '"/>';
+        $output = is_array($op['output'] ?? null) ? htmlspecialchars((string)json_encode(self::outputFrom($op['output']), JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') : '';
+        $outputAttr = $output !== '' ? ' data-output="' . $output . '"' : '';
+        return '<path data-ref="' . $ref . '" data-motion="curve" data-smooth="' . htmlspecialchars((string)$smooth, ENT_QUOTES, 'UTF-8') . '"' . $theme . $outputAttr . ' d="' . htmlspecialchars($d, ENT_QUOTES, 'UTF-8') . '" fill="none" stroke="' . self::color((string)($op['stroke'] ?? '#7c3aed')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 3)) . '"/>';
     }
 
     private function renderImage(): string
@@ -472,10 +488,12 @@ final class Control
         $pong = $run['type'] === 'pong' ? ' data-pong="true"' : ' data-pong="false"';
         $runAttr = ' data-run="' . htmlspecialchars($run['type'], ENT_QUOTES, 'UTF-8') . '" data-run-start="' . htmlspecialchars((string)$run['start'], ENT_QUOTES, 'UTF-8') . '" data-run-end="' . htmlspecialchars((string)$run['end'], ENT_QUOTES, 'UTF-8') . '"';
         $imageJson = $image !== [] ? ' data-image="' . htmlspecialchars((string)json_encode($image, JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') . '"' : '';
+        $output = is_array($paintControl['output'] ?? null) ? htmlspecialchars((string)json_encode(self::outputFrom($paintControl['output']), JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') : '';
+        $outputAttr = $output !== '' ? ' data-output="' . $output . '"' : '';
         $opacity = htmlspecialchars((string)(0.25 + ($glow * 0.55)), ENT_QUOTES, 'UTF-8');
         $svg = '<svg class="image-paint-preview" viewBox="0 0 240 56" width="240" height="56" aria-hidden="true">';
         $svg .= '<filter id="' . $ref . '-glow"><feGaussianBlur stdDeviation="' . htmlspecialchars((string)(2 + ($glow * 5)), ENT_QUOTES, 'UTF-8') . '" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>';
-        $svg .= '<line data-ref="' . $ref . '"' . $pong . $runAttr . $imageJson . ' x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="' . $stroke . '" stroke-width="' . ($width + 8) . '" opacity="' . $opacity . '" filter="url(#' . $ref . '-glow)"/>';
+        $svg .= '<line data-ref="' . $ref . '"' . $pong . $runAttr . $imageJson . $outputAttr . ' x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="' . $stroke . '" stroke-width="' . ($width + 8) . '" opacity="' . $opacity . '" filter="url(#' . $ref . '-glow)"/>';
         $svg .= '<line data-ref="' . $ref . '-core" x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="#ffffff" stroke-width="' . max(1, (int)ceil($width / 2)) . '"/>';
         $svg .= '</svg>';
         return $svg;
@@ -522,6 +540,19 @@ final class Control
             );
         }
         return self::run(!empty($run) ? 'pong' : 'reset', 0.0, 1.0);
+    }
+
+    /** @param mixed $output @return array<string, mixed> */
+    private static function outputFrom(mixed $output): array
+    {
+        if (!is_array($output)) {
+            return [];
+        }
+        return self::output(
+            (string)($output['callback'] ?? 'control.output'),
+            (string)($output['at'] ?? self::XY_CENTER),
+            is_array($output['bag'] ?? null) ? $output['bag'] : [],
+        );
     }
 
     /** @param list<array{x:int|float,y:int|float}> $points @return list<array{x:int,y:int}> */
