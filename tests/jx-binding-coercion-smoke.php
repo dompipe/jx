@@ -29,6 +29,50 @@ smoke(BindingCoercion::apply('0', 'boolean') === false, 'boolean false coercion'
 $binding = ['source' => 'sql.main', 'through' => 'price', 'with' => ['as' => 'algebra']];
 smoke(BindingCoercion::forBinding($binding, '19.75') === 19.75, 'binding metadata coercion');
 
+$mathBinding = [
+    'source' => 'sql.main',
+    'through' => 'cart-row',
+    'with' => [
+        'as' => 'algebra',
+        'expression' => 'price * quantity + shipping',
+    ],
+];
+$math = BindingCoercion::forBinding($mathBinding, [
+    'price' => '2.5',
+    'quantity' => 4,
+    'shipping' => 3,
+]);
+smoke(abs((float)$math - 13.0) < 0.000001, 'field algebra expression');
+
+$templateBinding = [
+    'source' => 'sql.main',
+    'through' => 'player',
+    'with' => [
+        'as' => 'string',
+        'template' => '{player.name}: {player.score}',
+    ],
+];
+$label = BindingCoercion::forBinding($templateBinding, [
+    'player' => ['name' => 'Ada', 'score' => 99],
+]);
+smoke($label === 'Ada: 99', 'dotted string template');
+
+$pipelineBinding = [
+    'source' => 'sql.main',
+    'through' => 'cart-row',
+    'with' => [
+        'coerce' => [
+            ['as' => 'algebra', 'expression' => 'price * quantity'],
+            ['as' => 'string', 'template' => 'Total: {value}'],
+        ],
+    ],
+];
+$label = BindingCoercion::forBinding($pipelineBinding, [
+    'price' => 7,
+    'quantity' => 3,
+]);
+smoke($label === 'Total: 21', 'algebra feeds string template');
+
 $failed = false;
 try {
     BindingCoercion::apply(['not' => 'algebra'], 'algebra');
@@ -36,5 +80,18 @@ try {
     $failed = true;
 }
 smoke($failed, 'invalid algebra coercion must fail');
+
+$failed = false;
+try {
+    BindingCoercion::forBinding([
+        'with' => [
+            'as' => 'algebra',
+            'expression' => 'phpinfo()',
+        ],
+    ], ['value' => 1]);
+} catch (JxException) {
+    $failed = true;
+}
+smoke($failed, 'code-like algebra expression must fail');
 
 echo "jx-binding-coercion-smoke: ok\n";
