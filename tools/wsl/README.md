@@ -1,9 +1,10 @@
 # WSL native launcher
 
 This builds a Linux ELF launcher for JX under WSL. The launcher is compiled C,
-but it intentionally keeps the current PHP runtime as the foreground engine.
-That gives WSL a native `jx` command now while leaving the future PASM/NASM
-self-hosted executable path open.
+but it intentionally keeps the current PHP runtime as the execution engine.
+For Books, WSL behaves like a window host: `jx book open` starts XI in the
+background when needed and opens the Book URL through `wslview`, `xdg-open`, or
+the Windows PowerShell browser bridge.
 
 Build from the repo root:
 
@@ -30,4 +31,4 @@ relative install beside the repo. It dispatches:
 
 - ordinary arguments to `jx-run.php`
 - `jx xi ...` to `pasl/xi/xi.php`
-- `jx book open ...` to the XI foreground server for a Book URL
+- `jx book open ...` to a background XI server plus a WSL/Windows window opener

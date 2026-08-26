@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #ifndef JX_ROOT_COMPILED
@@ -130,6 +132,71 @@ static void exec_php(int argc, char **argv, const char *script)
     die("failed to exec php: %s", strerror(errno));
 }
 
+static int run_php_wait(int argc, char **argv, const char *script, bool quiet)
+{
+    pid_t pid = fork();
+    if (pid < 0) {
+        die("failed to fork php: %s", strerror(errno));
+    }
+    if (pid == 0) {
+        if (quiet) {
+            FILE *nullout = freopen("/dev/null", "w", stdout);
+            FILE *nullerr = freopen("/dev/null", "w", stderr);
+            (void)nullout;
+            (void)nullerr;
+        }
+        exec_php(argc, argv, script);
+    }
+
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) {
+        die("failed waiting for php: %s", strerror(errno));
+    }
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+    }
+    return 1;
+}
+
+static bool command_exists(const char *cmd)
+{
+    char probe[256];
+    snprintf(probe, sizeof(probe), "command -v %s >/dev/null 2>&1", cmd);
+    return system(probe) == 0;
+}
+
+static void open_url(const char *url)
+{
+    pid_t pid = fork();
+    if (pid < 0) {
+        die("failed to fork opener: %s", strerror(errno));
+    }
+    if (pid == 0) {
+        FILE *nullout = freopen("/dev/null", "w", stdout);
+        FILE *nullerr = freopen("/dev/null", "w", stderr);
+        (void)nullout;
+        (void)nullerr;
+        if (command_exists("wslview")) {
+            execlp("wslview", "wslview", url, (char *)NULL);
+        }
+        if (command_exists("xdg-open")) {
+            execlp("xdg-open", "xdg-open", url, (char *)NULL);
+        }
+        if (command_exists("powershell.exe")) {
+            execlp("powershell.exe", "powershell.exe", "-NoProfile", "-Command", "Start-Process", url, (char *)NULL);
+        }
+        _exit(127);
+    }
+}
+
+static void sleep_ms(int ms)
+{
+    struct timespec ts;
+    ts.tv_sec = ms / 1000;
+    ts.tv_nsec = (long)(ms % 1000) * 1000000L;
+    nanosleep(&ts, NULL);
+}
+
 static void usage(void)
 {
     puts("jx WSL native launcher");
@@ -168,17 +235,37 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "book") == 0 && argc >= 3 && strcmp(argv[2], "open") == 0) {
         const char *book = argc >= 4 ? argv[3] : "cover";
         const char *hostport = argc >= 5 ? argv[4] : "localhost:8766";
-        printf("jx: opening Book %s at http://%s/?book=%s\n", book, hostport, book);
-        fflush(stdout);
+        char url[512];
+        snprintf(url, sizeof(url), "http://%s/?book=%s", hostport, book);
 
-        char *args[] = {
+        char *status_args[] = {
             (char *)hostport,
-            "start",
-            xi_config,
-            "--foreground",
+            "status",
             NULL
         };
-        exec_php(4, args, xi);
+        int already_running = run_php_wait(2, status_args, xi, true) == 0;
+
+        if (!already_running) {
+            char *start_args[] = {
+                (char *)hostport,
+                "start",
+                xi_config,
+                NULL
+            };
+            int started = run_php_wait(3, start_args, xi, false);
+            if (started != 0) {
+                return started;
+            }
+            sleep_ms(250);
+        }
+
+        open_url(url);
+        printf("jx: opening Book %s in a WSL window host: %s\n", book, url);
+        free(root);
+        free(jx_run);
+        free(xi);
+        free(xi_config);
+        return 0;
     }
 
     exec_php(argc - 1, argv + 1, jx_run);
