@@ -13,7 +13,8 @@ namespace jx {
  * enter JX when the binding asks for a presentation/algebraic view.
  *
  * No PHP eval is used. Algebra is parsed by a small arithmetic grammar and
- * string templates perform named placeholder substitution only.
+ * string templates perform named placeholder substitution only. Complex
+ * arithmetic reuses the canonical JX Complex type.
  */
 final class BindingCoercion
 {
@@ -67,6 +68,7 @@ final class BindingCoercion
      *
      * Expression/template forms:
      *   with: ['as' => 'algebra', 'expression' => 'price * quantity']
+     *   with: ['as' => 'algebra', 'expression' => 'conj(z) * z']
      *   with: ['as' => 'string', 'template' => 'Total: {value}']
      *
      * Pipeline form:
@@ -98,7 +100,6 @@ final class BindingCoercion
             throw new JxException('Binding coercion pipeline must be an array', 'bag.bind.coerce', true);
         }
 
-        // Permit one associative step as shorthand.
         if (isset($steps['as'])) $steps = [$steps];
 
         $current = Boundary::import($value);
@@ -131,8 +132,8 @@ final class BindingCoercion
     }
 
     /**
-     * Algebra keeps native numeric values and understands JX Complex literals.
-     * It intentionally rejects arrays/objects rather than inventing arithmetic.
+     * Algebra accepts native numeric values, booleans, and JX Complex values
+     * or literals such as 3+4i. Arrays/objects do not gain invented arithmetic.
      */
     private static function algebraValue(mixed $value): int|float|Complex
     {
@@ -147,7 +148,7 @@ final class BindingCoercion
             }
             if (preg_match('/^[+-]?\d+$/', $text)) return (int)$text;
             if (is_numeric($text)) return (float)$text;
-            if (str_contains(strtolower($text), 'i')) return Complex::parse($text);
+            if (str_contains(strtolower($text), 'i')) return self::complexLiteral($text);
         }
 
         throw new JxException('Binding value cannot become algebra', 'bag.bind.coerce', true, ['type' => get_debug_type($value)]);
@@ -178,6 +179,7 @@ final class BindingCoercion
     {
         if (is_bool($value)) return $value;
         if (is_int($value) || is_float($value)) return $value != 0;
+        if ($value instanceof Complex) return $value->re != 0.0 || $value->im != 0.0;
         if (is_string($value)) {
             return match (strtolower(trim($value))) {
                 '1', 'true', 'yes', 'on' => true,
@@ -209,15 +211,19 @@ final class BindingCoercion
     }
 
     /**
-     * Restricted arithmetic grammar:
+     * Restricted algebra grammar:
      *   expression := term ((+|-) term)*
      *   term       := factor ((*|/|%) factor)*
-     *   factor     := (+|-) factor | number | name | '(' expression ')'
+     *   factor     := (+|-) factor
+     *               | number | imaginary | name
+     *               | safe-fn '(' expression ')'
+     *               | '(' expression ')'
      *
+     * Safe functions: mag, conj, real, imag.
      * Names resolve from the original bound array. "value" resolves to the
      * current pipeline value. Dotted paths such as player.score are allowed.
      */
-    private static function evaluateExpression(string $expression, mixed $current, array $scope): int|float
+    private static function evaluateExpression(string $expression, mixed $current, array $scope): int|float|Complex
     {
         $expression = trim($expression);
         if ($expression === '' || strlen($expression) > 512 || str_contains($expression, "\0")) {
@@ -248,6 +254,11 @@ final class BindingCoercion
                 $offset += strlen($m[0]);
                 continue;
             }
+            if (preg_match('/\G(?:\d+(?:\.\d*)?|\.\d+)i/Ai', $source, $m, 0, $offset)) {
+                $tokens[] = ['type' => 'imaginary', 'value' => strtolower($m[0])];
+                $offset += strlen($m[0]);
+                continue;
+            }
             if (preg_match('/\G(?:\d+(?:\.\d*)?|\.\d+)/A', $source, $m, 0, $offset)) {
                 $tokens[] = ['type' => 'number', 'value' => $m[0]];
                 $offset += strlen($m[0]);
@@ -271,60 +282,81 @@ final class BindingCoercion
     }
 
     /** @param list<array{type:string,value:string}> $tokens */
-    private static function parseExpression(array $tokens, int &$i, mixed $current, array $scope): int|float
+    private static function parseExpression(array $tokens, int &$i, mixed $current, array $scope): int|float|Complex
     {
         $left = self::parseTerm($tokens, $i, $current, $scope);
         while ($i < count($tokens) && in_array($tokens[$i]['type'], ['+', '-'], true)) {
             $op = $tokens[$i++]['type'];
             $right = self::parseTerm($tokens, $i, $current, $scope);
-            $left = $op === '+' ? $left + $right : $left - $right;
+            $left = $op === '+' ? self::addValues($left, $right) : self::subValues($left, $right);
         }
         return $left;
     }
 
     /** @param list<array{type:string,value:string}> $tokens */
-    private static function parseTerm(array $tokens, int &$i, mixed $current, array $scope): int|float
+    private static function parseTerm(array $tokens, int &$i, mixed $current, array $scope): int|float|Complex
     {
         $left = self::parseFactor($tokens, $i, $current, $scope);
         while ($i < count($tokens) && in_array($tokens[$i]['type'], ['*', '/', '%'], true)) {
             $op = $tokens[$i++]['type'];
             $right = self::parseFactor($tokens, $i, $current, $scope);
-            if (($op === '/' || $op === '%') && $right == 0) {
-                throw new JxException('Division by zero in binding algebra', 'bag.bind.coerce', true);
-            }
             $left = match ($op) {
-                '*' => $left * $right,
-                '/' => $left / $right,
-                '%' => fmod((float)$left, (float)$right),
+                '*' => self::mulValues($left, $right),
+                '/' => self::divValues($left, $right),
+                '%' => self::modValues($left, $right),
             };
         }
         return $left;
     }
 
     /** @param list<array{type:string,value:string}> $tokens */
-    private static function parseFactor(array $tokens, int &$i, mixed $current, array $scope): int|float
+    private static function parseFactor(array $tokens, int &$i, mixed $current, array $scope): int|float|Complex
     {
         if ($i >= count($tokens)) {
             throw new JxException('Incomplete binding algebra', 'bag.bind.coerce', true);
         }
 
         $token = $tokens[$i++];
-        if ($token['type'] === '+') return self::parseFactor($tokens, $i, $current, $scope);
-        if ($token['type'] === '-') return -self::parseFactor($tokens, $i, $current, $scope);
+
+        if ($token['type'] === '+') {
+            return self::parseFactor($tokens, $i, $current, $scope);
+        }
+        if ($token['type'] === '-') {
+            return self::negateValue(self::parseFactor($tokens, $i, $current, $scope));
+        }
         if ($token['type'] === 'number') {
             return str_contains($token['value'], '.') ? (float)$token['value'] : (int)$token['value'];
         }
+        if ($token['type'] === 'imaginary') {
+            return self::complexLiteral($token['value']);
+        }
         if ($token['type'] === 'name') {
-            $raw = $token['value'] === 'value'
-                ? $current
-                : self::resolve($scope, $token['value']);
-            if (is_int($raw) || is_float($raw)) return $raw;
-            if (is_bool($raw)) return $raw ? 1 : 0;
-            if (is_string($raw) && is_numeric(trim($raw))) {
-                $raw = trim($raw);
-                return preg_match('/^[+-]?\d+$/', $raw) ? (int)$raw : (float)$raw;
+            $name = $token['value'];
+
+            if ($name === 'i') {
+                return Complex::of(0.0, 1.0);
             }
-            throw new JxException('Non-numeric value in binding algebra', 'bag.bind.coerce', true, ['name' => $token['value']]);
+
+            if ($i < count($tokens) && $tokens[$i]['type'] === '(') {
+                if (!in_array(strtolower($name), ['mag', 'conj', 'real', 'imag'], true)) {
+                    throw new JxException('Unsupported function in binding algebra', 'bag.bind.coerce', true, ['function' => $name]);
+                }
+                $i++;
+                $arg = self::parseExpression($tokens, $i, $current, $scope);
+                if ($i >= count($tokens) || $tokens[$i]['type'] !== ')') {
+                    throw new JxException('Unclosed function call in binding algebra', 'bag.bind.coerce', true);
+                }
+                $i++;
+                return self::callSafeFunction(strtolower($name), $arg);
+            }
+
+            $raw = $name === 'value'
+                ? $current
+                : self::resolve($scope, $name);
+            if ($raw === null) {
+                throw new JxException('Unknown value in binding algebra', 'bag.bind.coerce', true, ['name' => $name]);
+            }
+            return self::algebraValue($raw);
         }
         if ($token['type'] === '(') {
             $result = self::parseExpression($tokens, $i, $current, $scope);
@@ -336,6 +368,97 @@ final class BindingCoercion
         }
 
         throw new JxException('Unexpected token in binding algebra', 'bag.bind.coerce', true);
+    }
+
+    private static function complexLiteral(string $text): Complex
+    {
+        $text = strtolower(trim($text));
+        if (preg_match('/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))i$/', $text, $m)) {
+            return Complex::of(0.0, (float)$m[1]);
+        }
+        return Complex::parse($text);
+    }
+
+    private static function addValues(int|float|Complex $left, int|float|Complex $right): int|float|Complex
+    {
+        if ($left instanceof Complex || $right instanceof Complex) {
+            return self::toComplex($left)->add(self::toComplex($right));
+        }
+        return $left + $right;
+    }
+
+    private static function subValues(int|float|Complex $left, int|float|Complex $right): int|float|Complex
+    {
+        if ($left instanceof Complex || $right instanceof Complex) {
+            return self::toComplex($left)->sub(self::toComplex($right));
+        }
+        return $left - $right;
+    }
+
+    private static function mulValues(int|float|Complex $left, int|float|Complex $right): int|float|Complex
+    {
+        if ($left instanceof Complex || $right instanceof Complex) {
+            return self::toComplex($left)->mul(self::toComplex($right));
+        }
+        return $left * $right;
+    }
+
+    private static function divValues(int|float|Complex $left, int|float|Complex $right): int|float|Complex
+    {
+        if ($left instanceof Complex || $right instanceof Complex) {
+            $a = self::toComplex($left);
+            $b = self::toComplex($right);
+            $denominator = $b->re * $b->re + $b->im * $b->im;
+            if ($denominator == 0.0) {
+                throw new JxException('Division by zero in binding algebra', 'bag.bind.coerce', true);
+            }
+
+            $numerator = $a->mul($b->conj());
+            return Complex::of(
+                $numerator->re / $denominator,
+                $numerator->im / $denominator,
+            );
+        }
+
+        if ($right == 0) {
+            throw new JxException('Division by zero in binding algebra', 'bag.bind.coerce', true);
+        }
+        return $left / $right;
+    }
+
+    private static function modValues(int|float|Complex $left, int|float|Complex $right): int|float
+    {
+        if ($left instanceof Complex || $right instanceof Complex) {
+            throw new JxException('Modulo is scalar-only in binding algebra', 'bag.bind.coerce', true);
+        }
+        if ($right == 0) {
+            throw new JxException('Division by zero in binding algebra', 'bag.bind.coerce', true);
+        }
+        return fmod((float)$left, (float)$right);
+    }
+
+    private static function negateValue(int|float|Complex $value): int|float|Complex
+    {
+        if ($value instanceof Complex) {
+            return Complex::of(-$value->re, -$value->im);
+        }
+        return -$value;
+    }
+
+    private static function toComplex(int|float|Complex $value): Complex
+    {
+        return $value instanceof Complex ? $value : Complex::of((float)$value, 0.0);
+    }
+
+    private static function callSafeFunction(string $name, int|float|Complex $value): int|float|Complex
+    {
+        return match ($name) {
+            'mag' => $value instanceof Complex ? $value->mag() : abs($value),
+            'conj' => $value instanceof Complex ? $value->conj() : $value,
+            'real' => $value instanceof Complex ? $value->re : $value,
+            'imag' => $value instanceof Complex ? $value->im : 0.0,
+            default => throw new JxException('Unsupported function in binding algebra', 'bag.bind.coerce', true, ['function' => $name]),
+        };
     }
 
     private static function renderTemplate(string $template, mixed $current, array $scope): string
