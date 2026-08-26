@@ -12,8 +12,8 @@ unset($jxRuntime);
  * XI historically exposed set(key, value). The canonical JX Bag deliberately
  * keeps its own mutation law and uses write(node, value) for one-shot writes.
  * This wrapper preserves the XI call surface while ensuring the storage,
- * capacity accounting, RefSign authorization, and serialization all belong to
- * one canonical jx\Bag.
+ * capacity accounting, RefSign authorization, data-source bindings, and
+ * serialization all belong to one canonical jx\Bag.
  *
  * Secrets never belong in host-visible channel Bags.
  */
@@ -69,6 +69,36 @@ final class Bag
     public function all(): array
     {
         return $this->inner->all();
+    }
+
+    /**
+     * Bind this channel Bag to a named source through the canonical JX Bag.
+     * No live SQL/NoSQL connection is retained here.
+     */
+    public function bind(
+        string $source,
+        string $through,
+        string $at = '_default',
+        string $mode = 'auto',
+        array $with = [],
+    ): string {
+        return $this->inner->bind($source, $through, $at, $mode, $with);
+    }
+
+    public function unbind(string $id): bool
+    {
+        return $this->inner->unbind($id);
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function bindings(): array
+    {
+        return $this->inner->bindings();
+    }
+
+    public function restoreBindings(array $bindings): void
+    {
+        $this->inner->restoreBindings($bindings);
     }
 
     /** @param list<string> $keys */
