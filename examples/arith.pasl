@@ -1,0 +1,4 @@
+// pure arithmetic — lowered to bytecode by the executable compiler
+$x = 40;
+$y = 2;
+$z = $x + $y;

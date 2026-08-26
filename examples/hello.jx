@@ -1,0 +1,5 @@
+// jx sample — bags + handshake + quotient (interpreted by jx-run.php)
+bag = Bag.underwrite(256);
+ref = bag.sign("msg");
+bag.set("hello-jx").commit(ref);
+q = bag.quotient();
