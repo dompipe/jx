@@ -1,0 +1,5 @@
+{
+  "id": "delivery",
+  "entry": "bootstrap.php",
+  "depends": ["core"]
+}

@@ -1,0 +1,5 @@
+{
+  "id": "decimals",
+  "entry": "Decimal.php",
+  "depends": ["core"]
+}

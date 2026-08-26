@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "source_dir": "plugins",
+  "description": "Single source directory for all jx module plugins. Install one at a time; new plugins append last after host assesses need.",
+  "plugins": [
+    {
+      "id": "core",
+      "name": "jx Core",
+      "path": "core",
+      "required": true,
+      "provides": ["Bag", "Task", "Page", "Book", "RefSign", "Sym"]
+    },
+    {
+      "id": "decimals",
+      "name": "Decimals",
+      "path": "decimals",
+      "required": true,
+      "provides": ["Decimal", "decimal arithmetic"]
+    },
+    {
+      "id": "complex",
+      "name": "Complex Numbers",
+      "path": "complex",
+      "required": true,
+      "provides": ["Complex"]
+    },
+    {
+      "id": "delivery",
+      "name": "Delivery",
+      "path": "delivery",
+      "required": true,
+      "provides": ["Delivery"]
+    },
+    {
+      "id": "smart-compiler",
+      "name": "Smart Compiler Table",
+      "path": "smart-compiler",
+      "required": true,
+      "provides": ["SmartTable", "extrude", "Resistant"]
+    },
+    {
+      "id": "const",
+      "name": "Const",
+      "path": "const",
+      "required": true,
+      "provides": ["const", "ConstBox"]
+    },
+    {
+      "id": "lang",
+      "name": "Language Engine Bridge",
+      "path": "lang",
+      "required": true,
+      "provides": ["JxEngine", "jx-run"]
+    },
+    {
+      "id": "intro",
+      "name": "Introduction Materials",
+      "path": "intro",
+      "required": false,
+      "provides": ["docs", "examples"]
+    }
+  ]
+}

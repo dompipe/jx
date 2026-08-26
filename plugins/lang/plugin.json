@@ -1,0 +1,5 @@
+{
+  "id": "lang",
+  "entry": "bootstrap.php",
+  "depends": ["core", "smart-compiler"]
+}

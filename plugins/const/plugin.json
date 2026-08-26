@@ -1,0 +1,5 @@
+{
+  "id": "const",
+  "entry": "bootstrap.php",
+  "depends": ["core"]
+}
