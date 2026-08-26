@@ -6,6 +6,12 @@ if (!class_exists(\jx\Bag::class, false) && is_file($jxRuntime)) {
 }
 unset($jxRuntime);
 
+$jxRefId = dirname(__DIR__, 3) . '/jx/RefId.php';
+if (!class_exists(\jx\RefId::class, false) && is_file($jxRefId)) {
+    require_once $jxRefId;
+}
+unset($jxRefId);
+
 /**
  * XI compatibility adapter over the canonical JX Bag.
  *
@@ -13,36 +19,48 @@ unset($jxRuntime);
  * keeps its own mutation law and uses write(node, value) for one-shot writes.
  * This wrapper preserves the XI call surface while ensuring the storage,
  * capacity accounting, RefSign authorization, data-source bindings,
- * coercion, and serialization all belong to one canonical jx\Bag.
+ * coercion, RefId identity/call memory, and serialization all belong to JX.
  *
- * Secrets never belong in host-visible channel Bags.
+ * Every XI Bag installs a RefId at construction. The RefId owns a separate,
+ * developer-sized bounded segment; it never expands or writes through the Bag's
+ * own memory segment. Secrets never belong in host-visible channel Bags.
  */
 final class Bag
 {
     private const SERIAL_VERSION = 'jx.bag/1';
 
     private \jx\Bag $inner;
+    private \jx\RefId $refId;
 
     /** @param array<string,mixed> $data */
-    public function __construct(array $data = [], ?int $capacity = null)
+    public function __construct(array $data = [], ?int $capacity = null, int $refSegmentBytes = 4096)
     {
         $capacity ??= max(65_536, strlen(serialize($data)) * 2 + 256);
         $this->inner = \jx\Bag::underwrite($capacity);
+        $this->refId = \jx\RefIds::install(
+            $this->inner,
+            'bag',
+            null,
+            max(256, $refSegmentBytes),
+            1,
+            ['id', 'capacity', 'used', 'available', 'bindings'],
+        );
 
         foreach ($data as $key => $value) {
             $this->set((string)$key, $value);
         }
+        $this->refreshRefId();
     }
 
-    public static function empty(int $capacity = 65_536): self
+    public static function empty(int $capacity = 65_536, int $refSegmentBytes = 4096): self
     {
-        return new self([], $capacity);
+        return new self([], $capacity, $refSegmentBytes);
     }
 
     /** @param array<string,mixed> $data */
-    public static function from(array $data, ?int $capacity = null): self
+    public static function from(array $data, ?int $capacity = null, int $refSegmentBytes = 4096): self
     {
-        return new self($data, $capacity);
+        return new self($data, $capacity, $refSegmentBytes);
     }
 
     public function get(string $key, mixed $default = null): mixed
@@ -66,6 +84,7 @@ final class Bag
             return;
         }
         $this->inner->write($key, $value);
+        $this->refreshRefId();
     }
 
     public function has(string $key): bool
@@ -92,12 +111,16 @@ final class Bag
         string $mode = 'auto',
         array $with = [],
     ): string {
-        return $this->inner->bind($source, $through, $at, $mode, $with);
+        $id = $this->inner->bind($source, $through, $at, $mode, $with);
+        $this->refreshRefId();
+        return $id;
     }
 
     public function unbind(string $id): bool
     {
-        return $this->inner->unbind($id);
+        $removed = $this->inner->unbind($id);
+        if ($removed) $this->refreshRefId();
+        return $removed;
     }
 
     /** @return list<array<string,mixed>> */
@@ -109,12 +132,32 @@ final class Bag
     public function restoreBindings(array $bindings): void
     {
         $this->inner->restoreBindings($bindings);
+        $this->refreshRefId();
+    }
+
+    /**
+     * Every Bag has a RefId. Its memory is a separate bounded segment and its
+     * call writer may address methods/functions without writing target memory.
+     */
+    public function refId(): \jx\RefId
+    {
+        return $this->refId;
+    }
+
+    /** Refresh the RefId's filtered size/state projection of this Bag. */
+    public function refreshRefId(): void
+    {
+        $this->refId->capture(
+            $this->inner,
+            1,
+            ['id', 'capacity', 'used', 'available', 'bindings'],
+        );
     }
 
     /** @param list<string> $keys */
     public function dilate(array $keys): self
     {
-        $out = self::empty(max(65_536, $this->inner->capacity()));
+        $out = self::empty(max(65_536, $this->inner->capacity()), $this->refId->segmentBytes());
         foreach ($keys as $key) {
             if ($this->has($key)) {
                 $out->set($key, $this->get($key));
@@ -138,6 +181,10 @@ final class Bag
     /**
      * Persist both Bag data and declarative source bindings.
      *
+     * RefId itself is process-local identity and call memory; the serialized
+     * descriptor is included for state/provenance, but restoring a Bag installs
+     * a fresh live RefId for the new process/object instance.
+     *
      * The envelope is versioned so ChannelBus can restore bindings after a
      * process restart. fromJson() remains compatible with legacy flat Bag JSON.
      */
@@ -148,6 +195,7 @@ final class Bag
             'capacity' => $this->inner->capacity(),
             'data' => $this->inner->all(),
             'bindings' => $this->inner->bindings(),
+            'refid' => $this->refId->jsonSerialize(),
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}';
     }
 
@@ -162,13 +210,14 @@ final class Bag
             $data = is_array($decoded['data'] ?? null) ? $decoded['data'] : [];
             $bindings = is_array($decoded['bindings'] ?? null) ? $decoded['bindings'] : [];
             $storedCapacity = max(0, (int)($decoded['capacity'] ?? 0));
+            $storedRefSegment = max(256, (int)($decoded['refid']['segment']['capacity'] ?? 4096));
             $resolvedCapacity = $capacity ?? max(
                 65_536,
                 $storedCapacity,
                 strlen(serialize($data)) * 2 + 256,
             );
 
-            $bag = self::from($data, $resolvedCapacity);
+            $bag = self::from($data, $resolvedCapacity, $storedRefSegment);
             $bag->restoreBindings($bindings);
             return $bag;
         }
