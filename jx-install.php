@@ -3,7 +3,7 @@
 /**
  * jx installer — plugins from one source dir; one-at-a-time; dual backups.
  * Allow gate: windows + mac + linux + web (jx). Non-portable = hard reject.
- * Errors collect into jxerr.log (multi-error); condensed summary on stderr.
+ * Errors collect into jxerr.log (multi-error) with mandatory line numbers.
  */
 
 $root = __DIR__;
@@ -17,19 +17,20 @@ $errLog = $root . '/jxerr.log';
 
 const JX_REQUIRED_TARGETS = ['windows', 'mac', 'linux', 'web'];
 
-/** @var list<array{code:string,plugin:string,file:?string,message:string}> */
+/** @var list<array{code:string,plugin:string,file:?string,line:?int,message:string}> */
 $JX_ERROR_BUFFER = [];
 
 /**
- * Record one error (never aborts by itself).
+ * Record one error. Line number is required whenever a file is known.
  */
-function jx_err(string $code, string $plugin, string $message, ?string $file = null): void
+function jx_err(string $code, string $plugin, string $message, ?string $file = null, ?int $line = null): void
 {
     global $JX_ERROR_BUFFER;
     $JX_ERROR_BUFFER[] = [
         'code' => strtoupper($code),
         'plugin' => $plugin,
         'file' => $file,
+        'line' => $line,
         'message' => trim($message),
     ];
 }
@@ -40,25 +41,57 @@ function jx_err_count(): int
     return count($JX_ERROR_BUFFER);
 }
 
-function jx_err_clear(): void
+/**
+ * Find 1-based line numbers of every match of $pattern in $body.
+ * @return list<int>
+ */
+function jx_match_lines(string $body, string $pattern): array
 {
-    global $JX_ERROR_BUFFER;
-    $JX_ERROR_BUFFER = [];
+    $lines = [];
+    if (preg_match_all($pattern, $body, $m, PREG_OFFSET_CAPTURE)) {
+        foreach ($m[0] as $hit) {
+            $offset = $hit[1];
+            $lines[] = substr_count(substr($body, 0, $offset), "\n") + 1;
+        }
+    }
+    return $lines !== [] ? $lines : [];
 }
 
-/**
- * Format one error line for log / stderr.
- */
+/** First matching line, or null. */
+function jx_first_match_line(string $body, string $pattern): ?int
+{
+    $lines = jx_match_lines($body, $pattern);
+    return $lines[0] ?? null;
+}
+
+/** Parse "on line N" from php -l output. */
+function jx_parse_lint_line(string $lint): ?int
+{
+    if (preg_match('/on line\s+(\d+)/i', $lint, $m)) {
+        return (int)$m[1];
+    }
+    if (preg_match('/:(\d+)\s*$/m', $lint, $m)) {
+        return (int)$m[1];
+    }
+    return null;
+}
+
 function jx_err_format_line(array $e, int $n): string
 {
-    $loc = $e['file'] !== null && $e['file'] !== '' ? " @ {$e['file']}" : '';
+    $loc = '';
+    if ($e['file'] !== null && $e['file'] !== '') {
+        $loc = ' @ ' . $e['file'];
+        if ($e['line'] !== null && $e['line'] > 0) {
+            $loc .= ':' . $e['line'];
+        } else {
+            $loc .= ':?';
+        }
+    } elseif ($e['line'] !== null && $e['line'] > 0) {
+        $loc = ' @ line ' . $e['line'];
+    }
     return sprintf('%2d. [%s] %s%s — %s', $n, $e['code'], $e['plugin'], $loc, $e['message']);
 }
 
-/**
- * Write buffer to jxerr.log; return condensed multi-error text for stderr.
- * Clears the buffer.
- */
 function jx_err_flush(string $errLog, string $context = ''): string
 {
     global $JX_ERROR_BUFFER;
@@ -70,7 +103,6 @@ function jx_err_flush(string $errLog, string $context = ''): string
     $ts = date('Y-m-d H:i:s T');
     $ctx = $context !== '' ? $context : 'jx';
 
-    // --- jxerr.log block ---
     $log = [];
     $log[] = str_repeat('=', 64);
     $log[] = "jxerr  {$ts}";
@@ -84,7 +116,6 @@ function jx_err_flush(string $errLog, string $context = ''): string
     $log[] = '';
     file_put_contents($errLog, implode("\n", $log) . "\n", FILE_APPEND | LOCK_EX);
 
-    // --- condensed stderr ---
     $out = [];
     $out[] = "jx: {$n} error" . ($n === 1 ? '' : 's') . " ({$ctx})";
     foreach ($JX_ERROR_BUFFER as $i => $e) {
@@ -96,7 +127,6 @@ function jx_err_flush(string $errLog, string $context = ''): string
     return implode("\n", $out);
 }
 
-/** Standard hard-reject banner + flushed errors. */
 function jx_hard_reject(string $errLog, string $plugin, string $context): void
 {
     $body = jx_err_flush($errLog, $context);
@@ -215,6 +245,28 @@ function backup_full(string $hostRoot, string $backupFull): string
 }
 
 /**
+ * Emit one error per matching line for a portability pattern.
+ * @return bool true if any match
+ */
+function jx_err_each_line(
+    string $code,
+    string $plugin,
+    string $message,
+    string $rel,
+    string $body,
+    string $pattern,
+): bool {
+    $lines = jx_match_lines($body, $pattern);
+    if ($lines === []) {
+        return false;
+    }
+    foreach ($lines as $ln) {
+        jx_err($code, $plugin, $message, $rel, $ln);
+    }
+    return true;
+}
+
+/**
  * @return array{allowed:bool,targets:array<string,bool>}
  */
 function check_plugin_targets(string $id, array $catalog, string $pluginRoot): array
@@ -228,13 +280,14 @@ function check_plugin_targets(string $id, array $catalog, string $pluginRoot): a
     $targetOk = array_fill_keys($required, false);
 
     if (!isset($byId[$id])) {
-        jx_err('E-CATALOG', $id, 'not in catalog');
+        jx_err('E-CATALOG', $id, 'not in catalog', 'plugins/catalog.json', null);
         return ['allowed' => false, 'targets' => $targetOk];
     }
 
     $meta = $byId[$id];
     $declared = $meta['targets'] ?? [];
     $pluginJsonPath = $pluginRoot . '/' . $meta['path'] . '/plugin.json';
+    $pluginJsonRel = $meta['path'] . '/plugin.json';
     $pj = [];
     if (is_file($pluginJsonPath)) {
         $pj = json_decode((string)file_get_contents($pluginJsonPath), true) ?: [];
@@ -242,21 +295,31 @@ function check_plugin_targets(string $id, array $catalog, string $pluginRoot): a
             $declared = array_values(array_unique(array_merge($declared, $pj['targets'])));
         }
     } else {
-        jx_err('E-MANIFEST', $id, 'missing plugin.json', $meta['path'] . '/plugin.json');
+        jx_err('E-MANIFEST', $id, 'missing plugin.json', $pluginJsonRel, 1);
     }
+
+    // catalog line hint: search catalog file for plugin id
+    $catalogBody = (string)@file_get_contents($pluginRoot . '/catalog.json');
+    $catalogLine = jx_first_match_line($catalogBody, '/"id"\s*:\s*"' . preg_quote($id, '/') . '"/');
 
     foreach ($required as $t) {
         if (in_array($t, $declared, true)) {
             $targetOk[$t] = true;
         } else {
             $targetOk[$t] = false;
-            jx_err('E-TARGET', $id, "missing required target '{$t}' (need windows, mac, linux, web)");
+            jx_err(
+                'E-TARGET',
+                $id,
+                "missing required target '{$t}' (need windows, mac, linux, web)",
+                'plugins/catalog.json',
+                $catalogLine
+            );
         }
     }
 
     $src = $pluginRoot . '/' . $meta['path'];
     if (!is_dir($src)) {
-        jx_err('E-SOURCE', $id, 'source directory missing', $meta['path']);
+        jx_err('E-SOURCE', $id, 'source directory missing', $meta['path'], 1);
         foreach ($required as $t) {
             $targetOk[$t] = false;
         }
@@ -268,7 +331,7 @@ function check_plugin_targets(string $id, array $catalog, string $pluginRoot): a
     $entryRel = $meta['path'] . '/' . $entryName;
 
     if (!is_file($entry)) {
-        jx_err('E-ENTRY', $id, 'entry file not found', $entryRel);
+        jx_err('E-ENTRY', $id, 'entry file not found', $entryRel, 1);
         foreach ($required as $t) {
             $targetOk[$t] = false;
         }
@@ -277,7 +340,8 @@ function check_plugin_targets(string $id, array $catalog, string $pluginRoot): a
         $lint = @shell_exec(escapeshellarg($php) . ' -l ' . escapeshellarg($entry) . ' 2>&1');
         if (is_string($lint) && $lint !== '' && !str_contains($lint, 'No syntax errors')) {
             $detail = trim(preg_replace('/\s+/', ' ', $lint) ?? $lint);
-            jx_err('E-SYNTAX', $id, $detail, $entryRel);
+            $lintLine = jx_parse_lint_line($lint);
+            jx_err('E-SYNTAX', $id, $detail, $entryRel, $lintLine ?? 1);
             foreach ($required as $t) {
                 $targetOk[$t] = false;
             }
@@ -286,7 +350,7 @@ function check_plugin_targets(string $id, array $catalog, string $pluginRoot): a
             if ($code !== '') {
                 $tokens = @token_get_all($code);
                 if ($tokens === [] || $tokens === false) {
-                    jx_err('E-SYNTAX', $id, 'parse failed (token_get_all)', $entryRel);
+                    jx_err('E-SYNTAX', $id, 'parse failed (token_get_all)', $entryRel, 1);
                     foreach ($required as $t) {
                         $targetOk[$t] = false;
                     }
@@ -305,33 +369,84 @@ function check_plugin_targets(string $id, array $catalog, string $pluginRoot): a
         $rel = $meta['path'] . '/' . $file->getFilename();
         $body = (string)file_get_contents($file->getPathname());
 
-        if (preg_match('/\bdl\s*\(/', $body)) {
-            jx_err('E-PORTABLE', $id, 'dl() is not portable — outside this version', $rel);
+        if (jx_err_each_line(
+            'E-PORTABLE',
+            $id,
+            'dl() is not portable — outside this version',
+            $rel,
+            $body,
+            '/\bdl\s*\(/'
+        )) {
             foreach ($required as $t) {
                 $targetOk[$t] = false;
             }
         }
-        if (preg_match('/\bcom_\w+\s*\(/i', $body) || preg_match('/\bCOM\s*\(/', $body)) {
-            jx_err('E-PORTABLE', $id, 'COM/Windows-only API — not portable', $rel);
+
+        if (jx_err_each_line(
+            'E-PORTABLE',
+            $id,
+            'COM/Windows-only API — not portable',
+            $rel,
+            $body,
+            '/\bcom_\w+\s*\(|\bCOM\s*\(/i'
+        )) {
             $targetOk['mac'] = false;
             $targetOk['linux'] = false;
             $targetOk['web'] = false;
         }
-        if (preg_match('/\\+[A-Za-z]/|\b[A-Z]:\\/', $body) && !preg_match('/DIRECTORY_SEPARATOR|php_uname|PHP_OS/', $body)) {
-            jx_err('E-PORTABLE', $id, 'hardcoded Windows paths without portable fallback', $rel);
-            $targetOk['mac'] = false;
-            $targetOk['linux'] = false;
-            $targetOk['web'] = false;
+
+        if (jx_err_each_line(
+            'E-PORTABLE',
+            $id,
+            'hardcoded Windows paths without portable fallback',
+            $rel,
+            $body,
+            '/\\+[A-Za-z]|\b[A-Z]:\\/'
+        )) {
+            // only if no portable API nearby is still a hard flag; line is recorded
+            if (!preg_match('/DIRECTORY_SEPARATOR|php_uname|PHP_OS/', $body)) {
+                $targetOk['mac'] = false;
+                $targetOk['linux'] = false;
+                $targetOk['web'] = false;
+            }
         }
-        if (preg_match('/php_sapi_name\s*\(\s*\)\s*===\s*[\'"]cli[\'"]/', $body)
-            && !preg_match('/(web|fallback|else\b|!==\s*[\'"]cli[\'"])/i', $body)) {
-            jx_err('E-WEB', $id, 'CLI-only SAPI gate without web (jx) fallback', $rel);
-            $targetOk['web'] = false;
+
+        // CLI-only: report each matching line
+        if (preg_match_all(
+            '/php_sapi_name\s*\(\s*\)\s*===\s*[\'"]cli[\'"]/',
+            $body,
+            $mm,
+            PREG_OFFSET_CAPTURE
+        )) {
+            $hasFallback = (bool)preg_match('/(web|fallback|else\b|!==\s*[\'"]cli[\'"])/i', $body);
+            if (!$hasFallback) {
+                foreach ($mm[0] as $hit) {
+                    $ln = substr_count(substr($body, 0, $hit[1]), "\n") + 1;
+                    jx_err('E-WEB', $id, 'CLI-only SAPI gate without web (jx) fallback', $rel, $ln);
+                    $targetOk['web'] = false;
+                }
+            }
         }
-        if (preg_match('/\b(curl_init|mysqli_connect|pg_connect)\s*\(/', $body)
-            && preg_match('/extension_loaded\s*\(/', $body) === 0
-            && preg_match('/function_exists\s*\(/', $body) === 0) {
-            jx_err('E-GUARD', $id, 'extension call without function_exists/extension_loaded guard', $rel);
+
+        if (preg_match_all(
+            '/\b(curl_init|mysqli_connect|pg_connect)\s*\(/',
+            $body,
+            $mm,
+            PREG_OFFSET_CAPTURE
+        )) {
+            $guarded = preg_match('/extension_loaded\s*\(|function_exists\s*\(/', $body) === 1;
+            if (!$guarded) {
+                foreach ($mm[0] as $hit) {
+                    $ln = substr_count(substr($body, 0, $hit[1]), "\n") + 1;
+                    jx_err(
+                        'E-GUARD',
+                        $id,
+                        'extension call without function_exists/extension_loaded guard',
+                        $rel,
+                        $ln
+                    );
+                }
+            }
         }
     }
 
@@ -345,7 +460,9 @@ function check_plugin_targets(string $id, array $catalog, string $pluginRoot): a
         jx_err(
             'E-REJECT',
             $id,
-            'non-portable or incomplete targets — not possible in this jx version'
+            'non-portable or incomplete targets — not possible in this jx version',
+            $pluginJsonRel,
+            1
         );
     }
 
@@ -375,7 +492,7 @@ function install_plugin(
         $byId[$p['id']] = $p;
     }
     if (!isset($byId[$id])) {
-        jx_err('E-CATALOG', $id, 'unknown plugin');
+        jx_err('E-CATALOG', $id, 'unknown plugin', 'plugins/catalog.json', null);
         jx_hard_reject($errLog, $id, "install:{$id}");
     }
     $meta = $byId[$id];
@@ -393,7 +510,6 @@ function install_plugin(
     }
 
     if (jx_err_count() > 0) {
-        // soft notes only
         $notes = jx_err_flush($errLog, "install-notes:{$id}");
         fwrite(STDERR, $notes . "\n");
     }
@@ -404,7 +520,17 @@ function install_plugin(
         $pj = json_decode((string)file_get_contents($pluginJson), true) ?: [];
         foreach ($pj['depends'] ?? [] as $dep) {
             if (!in_array($dep, $state['order'], true)) {
-                jx_err('E-DEPEND', $id, "dependency not installed: {$dep}");
+                $depLine = jx_first_match_line(
+                    (string)file_get_contents($pluginJson),
+                    '/"' . preg_quote((string)$dep, '/') . '"/'
+                );
+                jx_err(
+                    'E-DEPEND',
+                    $id,
+                    "dependency not installed: {$dep}",
+                    $meta['path'] . '/plugin.json',
+                    $depLine ?? 1
+                );
                 $text = jx_err_flush($errLog, "install:{$id}");
                 fwrite(STDERR, $text . "\n");
                 exit(1);
@@ -434,7 +560,7 @@ function install_plugin(
     if (is_file($entry)) {
         $result = require $entry;
         if (is_array($result) && isset($result['ok']) && !$result['ok']) {
-            jx_err('E-BOOT', $id, 'bootstrap reported failure');
+            jx_err('E-BOOT', $id, 'bootstrap reported failure', $meta['path'] . '/' . ($pj['entry'] ?? 'bootstrap.php'), 1);
             $text = jx_err_flush($errLog, "bootstrap:{$id}");
             fwrite(STDERR, $text . "\n");
             exit(1);
@@ -570,7 +696,7 @@ switch ($cmd) {
     case '--help':
         echo "jx-install.php list|status|check-targets [id]|install-required|install <id>|backup-full|restore-full <ts>\n";
         echo "gate: windows mac linux web — non-portable = HARD REJECT\n";
-        echo "errors: multi-collect → jxerr.log + condensed stderr\n";
+        echo "errors: multi-collect with file:line → jxerr.log\n";
         break;
 
     default:
