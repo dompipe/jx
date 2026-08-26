@@ -5,6 +5,7 @@ require_once dirname(__DIR__) . '/jx/bootstrap.php';
 use jx\Bag;
 use jx\JxException;
 use jx\Plugins;
+use jx\plugins\AudioAnalysisPlugin;
 use jx\plugins\ChartsPlugin;
 use jx\plugins\MediaPlugin;
 
@@ -15,8 +16,10 @@ function pluginSmoke(bool $ok, string $message): void
 
 pluginSmoke(Plugins::has('charts'), 'Charts plugin registered');
 pluginSmoke(Plugins::has('media'), 'Media plugin registered');
+pluginSmoke(Plugins::has('audio-analysis'), 'Audio analysis plugin registered');
 pluginSmoke(in_array('chart.candles', Plugins::get('charts')->capabilities(), true), 'candles capability');
 pluginSmoke(in_array('media.mp4', Plugins::get('media')->capabilities(), true), 'mp4 capability');
+pluginSmoke(in_array('audio.frequency-buckets', Plugins::get('audio-analysis')->capabilities(), true), 'audio bucket capability');
 
 $market = Bag::underwrite(32_768);
 $binding = $market->bind('sql.market', 'ohlc-5m', 'candles', 'auto');
@@ -53,6 +56,38 @@ pluginSmoke($mp3Desc['type'] === 'audio', 'mp3 becomes audio control');
 pluginSmoke($mp3Desc['mime'] === 'audio/mpeg', 'mp3 MIME');
 pluginSmoke(($mp3Desc['with']['volume'] ?? null) === 0.75, 'mp3 volume');
 
+// Simple spectrum form: bucket count only, host chooses 0..Nyquist from the decoded stream.
+$spectrum = AudioAnalysisPlugin::spectrum('theme', 'audio', 'spectrum', 24, [
+    'measure' => 'db',
+    'smoothing' => 0.75,
+]);
+$spectrumDesc = $spectrum->jsonSerialize();
+pluginSmoke(($spectrumDesc['frequency']['buckets'] ?? null) === 24, 'bucket-only spectrum count');
+pluginSmoke(($spectrumDesc['frequency']['range'] ?? null) === 'available', 'bucket-only spectrum uses available range');
+pluginSmoke(!isset($spectrumDesc['frequency']['from'], $spectrumDesc['frequency']['to']), 'bucket-only spectrum omits named frequencies');
+pluginSmoke(($spectrumDesc['target']['bag'] ?? null) === 'audio', 'spectrum targets Bag');
+pluginSmoke(($spectrumDesc['target']['at'] ?? null) === 'spectrum', 'spectrum targets Bag node');
+
+// Precision form: explicitly name a frequency window and still choose bucket count.
+$rangedSpectrum = AudioAnalysisPlugin::spectrumRange(
+    'theme', 'audio', 'voice', 80.0, 1200.0, 16,
+    ['scale' => 'log', 'measure' => 'power'],
+);
+$rangedDesc = $rangedSpectrum->jsonSerialize();
+pluginSmoke(($rangedDesc['frequency']['from'] ?? null) === 80.0, 'ranged spectrum from Hz');
+pluginSmoke(($rangedDesc['frequency']['to'] ?? null) === 1200.0, 'ranged spectrum to Hz');
+pluginSmoke(($rangedDesc['frequency']['buckets'] ?? null) === 16, 'ranged spectrum bucket count');
+pluginSmoke(($rangedDesc['frequency']['scale'] ?? null) === 'log', 'ranged spectrum log scale');
+
+// A chart consumes the analysis Bag; it does not know or care that Media produced it.
+$spectrumBars = ChartsPlugin::bar(
+    'spectrum-bars', 'audio', 'spectrum', 'bucket', 'value',
+);
+$spectrumBarDesc = $spectrumBars->jsonSerialize();
+pluginSmoke(($spectrumBarDesc['source']['bag'] ?? null) === 'audio', 'spectrum bar uses analysis Bag');
+pluginSmoke($spectrumBarDesc['fields']['x'] === 'bucket', 'spectrum bar x is bucket');
+pluginSmoke($spectrumBarDesc['fields']['series'][0]['field'] === 'value', 'spectrum bar y is value');
+
 $media = Bag::underwrite(16_384);
 $mediaBinding = $media->bind('sql.library', 'current-video', 'uri', 'auto', ['as' => 'string']);
 $mp4 = MediaPlugin::mp4FromBag('player', 'media', 'uri', [
@@ -83,5 +118,13 @@ try {
     $failed = true;
 }
 pluginSmoke($failed, 'invalid media binding id rejected');
+
+$failed = false;
+try {
+    AudioAnalysisPlugin::spectrumRange('theme', 'audio', 'bad', 1000.0, 100.0, 8);
+} catch (JxException) {
+    $failed = true;
+}
+pluginSmoke($failed, 'invalid reversed frequency range rejected');
 
 echo "jx-plugins-smoke: ok\n";
