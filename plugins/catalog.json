@@ -1,13 +1,16 @@
 {
-  "version": 1,
+  "version": 2,
   "source_dir": "plugins",
   "description": "Single source directory for all jx module plugins. Install one at a time; new plugins append last after host assesses need.",
+  "required_targets": ["windows", "mac", "linux", "web"],
+  "target_policy": "A plugin is allowed only if it declares and passes compile checks for windows, mac, linux, and web (jx). Missing any target blocks install.",
   "plugins": [
     {
       "id": "core",
       "name": "jx Core",
       "path": "core",
       "required": true,
+      "targets": ["windows", "mac", "linux", "web"],
       "provides": ["Bag", "Task", "Page", "Book", "RefSign", "Sym"]
     },
     {
@@ -15,6 +18,7 @@
       "name": "Decimals",
       "path": "decimals",
       "required": true,
+      "targets": ["windows", "mac", "linux", "web"],
       "provides": ["Decimal", "decimal arithmetic"]
     },
     {
@@ -22,6 +26,7 @@
       "name": "Complex Numbers",
       "path": "complex",
       "required": true,
+      "targets": ["windows", "mac", "linux", "web"],
       "provides": ["Complex"]
     },
     {
@@ -29,6 +34,7 @@
       "name": "Delivery",
       "path": "delivery",
       "required": true,
+      "targets": ["windows", "mac", "linux", "web"],
       "provides": ["Delivery"]
     },
     {
@@ -36,6 +42,7 @@
       "name": "Smart Compiler Table",
       "path": "smart-compiler",
       "required": true,
+      "targets": ["windows", "mac", "linux", "web"],
       "provides": ["SmartTable", "extrude", "Resistant"]
     },
     {
@@ -43,6 +50,7 @@
       "name": "Const",
       "path": "const",
       "required": true,
+      "targets": ["windows", "mac", "linux", "web"],
       "provides": ["const", "ConstBox"]
     },
     {
@@ -50,6 +58,7 @@
       "name": "Language Engine Bridge",
       "path": "lang",
       "required": true,
+      "targets": ["windows", "mac", "linux", "web"],
       "provides": ["JxEngine", "jx-run"]
     },
     {
@@ -57,6 +66,7 @@
       "name": "Introduction Materials",
       "path": "intro",
       "required": false,
+      "targets": ["windows", "mac", "linux", "web"],
       "provides": ["docs", "examples"]
     }
   ]

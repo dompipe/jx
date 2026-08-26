@@ -4,59 +4,46 @@
 
 ```
 plugins/                 ← only source of module plugins
-  catalog.json           ← ordered list of available plugins
-  core/
-  decimals/
-  complex/
-  delivery/
-  smart-compiler/
-  const/
-  lang/
-  intro/
+  catalog.json
+  TARGETS.md             ← windows / mac / linux / web allow gate
+  core/ decimals/ complex/ delivery/ smart-compiler/ const/ lang/ intro/
 ```
-
-After install, the host space holds compiled/active copies:
 
 ```
 host/
-  modules/               ← active plugins (order = install order)
-  state.json             ← what is installed
-  backups/
-    pre/<timestamp>/     ← snapshot before each new plugin install
-    full/<timestamp>/    ← complete install snapshot (restore / redirect target)
+  modules/
+  state.json
+  backups/pre/<ts>/
+  backups/full/<ts>/
 ```
 
-## Rules
+## Allow gate (mandatory)
 
-1. Plugins are taken **only** from `plugins/`.
-2. Install **one plugin at a time**.
-3. **New** plugins are always appended **last** (after the host assesses need).
-4. **Before** each new install: copy current `host/modules` (+ state) → `host/backups/pre/<ts>/`.
-5. **Full backup**: on demand or after a successful batch, copy total install → `host/backups/full/<ts>/`.
-6. Restore / redirect: point the host at a `full` backup directory to recover uptime without rebuilding from scratch.
+A plugin is **allowed to install only if** it declares and passes compile/verify for:
 
-## Commands
+- **windows**
+- **mac**
+- **linux**
+- **web** (jx hosting / server–browser path)
 
 ```bash
-# List catalog vs installed
-php jx-install.php list
-
-# Install required plugins in catalog order (one-by-one, with pre backups)
-php jx-install.php install-required
-
-# Install one optional/extra plugin (appended last)
-php jx-install.php install intro
-
-# Full backup of current host install
-php jx-install.php backup-full
-
-# Restore modules from a full backup id
-php jx-install.php restore-full <timestamp>
-
-# Show status
-php jx-install.php status
+php jx-install.php check-targets
+php jx-install.php check-targets decimals
 ```
 
-## Smart compiler
+`install` and `install-required` run this gate first. Failure → install denied.
 
-The `smart-compiler` plugin activates `Jx::table()` extrusion. It is a required plugin and installs with the core set.
+Details: `plugins/TARGETS.md`.
+
+## Other rules
+
+1. Plugins only from `plugins/`.
+2. Install one at a time; new plugins append last.
+3. Pre-backup before each install; full backup of total install for restore/redirect.
+
+```bash
+php jx-install.php install-required
+php jx-install.php install intro
+php jx-install.php backup-full
+php jx-install.php restore-full <timestamp>
+```

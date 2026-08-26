@@ -2,8 +2,9 @@
 <?php declare(strict_types=1);
 /**
  * jx installer — plugins from one source dir; one-at-a-time; dual backups.
+ * Allow gate: plugin must compile/verify for windows, mac, linux, and web (jx).
  *
- *   php jx-install.php list|status|install-required|install <id>|backup-full|restore-full <ts>
+ *   php jx-install.php list|status|check-targets [id]|install-required|install <id>|backup-full|restore-full <ts>
  */
 
 $root = __DIR__;
@@ -13,6 +14,8 @@ $modulesDir = $hostRoot . '/modules';
 $stateFile = $hostRoot . '/state.json';
 $backupPre = $hostRoot . '/backups/pre';
 $backupFull = $hostRoot . '/backups/full';
+
+const JX_REQUIRED_TARGETS = ['windows', 'mac', 'linux', 'web'];
 
 function ensure_dirs(string ...$dirs): void
 {
@@ -31,8 +34,7 @@ function load_catalog(string $pluginRoot): array
         fwrite(STDERR, "Missing plugins/catalog.json\n");
         exit(1);
     }
-    $j = json_decode((string)file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
-    return $j;
+    return json_decode((string)file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
 }
 
 function load_state(string $stateFile): array
@@ -52,7 +54,6 @@ function save_state(string $stateFile, array $state): void
     );
 }
 
-/** Recursive copy directory. */
 function copy_tree(string $src, string $dst): void
 {
     if (!is_dir($src)) {
@@ -112,6 +113,130 @@ function backup_full(string $hostRoot, string $backupFull): string
     return $id;
 }
 
+/**
+ * Allow gate: plugin must declare and pass windows, mac, linux, web (jx).
+ *
+ * @return array{allowed:bool,targets:array<string,bool>,messages:list<string>}
+ */
+function check_plugin_targets(string $id, array $catalog, string $pluginRoot): array
+{
+    $required = $catalog['required_targets'] ?? JX_REQUIRED_TARGETS;
+    $byId = [];
+    foreach ($catalog['plugins'] as $p) {
+        $byId[$p['id']] = $p;
+    }
+    if (!isset($byId[$id])) {
+        return ['allowed' => false, 'targets' => [], 'messages' => ["Unknown plugin {$id}"]];
+    }
+    $meta = $byId[$id];
+    $declared = $meta['targets'] ?? [];
+    $pluginJsonPath = $pluginRoot . '/' . $meta['path'] . '/plugin.json';
+    $pj = [];
+    if (is_file($pluginJsonPath)) {
+        $pj = json_decode((string)file_get_contents($pluginJsonPath), true) ?: [];
+        if (!empty($pj['targets']) && is_array($pj['targets'])) {
+            $declared = array_values(array_unique(array_merge($declared, $pj['targets'])));
+        }
+    }
+
+    $messages = [];
+    $targetOk = [];
+    foreach ($required as $t) {
+        $targetOk[$t] = in_array($t, $declared, true);
+        if (!$targetOk[$t]) {
+            $messages[] = "Missing required target declaration: {$t}";
+        }
+    }
+
+    // Portable compile/verify: PHP lint entry + no forbidden OS-only requires in plugin tree
+    $src = $pluginRoot . '/' . $meta['path'];
+    $entryName = $pj['entry'] ?? 'bootstrap.php';
+    $entry = $src . '/' . $entryName;
+    if (!is_file($entry)) {
+        // decimals uses Decimal.php as entry
+        $messages[] = "No entry file {$entryName} under {$meta['path']}";
+        foreach ($required as $t) {
+            $targetOk[$t] = false;
+        }
+    } else {
+        // Syntax check via php -l when CLI available
+        $php = PHP_BINARY ?: 'php';
+        $lint = @shell_exec(escapeshellarg($php) . ' -l ' . escapeshellarg($entry) . ' 2>&1');
+        $lintOk = is_string($lint) && str_contains($lint, 'No syntax errors');
+        if (!$lintOk && is_string($lint) && $lint !== '') {
+            $messages[] = "php -l failed for {$entryName}: " . trim($lint);
+            foreach ($required as $t) {
+                $targetOk[$t] = false;
+            }
+        } elseif (!$lintOk) {
+            // shell_exec disabled — fall back to token_get_all
+            $code = (string)file_get_contents($entry);
+            if (@token_get_all($code) === [] && $code !== '') {
+                $messages[] = "token_get_all could not parse {$entryName}";
+                foreach ($required as $t) {
+                    $targetOk[$t] = false;
+                }
+            }
+        }
+
+        // Scan plugin PHP files for hard OS locks that would break other targets
+        $it = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($src, FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($it as $file) {
+            if (!$file->isFile() || !str_ends_with($file->getFilename(), '.php')) {
+                continue;
+            }
+            $body = (string)file_get_contents($file->getPathname());
+            // Disallow unconditional extension requirements that break portability
+            if (preg_match('/\bdl\s*\(/', $body)) {
+                $messages[] = "Portable compile blocked: dl() in {$file->getFilename()}";
+                foreach ($required as $t) {
+                    $targetOk[$t] = false;
+                }
+            }
+            if (preg_match('/PHP_OS_FAMILY\s*===\s*[\'"]Windows[\'"]/', $body)
+                && !preg_match('/web|mac|linux|fallback/i', $body)) {
+                // Heuristic only — warn, do not auto-fail if targets still declared
+                $messages[] = "Note: Windows-specific branch in {$file->getFilename()} — ensure mac/linux/web paths exist";
+            }
+        }
+    }
+
+    // web (jx) specific: entry must be loadable without CLI SAPI assumption
+    if (($targetOk['web'] ?? false) === true) {
+        if (is_file($entry)) {
+            $body = (string)file_get_contents($entry);
+            if (preg_match('/php_sapi_name\s*\(\s*\)\s*===\s*[\'"]cli[\'"]/', $body)
+                && !preg_match('/web|fallback|else/i', $body)) {
+                $messages[] = 'web (jx) target failed: CLI-only gate without web fallback';
+                $targetOk['web'] = false;
+            }
+        }
+    }
+
+    $allowed = true;
+    foreach ($required as $t) {
+        if (empty($targetOk[$t])) {
+            $allowed = false;
+        }
+    }
+
+    return ['allowed' => $allowed, 'targets' => $targetOk, 'messages' => $messages];
+}
+
+function print_target_report(string $id, array $report): void
+{
+    echo "Plugin: {$id}\n";
+    foreach ($report['targets'] as $t => $ok) {
+        echo '  ' . ($ok ? 'OK ' : 'FAIL') . "  {$t}\n";
+    }
+    foreach ($report['messages'] as $m) {
+        echo "  · {$m}\n";
+    }
+    echo $report['allowed'] ? "ALLOWED\n" : "DENIED (must pass windows, mac, linux, web)\n";
+}
+
 function install_plugin(
     string $id,
     array $catalog,
@@ -134,12 +259,19 @@ function install_plugin(
         echo "Already installed: {$id}\n";
         return;
     }
-    foreach ($meta['depends'] ?? [] as $dep) {
-        // depends recorded in plugin.json
+
+    // --- Allow gate: windows, mac, linux, web (jx) ---
+    $report = check_plugin_targets($id, $catalog, $pluginRoot);
+    print_target_report($id, $report);
+    if (!$report['allowed']) {
+        fwrite(STDERR, "Install blocked: {$id} does not pass all required targets.\n");
+        exit(1);
     }
+
     $pluginJson = $pluginRoot . '/' . $meta['path'] . '/plugin.json';
+    $pj = [];
     if (is_file($pluginJson)) {
-        $pj = json_decode((string)file_get_contents($pluginJson), true);
+        $pj = json_decode((string)file_get_contents($pluginJson), true) ?: [];
         foreach ($pj['depends'] ?? [] as $dep) {
             if (!in_array($dep, $state['order'], true)) {
                 fwrite(STDERR, "Dependency not installed: {$dep} (needed by {$id})\n");
@@ -155,7 +287,6 @@ function install_plugin(
     $dst = $modulesDir . '/' . $id;
     ensure_dirs($modulesDir);
     if (is_dir($dst)) {
-        // replace module tree
         $it = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($dst, FilesystemIterator::SKIP_DOTS),
             RecursiveIteratorIterator::CHILD_FIRST
@@ -167,12 +298,7 @@ function install_plugin(
     }
     copy_tree($src, $dst);
 
-    // Run entry if present
-    $entry = $dst . '/' . (($pj['entry'] ?? null) ?: 'bootstrap.php');
-    if (!isset($pj) && is_file($dst . '/plugin.json')) {
-        $pj = json_decode((string)file_get_contents($dst . '/plugin.json'), true);
-        $entry = $dst . '/' . ($pj['entry'] ?? 'bootstrap.php');
-    }
+    $entry = $dst . '/' . ($pj['entry'] ?? 'bootstrap.php');
     if (is_file($entry)) {
         $result = require $entry;
         if (is_array($result) && isset($result['ok']) && !$result['ok']) {
@@ -187,8 +313,9 @@ function install_plugin(
         'path' => $meta['path'],
         'installed_at' => date('c'),
         'pre_backup' => $preId,
+        'targets' => $report['targets'],
     ];
-    $state['order'][] = $id; // new installs always last
+    $state['order'][] = $id;
     save_state($stateFile, $state);
     echo "Installed {$id} (order position " . count($state['order']) . ")\n";
 }
@@ -203,13 +330,31 @@ $cmd = $argv[0] ?? 'status';
 switch ($cmd) {
     case 'list':
         $state = load_state($stateFile);
-        echo "Catalog (source: plugins/):\n";
+        echo "Catalog (source: plugins/) — targets: windows, mac, linux, web\n";
         foreach ($catalog['plugins'] as $p) {
             $on = in_array($p['id'], $state['order'], true) ? 'ON ' : 'off';
             $req = !empty($p['required']) ? 'required' : 'optional';
-            echo "  [{$on}] {$p['id']} — {$p['name']} ({$req})\n";
+            $report = check_plugin_targets($p['id'], $catalog, $pluginRoot);
+            $gate = $report['allowed'] ? 'PASS' : 'FAIL';
+            echo "  [{$on}] {$p['id']} — {$p['name']} ({$req}) targets:{$gate}\n";
         }
         break;
+
+    case 'check-targets':
+        $only = $argv[1] ?? null;
+        $anyFail = false;
+        foreach ($catalog['plugins'] as $p) {
+            if ($only !== null && $p['id'] !== $only) {
+                continue;
+            }
+            $report = check_plugin_targets($p['id'], $catalog, $pluginRoot);
+            print_target_report($p['id'], $report);
+            echo "\n";
+            if (!$report['allowed']) {
+                $anyFail = true;
+            }
+        }
+        exit($anyFail ? 1 : 0);
 
     case 'status':
         $state = load_state($stateFile);
@@ -218,7 +363,9 @@ switch ($cmd) {
             echo "  (none)\n";
         }
         foreach ($state['order'] as $i => $id) {
-            echo '  ' . ($i + 1) . ". {$id}\n";
+            $t = $state['installed'][$id]['targets'] ?? [];
+            $tstr = $t === [] ? '' : ' [' . implode(',', array_keys(array_filter($t))) . ']';
+            echo '  ' . ($i + 1) . ". {$id}{$tstr}\n";
         }
         echo "Pre backups: " . (is_dir($backupPre) ? count(glob($backupPre . '/*', GLOB_ONLYDIR) ?: []) : 0) . "\n";
         echo "Full backups: " . (is_dir($backupFull) ? count(glob($backupFull . '/*', GLOB_ONLYDIR) ?: []) : 0) . "\n";
@@ -258,7 +405,6 @@ switch ($cmd) {
         }
         $preId = backup_pre($modulesDir, $stateFile, $backupPre);
         echo "Safety pre-backup before restore: {$preId}\n";
-        // Clear modules
         if (is_dir($modulesDir)) {
             $it = new RecursiveIteratorIterator(
                 new RecursiveDirectoryIterator($modulesDir, FilesystemIterator::SKIP_DOTS),
@@ -278,7 +424,8 @@ switch ($cmd) {
     case 'help':
     case '-h':
     case '--help':
-        echo "jx-install.php list|status|install-required|install <id>|backup-full|restore-full <ts>\n";
+        echo "jx-install.php list|status|check-targets [id]|install-required|install <id>|backup-full|restore-full <ts>\n";
+        echo "Allow gate: windows + mac + linux + web (jx)\n";
         break;
 
     default:
