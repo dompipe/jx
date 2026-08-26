@@ -21,6 +21,17 @@ interface JxPlugin
     public function capabilities(): array;
 }
 
+/**
+ * Optional contract for a plugin that augments another plugin.
+ *
+ * Example: an audio-effects plugin may extend `media` without making equalizers,
+ * compressors, or spatial processing part of the base MP3/MP4 contract.
+ */
+interface JxPluginExtension extends JxPlugin
+{
+    public function extendsPlugin(): string;
+}
+
 final class Plugins
 {
     /** @var array<string,JxPlugin> */
@@ -43,16 +54,41 @@ final class Plugins
         return self::$plugins[$id] ?? throw new JxException("Unknown JX plugin {$id}", 'plugin', true);
     }
 
-    /** @return array<string,array{id:string,version:string,capabilities:list<string>}> */
+    public static function isExtensionOf(string $child, string $parent): bool
+    {
+        $plugin = self::get($child);
+        return $plugin instanceof JxPluginExtension
+            && self::name($plugin->extendsPlugin()) === self::name($parent);
+    }
+
+    /** @return list<JxPluginExtension> */
+    public static function extensionsFor(string $parent): array
+    {
+        $parent = self::name($parent);
+        $out = [];
+        foreach (self::$plugins as $plugin) {
+            if ($plugin instanceof JxPluginExtension
+                && self::name($plugin->extendsPlugin()) === $parent) {
+                $out[] = $plugin;
+            }
+        }
+        return $out;
+    }
+
+    /** @return array<string,array<string,mixed>> */
     public static function describe(): array
     {
         $out = [];
         foreach (self::$plugins as $id => $plugin) {
-            $out[$id] = [
+            $descriptor = [
                 'id' => $id,
                 'version' => $plugin->version(),
                 'capabilities' => array_values($plugin->capabilities()),
             ];
+            if ($plugin instanceof JxPluginExtension) {
+                $descriptor['extends'] = self::name($plugin->extendsPlugin());
+            }
+            $out[$id] = $descriptor;
         }
         return $out;
     }
