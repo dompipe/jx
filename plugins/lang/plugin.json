@@ -1,5 +1,6 @@
 {
   "id": "lang",
   "entry": "bootstrap.php",
-  "depends": ["core", "smart-compiler"]
+  "depends": ["core", "smart-compiler"],
+  "targets": ["windows", "mac", "linux", "web"]
 }
