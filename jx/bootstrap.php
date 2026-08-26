@@ -13,9 +13,10 @@ require_once __DIR__ . '/SQL.php';
 require_once __DIR__ . '/BindingCoercion.php';
 require_once __DIR__ . '/Plugin.php';
 
-// Bundled host-neutral plugins. Hosts still choose their rendering backend.
+// Bundled host-neutral plugins. Hosts still choose their rendering/backend work.
 require_once __DIR__ . '/plugins/Charts.php';
 require_once __DIR__ . '/plugins/Media.php';
+require_once __DIR__ . '/plugins/AudioAnalysis.php';
 
 $control = dirname(__DIR__) . '/pasl/xi/src/Control.php';
 if (is_file($control)) require_once $control;
