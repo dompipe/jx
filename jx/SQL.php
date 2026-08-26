@@ -332,7 +332,9 @@ final class SQL
         try {
             $into->set($rows, $at)->commit($ref);
         } finally {
-            $into->unsign($ref);
+            if ($into->isLiveRef($ref)) {
+                $into->unsign($ref);
+            }
         }
         return count($rows);
     }
