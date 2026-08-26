@@ -42,6 +42,12 @@ final class Control
         return self::make($id, 'spin', $props + ['label' => $label, 'value' => $value, 'step' => 1, 'pin' => false]);
     }
 
+    /** @param array<string, mixed> $props */
+    public static function toggle(string $id, string $label, bool $value = false, array $props = []): self
+    {
+        return self::make($id, 'toggle', $props + ['label' => $label, 'value' => $value]);
+    }
+
     /** @param list<array<string, mixed>> $ops */
     public static function drawing(string $id, string $label, int $width, int $height, array $ops = []): self
     {
@@ -53,16 +59,24 @@ final class Control
         ]);
     }
 
-    /** @param array{x:int|float,y:int|float} $start @param array{x:int|float,y:int|float} $finish */
-    public static function line(string $refId, array $start, array $finish, bool $pong = false): array
+    /**
+     * @param array{x:int|float,y:int|float} $start
+     * @param array{x:int|float,y:int|float} $finish
+     * @param array<string, mixed>|null $image
+     */
+    public static function line(string $refId, array $start, array $finish, bool $pong = false, ?array $image = null): array
     {
-        return [
+        $line = [
             'op' => 'line',
             'refId' => self::name($refId, 'line'),
             'start' => ['x' => (int)($start['x'] ?? 0), 'y' => (int)($start['y'] ?? 0)],
             'finish' => ['x' => (int)($finish['x'] ?? 0), 'y' => (int)($finish['y'] ?? 0)],
             'pong' => $pong,
         ];
+        if ($image !== null) {
+            $line['image'] = $image;
+        }
+        return $line;
     }
 
     /**
@@ -95,6 +109,7 @@ final class Control
     public static function image(string $id, string $label, string $src, string $mime = 'image/*', array $props = []): self
     {
         $props['pin'] = self::imagePinFrom($props['pin'] ?? []);
+        $props['display'] = self::imageDisplayFrom($props['display'] ?? []);
         return self::make($id, 'image', $props + [
             'label' => $label,
             'src' => $src,
@@ -103,13 +118,42 @@ final class Control
         ]);
     }
 
-    /** @return array{turningPoint:string,pathPoint:string,paintingPoint:string} */
-    public static function imagePin(string $turningPoint = self::XY_CENTER, string $pathPoint = self::XY_CENTER, string $paintingPoint = self::XY_CENTER): array
+    /** @param array<string, mixed> $paintControl @return array{point:string,paintControl:array<string, mixed>} */
+    public static function paintPoint(string $point = self::XY_CENTER, array $paintControl = []): array
     {
+        return [
+            'point' => self::xy($point),
+            'paintControl' => $paintControl,
+        ];
+    }
+
+    /** @return array{visible:bool,blur:int,cover:bool,coverLabel:string} */
+    public static function imageDisplay(bool $visible = true, int|float $blur = 0, bool $cover = false, string $coverLabel = 'View hidden'): array
+    {
+        return [
+            'visible' => $visible,
+            'blur' => max(0, min(40, (int)$blur)),
+            'cover' => $cover,
+            'coverLabel' => $coverLabel,
+        ];
+    }
+
+    /**
+     * @param string|array<string, mixed> $paintingPoint
+     * @param array<string, mixed>|null $paintControl
+     * @return array{turningPoint:string,pathPoint:string,paintingPoint:string,paintControl:array<string, mixed>}
+     */
+    public static function imagePin(string $turningPoint = self::XY_CENTER, string $pathPoint = self::XY_CENTER, string|array $paintingPoint = self::XY_CENTER, ?array $paintControl = null): array
+    {
+        if (is_array($paintingPoint)) {
+            $paintControl ??= is_array($paintingPoint['paintControl'] ?? null) ? $paintingPoint['paintControl'] : [];
+            $paintingPoint = (string)($paintingPoint['point'] ?? self::XY_CENTER);
+        }
         return [
             'turningPoint' => self::xy($turningPoint),
             'pathPoint' => self::xy($pathPoint),
             'paintingPoint' => self::xy($paintingPoint),
+            'paintControl' => $paintControl ?? [],
         ];
     }
 
@@ -146,6 +190,10 @@ final class Control
             if (!empty($this->props['pin'])) {
                 $html .= '<input type="hidden" name="control[' . $id . '.pin]" value="1">';
             }
+        } elseif ($this->type === 'toggle') {
+            $checked = !empty($this->props['value']) ? ' checked' : '';
+            $html .= '<input type="hidden" name="control[' . $id . ']" value="0">';
+            $html .= '<input id="' . $id . '" type="checkbox" role="switch" name="control[' . $id . ']" value="1"' . $checked . '>';
         } elseif ($this->type === 'drawing') {
             $html .= $this->renderDrawing();
         } elseif ($this->type === 'image') {
@@ -165,8 +213,9 @@ final class Control
         return match ($this->type) {
             'text' => ['change', 'submit'],
             'spin' => ['change', 'increment', 'decrement', 'submit'],
+            'toggle' => ['change', 'submit'],
             'drawing' => ['draw', 'clear', 'submit'],
-            'image' => ['load', 'select', 'submit'],
+            'image' => ['load', 'select', 'show', 'hide', 'blur', 'cover', 'submit'],
             default => ['submit'],
         };
     }
@@ -188,7 +237,9 @@ final class Control
                 $finish = is_array($op['finish'] ?? null) ? $op['finish'] : ['x' => $op['x2'] ?? 0, 'y' => $op['y2'] ?? 0];
                 $pong = !empty($op['pong']) ? ' data-pong="true"' : ' data-pong="false"';
                 $ref = htmlspecialchars((string)($op['refId'] ?? 'line'), ENT_QUOTES, 'UTF-8');
-                $svg .= '<line data-ref="' . $ref . '"' . $pong . ' x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="' . self::color((string)($op['stroke'] ?? '#111')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 2)) . '"/>';
+                $image = is_array($op['image'] ?? null) ? htmlspecialchars((string)json_encode($op['image'], JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') : '';
+                $imageAttr = $image !== '' ? ' data-image="' . $image . '"' : '';
+                $svg .= '<line data-ref="' . $ref . '"' . $pong . $imageAttr . ' x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="' . self::color((string)($op['stroke'] ?? '#111')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 2)) . '"/>';
             } elseif ($kind === 'circle') {
                 $svg .= '<circle cx="' . (int)($op['cx'] ?? 0) . '" cy="' . (int)($op['cy'] ?? 0) . '" r="' . max(1, (int)($op['r'] ?? 8)) . '" fill="' . self::color((string)($op['fill'] ?? '#777')) . '"/>';
             } elseif ($kind === 'rect') {
@@ -241,13 +292,59 @@ final class Control
         $alt = htmlspecialchars((string)($this->props['alt'] ?? $this->id), ENT_QUOTES, 'UTF-8');
         $mime = htmlspecialchars((string)($this->props['mime'] ?? 'image/*'), ENT_QUOTES, 'UTF-8');
         $pin = self::imagePinFrom($this->props['pin'] ?? []);
+        $display = self::imageDisplayFrom($this->props['display'] ?? []);
         $turning = htmlspecialchars($pin['turningPoint'], ENT_QUOTES, 'UTF-8');
         $path = htmlspecialchars($pin['pathPoint'], ENT_QUOTES, 'UTF-8');
         $paint = htmlspecialchars($pin['paintingPoint'], ENT_QUOTES, 'UTF-8');
-        $html = '<figure id="' . $id . '" data-mime="' . $mime . '" data-turning-point="' . $turning . '" data-path-point="' . $path . '" data-painting-point="' . $paint . '"><img src="' . $src . '" alt="' . $alt . '" style="max-width:100%;height:auto">';
+        $visible = $display['visible'] ? 'true' : 'false';
+        $cover = $display['cover'] ? 'true' : 'false';
+        $coverLabel = htmlspecialchars($display['coverLabel'], ENT_QUOTES, 'UTF-8');
+        $imgStyle = 'max-width:100%;height:auto';
+        if ($display['blur'] > 0) {
+            $imgStyle .= ';filter:blur(' . $display['blur'] . 'px)';
+        }
+        if (!$display['visible']) {
+            $imgStyle .= ';visibility:hidden';
+        }
+        $paintControl = is_array($pin['paintControl'] ?? null) ? $pin['paintControl'] : [];
+        $paintControlJson = htmlspecialchars((string)json_encode($paintControl, JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8');
+        $html = '<figure id="' . $id . '" data-mime="' . $mime . '" data-turning-point="' . $turning . '" data-path-point="' . $path . '" data-painting-point="' . $paint . '" data-paint-control="' . $paintControlJson . '" data-visible="' . $visible . '" data-blur="' . $display['blur'] . '" data-cover="' . $cover . '">';
+        $html .= $this->renderPaintPreview($paintControl);
+        $html .= '<img src="' . $src . '" alt="' . $alt . '" style="' . $imgStyle . '">';
+        if ($display['cover']) {
+            $html .= '<div class="image-cover" data-cover-label="' . $coverLabel . '">' . $coverLabel . '</div>';
+        }
         $html .= '<figcaption>' . $alt . ' <code>' . $mime . '</code></figcaption></figure>';
         $html .= '<input type="hidden" name="control[' . $id . ']" value="' . $src . '">';
         return $html;
+    }
+
+    /** @param array<string, mixed> $paintControl */
+    private function renderPaintPreview(array $paintControl): string
+    {
+        if ($paintControl === []) {
+            return '';
+        }
+        $kind = (string)($paintControl['op'] ?? '');
+        if ($kind !== 'line') {
+            return '';
+        }
+        $start = is_array($paintControl['start'] ?? null) ? $paintControl['start'] : ['x' => 0, 'y' => 42];
+        $finish = is_array($paintControl['finish'] ?? null) ? $paintControl['finish'] : ['x' => 220, 'y' => 42];
+        $image = is_array($paintControl['image'] ?? null) ? $paintControl['image'] : [];
+        $stroke = self::color((string)($paintControl['stroke'] ?? '#00f5ff'));
+        $width = max(1, (int)($paintControl['width'] ?? 5));
+        $glow = max(0.0, min(1.0, (float)($image['glow'] ?? $paintControl['glow'] ?? 0.75)));
+        $ref = htmlspecialchars((string)($paintControl['refId'] ?? 'paint-line'), ENT_QUOTES, 'UTF-8');
+        $pong = !empty($paintControl['pong']) ? ' data-pong="true"' : ' data-pong="false"';
+        $imageJson = $image !== [] ? ' data-image="' . htmlspecialchars((string)json_encode($image, JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') . '"' : '';
+        $opacity = htmlspecialchars((string)(0.25 + ($glow * 0.55)), ENT_QUOTES, 'UTF-8');
+        $svg = '<svg class="image-paint-preview" viewBox="0 0 240 56" width="240" height="56" aria-hidden="true">';
+        $svg .= '<filter id="' . $ref . '-glow"><feGaussianBlur stdDeviation="' . htmlspecialchars((string)(2 + ($glow * 5)), ENT_QUOTES, 'UTF-8') . '" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>';
+        $svg .= '<line data-ref="' . $ref . '"' . $pong . $imageJson . ' x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="' . $stroke . '" stroke-width="' . ($width + 8) . '" opacity="' . $opacity . '" filter="url(#' . $ref . '-glow)"/>';
+        $svg .= '<line data-ref="' . $ref . '-core" x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="#ffffff" stroke-width="' . max(1, (int)ceil($width / 2)) . '"/>';
+        $svg .= '</svg>';
+        return $svg;
     }
 
     private static function name(string $value, string $fallback): string
@@ -261,14 +358,27 @@ final class Control
         return preg_match('/^#[0-9a-f]{3,8}$/i', $value) ? $value : '#111';
     }
 
-    /** @param mixed $pin @return array{turningPoint:string,pathPoint:string,paintingPoint:string} */
+    /** @param mixed $display @return array{visible:bool,blur:int,cover:bool,coverLabel:string} */
+    private static function imageDisplayFrom(mixed $display): array
+    {
+        $display = is_array($display) ? $display : [];
+        return self::imageDisplay(
+            array_key_exists('visible', $display) ? (bool)$display['visible'] : true,
+            (int)($display['blur'] ?? 0),
+            (bool)($display['cover'] ?? false),
+            (string)($display['coverLabel'] ?? 'View hidden'),
+        );
+    }
+
+    /** @param mixed $pin @return array{turningPoint:string,pathPoint:string,paintingPoint:string,paintControl:array<string, mixed>} */
     private static function imagePinFrom(mixed $pin): array
     {
         $pin = is_array($pin) ? $pin : [];
         return self::imagePin(
             (string)($pin['turningPoint'] ?? self::XY_CENTER),
             (string)($pin['pathPoint'] ?? self::XY_CENTER),
-            (string)($pin['paintingPoint'] ?? self::XY_CENTER),
+            is_array($pin['paintingPoint'] ?? null) ? $pin['paintingPoint'] : (string)($pin['paintingPoint'] ?? self::XY_CENTER),
+            is_array($pin['paintControl'] ?? null) ? $pin['paintControl'] : null,
         );
     }
 
@@ -278,5 +388,54 @@ final class Control
         return in_array($value, [self::XY_CENTER, self::XY_LT, self::XY_RT, self::XY_LB, self::XY_RB], true)
             ? $value
             : self::XY_CENTER;
+    }
+}
+
+/**
+ * Image-family payloads that can be attached to controls or drawing ops.
+ */
+final class Image
+{
+    public const IMG_DOTTED = 'IMG_DOTTED';
+    public const IMG_BLUR = 'IMG_BLUR';
+
+    /** @param array<string, mixed> $props @return array<string, mixed> */
+    public static function img(string $filename, string $mime = 'image/*', array $props = []): array
+    {
+        return [
+            'family' => 'image',
+            'kind' => 'img',
+            'filename' => self::filename($filename),
+            'mime' => $mime !== '' ? $mime : 'image/*',
+        ] + $props;
+    }
+
+    /** @param array<string, mixed> $props @return array<string, mixed> */
+    public static function dotted(string $filename, string $mime = 'image/*', int|float $spacing = 24, array $props = []): array
+    {
+        return self::img($filename, $mime, $props + [
+            'mode' => self::IMG_DOTTED,
+            'spacing' => self::spacing($spacing),
+        ]);
+    }
+
+    /** @param array<string, mixed> $props @return array<string, mixed> */
+    public static function blur(string $filename, string $mime = 'image/*', int|float $every = 8, array $props = []): array
+    {
+        return self::img($filename, $mime, $props + [
+            'mode' => self::IMG_BLUR,
+            'every' => self::spacing($every),
+        ]);
+    }
+
+    private static function filename(string $filename): string
+    {
+        $filename = trim($filename);
+        return $filename !== '' ? substr($filename, 0, 512) : 'image';
+    }
+
+    private static function spacing(int|float $value): int
+    {
+        return max(1, min(1024, (int)$value));
     }
 }

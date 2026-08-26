@@ -17,8 +17,35 @@ Current control types:
 
 - `text`: normal form input
 - `spin`: numeric spinner/stepper, with optional `pin`
+- `toggle`: switch-style boolean control
 - `drawing`: host-renderable drawing operations
 - `image`: any image type, identified by MIME/source contract
+
+Control taxonomy is family-based. `Control` owns host controls. `Image` owns
+image-family leaves that can be rendered directly or attached to another
+control. That keeps a line with an image brush as a line, not a special
+`neonLine` primitive:
+
+```php
+Control::line(
+    'image-trail',
+    ['x' => 16, 'y' => 42],
+    ['x' => 220, 'y' => 42],
+    false,
+    Image::blur('neon-line.png', 'image/png', 8, ['role' => 'paint', 'glow' => 0.9]),
+) + ['stroke' => '#00f5ff', 'width' => 5];
+```
+
+Image repeat modes:
+
+- `Image::IMG_DOTTED`: lay the same image one after another along the path.
+- `Image::IMG_BLUR`: repeat the image every `x` pixels for an overt speed or
+  blur trail.
+
+```php
+Image::dotted('spark.png', 'image/png', 24);
+Image::blur('neon-line.png', 'image/png', 8);
+```
 
 Image controls intentionally allow any image type. SVG is one supported image
 source, not the special case:
@@ -33,10 +60,24 @@ Image controls may also carry a pin contract:
 
 ```php
 Control::image('image.any', 'Any image type', $src, 'image/*', [
+    'display' => Control::imageDisplay(
+        true,  // visible
+        0,     // blur pixels
+        false, // covered
+    ),
     'pin' => Control::imagePin(
         Control::XY_CENTER, // turning point
         Control::XY_LB,     // stuck-to-path point
-        Control::XY_RT,     // painting point
+        Control::paintPoint(
+            Control::XY_RT, // painting point
+            Control::line(
+                'image-trail',
+                ['x' => 16, 'y' => 42],
+                ['x' => 220, 'y' => 42],
+                false,
+                Image::blur('neon-line.png', 'image/png', 8, ['role' => 'paint']),
+            ),
+        ),
     ),
 ]);
 ```
@@ -52,6 +93,10 @@ Supported anchor constants:
 The three image pin points have separate meanings. `turningPoint` is where the
 image rotates or turns. `pathPoint` is the point stuck to the movement path.
 `paintingPoint` is the point the host should treat as the image paint origin.
+`paintPoint()` lets that origin carry a child paint control, such as a normal
+line with an attached `Image::img()` brush. `imageDisplay()` carries view state:
+the image can stay in the control tree while the host shows it, hides it, blurs
+it, or covers it.
 
 Form posts carry control values in `control[<id>]`. Protocols decide which
 values to persist into Bags.
