@@ -46,11 +46,57 @@ All hosts exchange versioned `jx.host/1` JSON drops, so replacing a browser or
 native window system does not replace the Book, leaf history, channels, or PASL
 program. See `pasl/host/README.md` and the runnable XIP Cover Book.
 
+### Current browser media status
+
+JX now has host-neutral plugin contracts for Charts, Media, and Audio Analysis.
+The Media plugin can describe MP3/MP4 controls, direct asset sources, Bag-backed
+sources, playback options, and media events. The Audio Analysis plugin can turn
+a media stream into evenly divided frequency buckets, optionally constrained by
+an explicit frequency range, and publish those rows into a Bag for Charts.
+
+The browser playback renderer itself is **not yet connected**. In other words,
+the current branch can serialize an MP3 player Control, bind its source, and
+describe its analysis pipeline, but it does not yet instantiate the final
+browser `<audio>` element from that descriptor. That renderer is a host task,
+not a Media-object change.
+
+The intended live path is:
+
+```text
+MP3 / MP4
+   -> Media plugin
+      -> browser/native media renderer
+         -> Audio Analysis plugin (optional)
+            -> Bag
+               -> Chart / algebra / Page
+```
+
 ## Plugins
 
 - Sourced **only** from `plugins/`
 - Installed **one at a time**; new installs append **last** after need is assessed
 - Dual backup: **pre** (per install) + **full** (total install)
+
+Bundled host-neutral JX contracts also include:
+
+```text
+Charts
+  pie
+  candles
+  bar
+  line
+
+Media
+  MP3 / audio
+  MP4 / video
+
+Audio Analysis
+  bucket-only spectrum
+  ranged spectrum
+```
+
+These controls consume Bags rather than database handles. A Bag may itself be
+bound to SQL, NoSQL, channels, or later data-source plugins.
 
 ```bash
 php jx-install.php list
@@ -66,6 +112,87 @@ php jx-install.php restore-full <timestamp>
 - Memory law, Books/Bags/Pages, Resistant path
 
 See `jx/INTRO.md` for the guided introduction.
+
+## OOP benchmark — first stop
+
+The first benchmark checkpoint is the current canonical PASM OOP container
+implementation against the legacy implementation and direct native PHP. The
+harness runs each mode in a fresh PHP process and reports the median of three
+runs for each workload. `N` is half writes/inserts and half reads/removals.
+
+Run it locally with:
+
+```bash
+php benchmark-pasm-oop-fast.php
+php benchmark-pasm-oop-fast-sync.php
+php benchmark-pasm-oop-fast-deque.php
+```
+
+A reproducible GitHub Actions definition is also stored at:
+
+```text
+.github/workflows/oop-benchmark.yml
+```
+
+The table below is the baseline currently checked into
+`benchmark-pasm-oop-fast-results.json`. It is the **first stop**, not a claim
+that the OOP layer already beats direct native PHP.
+
+### 100,000 total operations
+
+| Workload | Legacy ms | Canonical OOP ms | Native PHP ms | Legacy / new | Improvement vs legacy |
+|---|---:|---:|---:|---:|---:|
+| Vector add/get | 5.753 | 3.994 | 0.562 | 1.44x | 30.6% |
+| Stack push/pop | 9.834 | 4.388 | 1.264 | 2.24x | 55.4% |
+| Queue enq/deq | 8.523 | 6.997 | 0.724 | 1.22x | 17.9% |
+| Deque back/front | 10.494 | 8.707 | 0.645 | 1.21x | 17.0% |
+| Map put/get | 4.715 | 4.314 | 0.630 | 1.09x | 8.5% |
+| Set add/has | 24.989 | 13.779 | 0.706 | 1.81x | 44.9% |
+
+Peak memory:
+
+```text
+legacy    8.5 MB
+canonical 8.5 MB
+native    2.0 MB
+```
+
+### 1,000,000 total operations
+
+| Workload | Legacy ms | Canonical OOP ms | Native PHP ms | Legacy / new | Improvement vs legacy |
+|---|---:|---:|---:|---:|---:|
+| Vector add/get | 53.924 | 42.449 | 8.189 | 1.27x | 21.3% |
+| Stack push/pop | 80.414 | 46.253 | 14.645 | 1.74x | 42.5% |
+| Queue enq/deq | 88.356 | 67.362 | 8.815 | 1.31x | 23.8% |
+| Deque back/front | 96.006 | 83.465 | 9.306 | 1.15x | 13.1% |
+| Map put/get | 48.917 | 45.220 | 9.232 | 1.08x | 7.6% |
+| Set add/has | 240.272 | 152.258 | 10.117 | 1.58x | 36.6% |
+
+Peak memory:
+
+```text
+legacy    56.00 MB
+canonical 52.00 MB
+native    14.01 MB
+```
+
+### First-stop reading
+
+The canonical OOP rewrite is faster than the legacy implementation in all six
+measured workloads. At one million operations, Stack is about **42.5% faster**
+than legacy and Set about **36.6% faster**. Map currently improves the least,
+about **7.6%**.
+
+Direct native PHP remains materially faster. At one million operations the
+canonical layer is approximately 3.16x native for Stack, 4.90x for Map, 5.18x
+for Vector, 7.64x for Queue, 8.97x for Deque, and 15.05x for Set. That gap is the
+optimization target; the benchmark must remain visible rather than being hidden
+by abstraction claims.
+
+The canonical design deliberately keeps ordinary operations in frame-local hot
+state and pays the segmented/canonical checkpoint cost only at explicit
+boundaries. The companion sync benchmark exists to keep that checkpoint cost
+visible separately from the hot-operation benchmark.
 
 ## System layout
 
