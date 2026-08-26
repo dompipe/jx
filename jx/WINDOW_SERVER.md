@@ -34,3 +34,11 @@ jx book open language localhost:8766
 `jx book open` should become the friendly application-launch verb. It delegates
 to the window server. The window server decides whether to start the Book host,
 reuse an existing display, or route the Book to a native host.
+
+Native mode is the intended default for compiled launchers. Browser mode remains
+available as an explicit fallback:
+
+```sh
+jx window-server open language localhost:8766 --native
+jx window-server open language localhost:8766 --browser
+```

@@ -6,8 +6,10 @@ $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $Out = Join-Path $Root $OutDir
 $Exe = Join-Path $Out "jx.exe"
+$NativeExe = Join-Path $Out "jx-native-window.exe"
 $Source = Join-Path $Root "tools/windows/jx-windows.c"
 $SourceCs = Join-Path $Root "tools/windows/jx-windows.cs"
+$NativeSourceCs = Join-Path $Root "tools/windows/jx-native-window.cs"
 
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 
@@ -42,7 +44,10 @@ $csc = Get-Command csc.exe -ErrorAction SilentlyContinue
 if ($csc) {
     & csc.exe /nologo /optimize+ /out:$Exe $SourceCs
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    & csc.exe /nologo /target:winexe /optimize+ /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:$NativeExe $NativeSourceCs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Write-Output $Exe
+    Write-Output $NativeExe
     exit 0
 }
 

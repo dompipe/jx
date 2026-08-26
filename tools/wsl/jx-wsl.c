@@ -207,9 +207,10 @@ int main(int argc, char **argv)
             "open",
             (char *)book,
             (char *)hostport,
+            "--native",
             NULL
         };
-        int opened = run_php_wait(3, open_args, window_server, false);
+        int opened = run_php_wait(4, open_args, window_server, false);
         if (opened != 0) {
             return opened;
         }

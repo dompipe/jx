@@ -35,7 +35,7 @@ internal static class JxWindows
             string book = args.Length >= 3 ? args[2] : "cover";
             string hostport = args.Length >= 4 ? args[3] : "localhost:8766";
             Console.WriteLine("jx: opening Book {0} at http://{1}/?book={0}", book, hostport);
-            return RunPhp(windowServer, new[] { "open", book, hostport });
+            return RunPhp(windowServer, new[] { "open", book, hostport, "--native" });
         }
 
         return RunPhp(jxRun, args);

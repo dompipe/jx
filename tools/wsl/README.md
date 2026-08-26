@@ -19,6 +19,7 @@ wsl -d Ubuntu -- build/wsl/jx --print examples/hello.jx
 wsl -d Ubuntu -- build/wsl/jx window-server status localhost:8766
 wsl -d Ubuntu -- build/wsl/jx xi localhost:8766 status
 wsl -d Ubuntu -- build/wsl/jx book open language localhost:8766
+wsl -d Ubuntu -- build/wsl/jx window-server open language localhost:8766 --browser
 ```
 
 Install into the WSL PATH when ready:
@@ -33,4 +34,4 @@ relative install beside the repo. It dispatches:
 - ordinary arguments to `jx-run.php`
 - `jx window-server ...` to `jx-window-server.php`
 - `jx xi ...` to `pasl/xi/xi.php`
-- `jx book open ...` to a background XI server plus a WSL/Windows window opener
+- `jx book open ...` to the native JX Book window host

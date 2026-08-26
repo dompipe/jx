@@ -30,6 +30,7 @@ build\windows\jx.exe --print examples\hello.jx
 build\windows\jx.exe window-server status localhost:8766
 build\windows\jx.exe xi localhost:8766 status
 build\windows\jx.exe book open language localhost:8766
+build\windows\jx.exe window-server open language localhost:8766 --browser
 ```
 
 Install into the Windows PATH when ready:
@@ -45,4 +46,4 @@ relative install beside the repo. It dispatches:
 - ordinary arguments to `jx-run.php`
 - `jx.exe window-server ...` to `jx-window-server.php`
 - `jx.exe xi ...` to `pasl\xi\xi.php`
-- `jx.exe book open ...` to the XI foreground server for a Book URL
+- `jx.exe book open ...` to the native JX Book window host

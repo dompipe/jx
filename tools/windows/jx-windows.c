@@ -189,9 +189,10 @@ int main(int argc, char **argv)
             "open",
             (char *)book,
             (char *)hostport,
+            "--native",
             NULL
         };
-        exec_php(3, args, window_server);
+        exec_php(4, args, window_server);
     }
 
     exec_php(argc - 1, argv + 1, jx_run);
