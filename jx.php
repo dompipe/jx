@@ -213,6 +213,26 @@ class Bag
         return array_key_exists($node, $this->cells) ? $this->cells[$node] : $default;
     }
 
+    /**
+     * Read one Bag node through the same coercion vocabulary data-source
+     * bindings use. Useful when one bound value feeds algebra and text.
+     */
+    public function bound(string $node = '_default', string $as = 'raw'): mixed
+    {
+        $value = $this->read($node);
+        $as = strtolower(trim($as));
+        if ($as === 'raw') return $value;
+
+        if (!class_exists(BindingCoercion::class, false)) {
+            $file = __DIR__ . '/jx/BindingCoercion.php';
+            if (is_file($file)) require_once $file;
+        }
+        if (!class_exists(BindingCoercion::class, false)) {
+            throw new JxException('Binding coercion runtime is unavailable', 'bag.bind.coerce', true);
+        }
+        return BindingCoercion::apply($value, $as);
+    }
+
     public function unsign(RefSign $ref): void
     {
         if ($ref->bagId !== $this->id) throw new JxException('RefSign does not belong to this Bag', 'bag', true);
@@ -298,6 +318,8 @@ class Bag
      * connection/client. The host resolves the source and listener later.
      *
      * source -> through/listener -> at node -> mode -> with options
+     *
+     * `with['as']` may request raw|string|algebra|number|integer|float|boolean|json.
      */
     public function bind(
         string $source,
@@ -315,8 +337,14 @@ class Bag
         }
 
         $options = Boundary::import($with);
+        $as = $this->normalizeBindingCoercion((string)($options['as'] ?? 'raw'));
+        $options['as'] = $as;
+
+        // A binding id describes the relationship, not this process instance.
+        // It therefore remains stable across save/restore and can be unbound
+        // after a host restart.
         $id = substr(hash('sha256', implode("\0", [
-            (string)$this->id,
+            'bag-bind-v1',
             $source,
             $through,
             $at,
@@ -330,6 +358,7 @@ class Bag
             'through' => $through,
             'at' => $at,
             'mode' => $mode,
+            'as' => $as,
             'with' => $options,
         ];
         return $id;
@@ -358,12 +387,14 @@ class Bag
             $source = (string)($binding['source'] ?? '');
             $through = (string)($binding['through'] ?? '');
             if ($source === '' || $through === '') continue;
+            $with = is_array($binding['with'] ?? null) ? $binding['with'] : [];
+            if (isset($binding['as']) && !isset($with['as'])) $with['as'] = (string)$binding['as'];
             $this->bind(
                 $source,
                 $through,
                 (string)($binding['at'] ?? '_default'),
                 (string)($binding['mode'] ?? 'auto'),
-                is_array($binding['with'] ?? null) ? $binding['with'] : [],
+                $with,
             );
         }
     }
@@ -386,6 +417,7 @@ class Bag
             'get' => $this->get($args[0], isset($args[1]) ? (string)$args[1] : null),
             'write' => (function () use ($args) { $this->write((string)$args[0], $args[1] ?? null); return $this; })(),
             'read' => $this->read((string)$args[0], $args[1] ?? null),
+            'bound' => $this->bound((string)($args[0] ?? '_default'), (string)($args[1] ?? 'raw')),
             'bind' => $this->bind(
                 (string)($args[0] ?? ''),
                 (string)($args[1] ?? ''),
@@ -428,6 +460,16 @@ class Bag
             throw new JxException("Invalid Bag binding {$what}", 'bag.bind', true, [$what => $value]);
         }
         return $value;
+    }
+
+    private function normalizeBindingCoercion(string $as): string
+    {
+        $as = strtolower(trim($as));
+        $allowed = ['raw', 'string', 'algebra', 'number', 'integer', 'float', 'boolean', 'json'];
+        if (!in_array($as, $allowed, true)) {
+            throw new JxException('Unsupported Bag binding coercion', 'bag.bind.coerce', true, ['as' => $as]);
+        }
+        return $as;
     }
 
     private function sizeOf(mixed $data): int
@@ -726,6 +768,7 @@ final class SmartTable
             ['bag.set','Bag','write-bag',true,'underwritten-only',0.90,'inline','checked-longform'],
             ['bag.commit','Bag','write-bag',true,'underwritten-only',0.90,'inline','checked-longform'],
             ['bag.write','Bag','write-bag',false,'underwritten-only',0.92,'inline','checked-longform'],
+            ['bag.bound','Bag','read',false,'book-local',0.95,'runtime','checked-longform'],
             ['bag.bind','Bag','io',false,'book-local',0.90,'runtime','checked-longform'],
             ['bag.unbind','Bag','io',false,'book-local',0.95,'runtime','checked-longform'],
             ['bag.quotient','Bag','read',false,'pure',1.00,'inline','checked-longform'],
