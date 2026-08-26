@@ -15,9 +15,11 @@ color
 background
 background-color
 background-image
+background-opacity
 background-size
 background-position
 background-repeat
+image-opacity
 border
 border-width
 border-radius
@@ -37,7 +39,7 @@ column-gap
 opacity
 ```
 
-A browser host may translate these directly into CSS. A Win32 or X11 host translates the same values into native colors, images, fonts, bounds, and spacing math.
+A browser host may translate these directly into CSS or generated compositing layers. A Win32 or X11 host translates the same values into native colors, images, fonts, bounds, alpha values, and spacing math.
 
 The property names are the contract. CSS is one renderer.
 
@@ -49,6 +51,14 @@ Colors use hex strings so they remain portable and compact:
 #RRGGBB
 #RRGGBBAA
 ```
+
+The eight-digit form includes alpha. For example:
+
+```text
+#69F0AE80
+```
+
+means the same RGB accent with approximately half opacity.
 
 A Control may carry those values directly:
 
@@ -90,6 +100,7 @@ Background imagery is a Style feature, not a special privilege of the Image cont
 $cardStyle = [
     'background-color' => '#101722',
     'background-image' => '/assets/card-grid.png',
+    'background-opacity' => 0.72,
     'background-size' => 'cover',
     'background-position' => 'center center',
     'background-repeat' => 'no-repeat',
@@ -98,29 +109,82 @@ $cardStyle = [
 
 The same Style record can be attached to text, buttons, spinners, drawings, images, panels, or future Control types.
 
-A browser can lower it to CSS. Native hosts load the image and paint it into the Control rectangle before the foreground Control is rendered.
+A browser can lower it to CSS plus a generated background layer when necessary. Native hosts load the image and paint it into the Control rectangle before the foreground Control is rendered.
 
 The order is conceptually:
 
 ```text
 background color
-    -> background image
+    -> background image + background-opacity
         -> border
-            -> Control content
+            -> Control content / foreground image
+                -> whole-Control opacity
 ```
 
-A Bag may provide the image source too:
+A Bag may provide the image source and transparency too:
 
 ```php
 $skin = Bag::underwrite(1024);
 Flow::put('/assets/panel-dark.png', $skin, 'background-image');
+Flow::put(0.68, $skin, 'background-opacity');
 Flow::put('#101722', $skin, 'background-color');
 Flow::put('cover', $skin, 'background-size');
 ```
 
 This lets themes, state, and user-selected skins change backgrounds without rebuilding the Control.
 
-## 4. Gap is first-class
+## 4. Image transparency
+
+JX separates three kinds of transparency because they affect different layers.
+
+```text
+background-opacity = only the Control background image
+image-opacity      = foreground image content on an Image control
+opacity            = the final composed Control
+```
+
+Each numeric opacity is clamped to the range `0.0` through `1.0`.
+
+Example:
+
+```php
+$page->style('hero-card', [
+    'background-image' => '/assets/grid.png',
+    'background-opacity' => 0.35,
+    'opacity' => 1.0,
+]);
+```
+
+The text and foreground content remain fully opaque while the grid fades behind them.
+
+For an Image control:
+
+```php
+$page->style('portrait', [
+    'image-opacity' => 0.78,
+]);
+```
+
+Intrinsic image alpha is preserved. JX opacity multiplies it rather than replacing it:
+
+```text
+final pixel alpha = source image alpha * JX image/background opacity * Control opacity
+```
+
+That means transparent PNG, WebP, or other alpha-aware sources keep their own cutouts and soft edges.
+
+A Bag can carry transparency as live style state:
+
+```php
+Flow::put(0.42, $theme, 'background-opacity');
+Flow::put(0.90, $theme, 'image-opacity');
+```
+
+Collector styles may apply the same values to a group of Controls at once.
+
+> **Fade the layer you mean, not everything around it.**
+
+## 5. Gap is first-class
 
 `gap` belongs to Style instead of being another positional argument in every layout call.
 
@@ -155,15 +219,13 @@ The relationship establishes direction. Style establishes breathing room.
 
 > **Attach the relationship. Style the distance.**
 
-## 5. Margin, padding, and gap are different
+## 6. Margin, padding, and gap are different
 
 ```text
 margin  = space outside one Control
-dpadding = space inside one Control
+padding = space inside one Control
 gap     = space between related Controls or collector members
 ```
-
-The intended spelling is `padding`; `dpadding` above is only explanatory emphasis and is not a property name.
 
 Example:
 
@@ -186,7 +248,7 @@ $gridStyle = [
 
 This vocabulary prevents geometry calls from accumulating spacing parameters.
 
-## 6. Group collectors
+## 7. Group collectors
 
 A collector is a named, non-owning set of Controls. It works like a selector or class without making browser CSS the runtime model.
 
@@ -251,9 +313,19 @@ $page->style('form-fields', [
 
 The collector supplies the members. Layout supplies the relationship. Style supplies the spacing.
 
+A collector may also carry a common background treatment:
+
+```php
+$page->style('account-panel', [
+    'background-image' => '/assets/panel-grid.png',
+    'background-opacity' => 0.24,
+    'gap' => 14,
+]);
+```
+
 > **Collect what belongs together. Style it once.**
 
-## 7. Anchors are composable
+## 8. Anchors are composable
 
 An anchor is the combination of a horizontal relationship and a vertical relationship.
 
@@ -309,7 +381,7 @@ and Style may then add:
 ['gap' => 8]
 ```
 
-## 8. A tooltip is a Bag
+## 9. A tooltip is a Bag
 
 Tooltip content is data, so it belongs in a Bag rather than inside a special tooltip widget.
 
@@ -331,6 +403,7 @@ Flow::put('Ctrl+Enter', $tip, 'shortcut');
 Flow::put('#EAF2FF', $tip, 'color');
 Flow::put('#101722', $tip, 'background');
 Flow::put('/assets/tip-grid.png', $tip, 'background-image');
+Flow::put(0.30, $tip, 'background-opacity');
 ```
 
 This keeps presentation data roomy without making Control constructors larger.
@@ -347,7 +420,7 @@ Event     = when it acts
 PASL      = what happens
 ```
 
-## 9. Style may come from a Bag
+## 10. Style may come from a Bag
 
 JX should allow a Control or collector to resolve Style from either inline values or a Bag.
 
@@ -371,7 +444,7 @@ $page->style('form-fields', fromBag($formStyle));
 
 This gives Books enough room for themes and live styling without inventing a second state system.
 
-## 10. Cascade without browser dependence
+## 11. Cascade without browser dependence
 
 JX can use a small cascade:
 
@@ -387,7 +460,7 @@ Later, more-specific values override earlier ones. The resolved result is a flat
 
 The browser may turn it into CSS. Native hosts do not need a CSS engine; they receive the resolved values.
 
-## 11. Page contract
+## 12. Page contract
 
 The coherent visible Page becomes:
 
@@ -397,7 +470,7 @@ Page
 |- Bags          what changes / content
 |- Collectors    what belongs together
 |- Layout        relationships and anchors
-|- Style         color, images, size, gap, margin, padding
+|- Style         color, images, opacity, size, gap, margin, padding
 |- Events        when something happens
 `- PASL          what the event does
 ```
@@ -415,7 +488,7 @@ browser     Win32   X11
 HTML/CSS    native  native
 ```
 
-## 12. Rhetorical rule
+## 13. Rhetorical rule
 
 Do not make layout pseudo-English. Make the next role predictable.
 
@@ -427,6 +500,6 @@ stack   -> subjects/collector -> direction
 align   -> subject/collector -> anchor -> in container
 ```
 
-Spacing stays out of those sentences when Style can express it.
+Spacing and transparency stay out of those sentences when Style can express them.
 
-> **Name the relationship first. Put the breathing room in Style.**
+> **Name the relationship first. Put the breathing room and paint in Style.**
