@@ -25,16 +25,19 @@ $dialImages = Image::replacementSet(Image::ROLE_DIAL, [
     '180' => Image::img('controls/dial-180.png', 'image/png'),
     '270' => Image::img('controls/dial-270.png', 'image/png'),
 ]);
+$spinTheme = Theme::spinClicks('spin.rate', 1, 2, 12, ['wrap' => true]);
+$zoomTheme = Theme::zoom(1.0, 1.35, 'ease-out');
+$snowballTheme = Theme::mash('spin-move-zoom', [$spinTheme, $zoomTheme], 'snowball');
 
 $controls = [
     Control::text('title', 'Text input', $name),
-    Control::spin('spin.rate', 'Spin control', $spin, ['min' => -12, 'max' => 12, 'step' => 1, 'pin' => true, 'imageSet' => $dialImages]),
+    Control::spin('spin.rate', 'Spin control', $spin, ['min' => -12, 'max' => 12, 'step' => 1, 'pin' => true, 'imageSet' => $dialImages, 'theme' => $spinTheme]),
     Control::toggle('image.view', 'Image view switch', $imageVisible, ['imageSet' => $switchImages]),
     Control::drawing('drawing.surface', 'Drawing surface', 360, 180, [
         ['op' => 'rect', 'x' => 16, 'y' => 18, 'width' => 112, 'height' => 72, 'fill' => '#dbeafe'],
         ['op' => 'circle', 'cx' => 196, 'cy' => 78, 'r' => 38, 'fill' => '#f59e0b'],
-        Control::line('sweep-line', ['x' => 26, 'y' => 150], ['x' => 330, 'y' => 34], true) + ['stroke' => '#111827', 'width' => 3],
-        Control::curve('motion-curve', ['smooth' => 0.82], ['x' => 24, 'y' => 108], ['x' => 92, 'y' => 20], ['x' => 228, 'y' => 166], ['x' => 336, 'y' => 88]) + ['stroke' => '#7c3aed', 'width' => 4],
+        Control::line('sweep-line', ['x' => 26, 'y' => 150], ['x' => 330, 'y' => 34], true) + ['stroke' => '#111827', 'width' => 3, 'theme' => $snowballTheme],
+        Control::curve('motion-curve', ['smooth' => 0.82, 'spin' => $spinTheme, 'zoom' => $zoomTheme, 'mash' => $snowballTheme], ['x' => 24, 'y' => 108], ['x' => 92, 'y' => 20], ['x' => 228, 'y' => 166], ['x' => 336, 'y' => 88]) + ['stroke' => '#7c3aed', 'width' => 4],
     ]),
     Control::image('image.any', 'Any image type', $image, $mime, [
         'alt' => 'Image contract accepts any MIME-backed image source',

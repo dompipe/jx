@@ -27,6 +27,9 @@ final class Control
     {
         $id = self::name($id, 'control');
         $type = self::name($type, 'text');
+        if (array_key_exists('theme', $props)) {
+            $props['theme'] = Theme::from($props['theme']);
+        }
         return new self($id, $type, $props);
     }
 
@@ -97,11 +100,17 @@ final class Control
             ];
         }
         $smooth = max(0.0, min(1.0, (float)($properties['smooth'] ?? 0.0)));
+        $outProperties = ['smooth' => $smooth];
+        foreach (['spin', 'zoom', 'mash'] as $key) {
+            if (is_array($properties[$key] ?? null)) {
+                $outProperties[$key] = Theme::from($properties[$key]);
+            }
+        }
         return [
             'op' => 'curve',
             'refId' => self::name($refId, 'curve'),
             'degrees' => $points,
-            'properties' => ['smooth' => $smooth],
+            'properties' => $outProperties,
         ];
     }
 
@@ -177,6 +186,9 @@ final class Control
         $id = htmlspecialchars($this->id, ENT_QUOTES, 'UTF-8');
         $label = htmlspecialchars((string)($this->props['label'] ?? $this->id), ENT_QUOTES, 'UTF-8');
         $html = '<section class="jx-control" data-control="' . $json . '">';
+        if (is_array($this->props['theme'] ?? null)) {
+            $html = '<section class="jx-control" data-control="' . $json . '" data-theme="' . htmlspecialchars((string)json_encode($this->props['theme'], JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') . '">';
+        }
         $html .= '<label for="' . $id . '"><strong>' . $label . '</strong></label>';
 
         if ($this->type === 'text') {
@@ -241,7 +253,9 @@ final class Control
                 $ref = htmlspecialchars((string)($op['refId'] ?? 'line'), ENT_QUOTES, 'UTF-8');
                 $image = is_array($op['image'] ?? null) ? htmlspecialchars((string)json_encode($op['image'], JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') : '';
                 $imageAttr = $image !== '' ? ' data-image="' . $image . '"' : '';
-                $svg .= '<line data-ref="' . $ref . '"' . $pong . $imageAttr . ' x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="' . self::color((string)($op['stroke'] ?? '#111')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 2)) . '"/>';
+                $theme = is_array($op['theme'] ?? null) ? htmlspecialchars((string)json_encode(Theme::from($op['theme']), JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') : '';
+                $themeAttr = $theme !== '' ? ' data-motion-theme="' . $theme . '"' : '';
+                $svg .= '<line data-ref="' . $ref . '"' . $pong . $imageAttr . $themeAttr . ' x1="' . (int)($start['x'] ?? 0) . '" y1="' . (int)($start['y'] ?? 0) . '" x2="' . (int)($finish['x'] ?? 0) . '" y2="' . (int)($finish['y'] ?? 0) . '" stroke="' . self::color((string)($op['stroke'] ?? '#111')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 2)) . '"/>';
             } elseif ($kind === 'circle') {
                 $svg .= '<circle cx="' . (int)($op['cx'] ?? 0) . '" cy="' . (int)($op['cy'] ?? 0) . '" r="' . max(1, (int)($op['r'] ?? 8)) . '" fill="' . self::color((string)($op['fill'] ?? '#777')) . '"/>';
             } elseif ($kind === 'rect') {
@@ -284,7 +298,9 @@ final class Control
         $ref = htmlspecialchars((string)($op['refId'] ?? 'curve'), ENT_QUOTES, 'UTF-8');
         $properties = is_array($op['properties'] ?? null) ? $op['properties'] : [];
         $smooth = max(0.0, min(1.0, (float)($properties['smooth'] ?? 0.0)));
-        return '<path data-ref="' . $ref . '" data-motion="curve" data-smooth="' . htmlspecialchars((string)$smooth, ENT_QUOTES, 'UTF-8') . '" d="' . htmlspecialchars($d, ENT_QUOTES, 'UTF-8') . '" fill="none" stroke="' . self::color((string)($op['stroke'] ?? '#7c3aed')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 3)) . '"/>';
+        $themePayload = array_intersect_key($properties, array_flip(['spin', 'zoom', 'mash']));
+        $theme = $themePayload !== [] ? ' data-motion-theme="' . htmlspecialchars((string)json_encode(Theme::from($themePayload), JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') . '"' : '';
+        return '<path data-ref="' . $ref . '" data-motion="curve" data-smooth="' . htmlspecialchars((string)$smooth, ENT_QUOTES, 'UTF-8') . '"' . $theme . ' d="' . htmlspecialchars($d, ENT_QUOTES, 'UTF-8') . '" fill="none" stroke="' . self::color((string)($op['stroke'] ?? '#7c3aed')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 3)) . '"/>';
     }
 
     private function renderImage(): string
@@ -538,5 +554,99 @@ final class Image
     {
         $state = preg_replace('/[^a-z0-9._:-]/i', '', trim($state)) ?? '';
         return $state !== '' ? substr($state, 0, 96) : 'state';
+    }
+}
+
+/**
+ * Theme-family motion contracts shared by controls and drawing paths.
+ */
+final class Theme
+{
+    /** @return array<string, mixed> */
+    public static function spinClicks(string $controlId, int $fromDegree, int $toDegree, int $clicks, array $props = []): array
+    {
+        return [
+            'family' => 'theme',
+            'kind' => 'spinClicks',
+            'controlId' => self::id($controlId),
+            'fromDegree' => $fromDegree,
+            'toDegree' => $toDegree,
+            'clicks' => max(0, $clicks),
+            'clicksPerDegree' => $toDegree !== $fromDegree ? abs($clicks / ($toDegree - $fromDegree)) : 0,
+        ] + $props;
+    }
+
+    /** @return array<string, mixed> */
+    public static function zoom(int|float $fromScale = 1.0, int|float $toScale = 1.0, string $easing = 'linear'): array
+    {
+        return [
+            'family' => 'theme',
+            'kind' => 'zoom',
+            'fromScale' => self::scale($fromScale),
+            'toScale' => self::scale($toScale),
+            'easing' => self::id($easing),
+        ];
+    }
+
+    /** @param list<array<string, mixed>> $motions @return array<string, mixed> */
+    public static function mash(string $name, array $motions, string $mode = 'snowball'): array
+    {
+        $out = [
+            'family' => 'theme',
+            'kind' => 'mash',
+            'name' => self::id($name),
+            'mode' => self::id($mode),
+            'motions' => [],
+        ];
+        foreach ($motions as $motion) {
+            if (is_array($motion)) {
+                $out['motions'][] = self::from($motion);
+            }
+        }
+        return $out;
+    }
+
+    /** @param mixed $theme @return array<string, mixed> */
+    public static function from(mixed $theme): array
+    {
+        if (!is_array($theme)) {
+            return [];
+        }
+        $kind = (string)($theme['kind'] ?? '');
+        if ($kind === 'spinClicks') {
+            return self::spinClicks(
+                (string)($theme['controlId'] ?? 'spin'),
+                (int)($theme['fromDegree'] ?? 0),
+                (int)($theme['toDegree'] ?? 0),
+                (int)($theme['clicks'] ?? 0),
+                array_diff_key($theme, array_flip(['family', 'kind', 'controlId', 'fromDegree', 'toDegree', 'clicks', 'clicksPerDegree'])),
+            );
+        }
+        if ($kind === 'zoom') {
+            return self::zoom(
+                (float)($theme['fromScale'] ?? 1.0),
+                (float)($theme['toScale'] ?? 1.0),
+                (string)($theme['easing'] ?? 'linear'),
+            );
+        }
+        if ($kind === 'mash') {
+            return self::mash(
+                (string)($theme['name'] ?? 'motion'),
+                is_array($theme['motions'] ?? null) ? $theme['motions'] : [],
+                (string)($theme['mode'] ?? 'snowball'),
+            );
+        }
+        return $theme;
+    }
+
+    private static function id(string $value): string
+    {
+        $value = preg_replace('/[^a-z0-9._:-]/i', '', trim($value)) ?? '';
+        return $value !== '' ? substr($value, 0, 96) : 'theme';
+    }
+
+    private static function scale(int|float $value): float
+    {
+        return max(0.01, min(100.0, (float)$value));
     }
 }

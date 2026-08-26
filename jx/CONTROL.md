@@ -23,7 +23,8 @@ Current control types:
 
 Control taxonomy is family-based. `Control` owns host controls. `Image` owns
 image-family leaves that can be rendered directly or attached to another
-control. That keeps a line with an image brush as a line, not a special
+control. `Theme` owns shared motion, spin, zoom, and composition contracts.
+That keeps a line with an image brush as a line, not a special
 `neonLine` primitive:
 
 ```php
@@ -46,6 +47,32 @@ Image repeat modes:
 Image::dotted('spark.png', 'image/png', 24);
 Image::blur('neon-line.png', 'image/png', 8);
 ```
+
+Theme contracts make control images theme-friendly. A spin can declare how many
+clicks move from one degree to the next, and a line or curve can share that
+same motion with zoom:
+
+```php
+$spinTheme = Theme::spinClicks('spin.rate', 1, 2, 12, ['wrap' => true]);
+$zoomTheme = Theme::zoom(1.0, 1.35, 'ease-out');
+$snowballTheme = Theme::mash('spin-move-zoom', [$spinTheme, $zoomTheme], 'snowball');
+
+Control::spin('spin.rate', 'Spin control', 3, [
+    'theme' => $spinTheme,
+]);
+
+Control::line(
+    'sweep-line',
+    ['x' => 26, 'y' => 150],
+    ['x' => 330, 'y' => 34],
+    true,
+) + ['theme' => $snowballTheme];
+```
+
+The host reads this as: between degree `1` and degree `2`, the spin consumes
+`12` clicks; the surrounding movement can mash spin and zoom together. In
+`snowball` mode, the host may grow scale, momentum, or visual weight while the
+control moves.
 
 Replacement control images use the same image family. Dials, buttons, and
 switches are not separate host primitives; they are roles in an image
@@ -165,7 +192,12 @@ Drawing controls also support movement paths:
 ```php
 Control::curve(
     'motion-curve',
-    ['smooth' => 0.82],
+    [
+        'smooth' => 0.82,
+        'spin' => $spinTheme,
+        'zoom' => $zoomTheme,
+        'mash' => $snowballTheme,
+    ],
     ['x' => 0, 'y' => 80],
     ['x' => 40, 'y' => 10],
     ['x' => 120, 'y' => 130],
@@ -179,4 +211,6 @@ should treat it as a motion contract a control can travel along.
 
 Curve properties are passed before the degree points. `smooth` is clamped from
 `0` to `1`, where `0` means direct geometric travel and `1` means maximally
-smoothed host interpolation.
+smoothed host interpolation. `spin`, `zoom`, and `mash` are theme-family
+contracts that let a host coordinate clicks, line travel, curve travel, and
+zooming without rewriting the underlying control.

@@ -58,7 +58,11 @@ namespace Jx.SpecContract
                 "\"role\":\"button\"",
                 "\"role\":\"switch\"",
                 "\"kind\":\"tradeOff\"",
-                "\"event\":\"control.image.view.changed\""
+                "\"event\":\"control.image.view.changed\"",
+                "\"kind\":\"spinClicks\"",
+                "\"clicksPerDegree\":12",
+                "\"kind\":\"zoom\"",
+                "\"mode\":\"snowball\""
             };
 
             foreach (string needle in required)
@@ -96,12 +100,28 @@ namespace Jx.SpecContract
             w.ObjEnd();
             w.Name("controls");
             w.ArrayStart();
+            Spin(w);
             Toggle(w);
             ImageControl(w);
             DrawingControl(w);
             w.ArrayEnd();
             w.ObjEnd();
             return w.ToString();
+        }
+
+        private static void Spin(Json w)
+        {
+            w.ObjStart();
+            w.Prop("family", "Control");
+            w.Prop("type", "spin");
+            w.Prop("id", "spin.rate");
+            w.Prop("label", "Spin control");
+            w.Prop("value", 3);
+            w.Prop("pin", true);
+            ReplacementSet(w, "dial", "dial-000.png", "dial-090.png", "dial-180.png");
+            w.Name("theme");
+            SpinTheme(w);
+            w.ObjEnd();
         }
 
         private static void Toggle(Json w)
@@ -153,9 +173,51 @@ namespace Jx.SpecContract
             w.Prop("id", "drawing.surface");
             w.Prop("smooth", 0.82);
             ReplacementSet(w, "dial", "dial-000.png", "dial-090.png", "dial-180.png");
+            w.Name("theme");
+            MashTheme(w);
             w.Name("ops");
             w.ArrayStart();
             LineWithImage(w, "dotted-path", 24, 108, 336, 88, true, ImgDotted, 24);
+            w.ArrayEnd();
+            w.ObjEnd();
+        }
+
+        private static void SpinTheme(Json w)
+        {
+            w.ObjStart();
+            w.Prop("family", "theme");
+            w.Prop("kind", "spinClicks");
+            w.Prop("controlId", "spin.rate");
+            w.Prop("fromDegree", 1);
+            w.Prop("toDegree", 2);
+            w.Prop("clicks", 12);
+            w.Prop("clicksPerDegree", 12);
+            w.Prop("wrap", true);
+            w.ObjEnd();
+        }
+
+        private static void ZoomTheme(Json w)
+        {
+            w.ObjStart();
+            w.Prop("family", "theme");
+            w.Prop("kind", "zoom");
+            w.Prop("fromScale", 1.0);
+            w.Prop("toScale", 1.35);
+            w.Prop("easing", "ease-out");
+            w.ObjEnd();
+        }
+
+        private static void MashTheme(Json w)
+        {
+            w.ObjStart();
+            w.Prop("family", "theme");
+            w.Prop("kind", "mash");
+            w.Prop("name", "spin-move-zoom");
+            w.Prop("mode", "snowball");
+            w.Name("motions");
+            w.ArrayStart();
+            SpinTheme(w);
+            ZoomTheme(w);
             w.ArrayEnd();
             w.ObjEnd();
         }
@@ -219,6 +281,8 @@ namespace Jx.SpecContract
             w.Prop("op", "line");
             w.Prop("refId", id);
             w.Prop("pong", pong);
+            w.Name("theme");
+            MashTheme(w);
             w.Name("start");
             w.ObjStart();
             w.Prop("x", x1);
