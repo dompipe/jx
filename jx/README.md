@@ -13,6 +13,7 @@ This directory is the canonical language-level documentation for **JX v0.1**. PA
 | [complex.md](complex.md) | Complex numbers |
 | [hosting-api.md](hosting-api.md) | Book / Page / Bag hosting API |
 | [CONTROL.md](CONTROL.md) | Host-neutral Controls, Images, movement, and Themes |
+| [STYLE.md](STYLE.md) | Page Style, collectors, anchors, gap, hex colors, backgrounds, and transparency |
 | [PASM_MAP.md](PASM_MAP.md) | Concrete PASM ↔ JX implementation map |
 | [WINDOW_SERVER.md](WINDOW_SERVER.md) | JX window-server direction |
 | [INSTALL.md](INSTALL.md) | Installation and plugin policy |
@@ -31,10 +32,11 @@ SPEC
   -> RHETORIC
   -> hosting-api
   -> CONTROL
+  -> STYLE
   -> COMPILER
   -> PASM_MAP
   -> smart-table
   -> edge-cases / GAPS
 ```
 
-The documentation should be readable from the outside inward: first what a JX programmer writes, then how PASL lowers it, then how PASM executes it.
+The documentation should be readable from the outside inward: first what a JX programmer writes, then how a Page is composed and styled, then how PASL lowers it, then how PASM executes it.
