@@ -2,12 +2,14 @@
 
 namespace {
     require_once dirname(__DIR__) . '/Plugin.php';
+    require_once dirname(__DIR__) . '/ControlBinding.php';
 }
 
 namespace jx\plugins {
 
 use JsonSerializable;
 use jx\Boundary;
+use jx\ControlBinding;
 use jx\JxException;
 use jx\JxPlugin;
 use jx\JxPluginExtension;
@@ -17,15 +19,22 @@ use jx\Plugins;
  * Host-neutral MP3/MP4 media Control.
  *
  * The base player is intentionally small: source, playback state/options,
- * events, Bag binding, Style, and an extension chain. Sound processing belongs
- * to plugins that extend `media`, not to the base MP3/MP4 contract.
+ * events, Bag binding, Control bindings, Style, and an extension chain. Sound
+ * processing belongs to plugins that extend `media`, not to the base contract.
  */
 final class MediaControl implements JsonSerializable
 {
     public const TYPES = ['audio', 'video'];
+    public const ACTIONS = [
+        'play', 'pause', 'toggle', 'stop',
+        'seek', 'volume', 'muted', 'loop', 'rate', 'source',
+    ];
 
     /** @var list<array{plugin:string,version:string,with:array<string,mixed>}> */
     private array $extensions = [];
+
+    /** @var array<string,ControlBinding> */
+    private array $controlBindings = [];
 
     /** @param array<string,mixed> $source
      *  @param array<string,mixed> $with
@@ -54,6 +63,9 @@ final class MediaControl implements JsonSerializable
     public function options(): array { return $this->with; }
     public function extensions(): array { return $this->extensions; }
 
+    /** @return list<ControlBinding> */
+    public function controlBindings(): array { return array_values($this->controlBindings); }
+
     /** Name the exact Bag binding returned by Bag::bind(). */
     public function boundBy(string $bindingId): self
     {
@@ -62,6 +74,84 @@ final class MediaControl implements JsonSerializable
         }
         $copy = clone $this;
         $copy->source['binding'] = self::bindingId($bindingId);
+        return $copy;
+    }
+
+    /**
+     * Listen to another Control.
+     *
+     * Examples:
+     *   click -> play
+     *   click -> pause
+     *   change(value) -> volume
+     *   change(value) -> seek
+     *   change(checked) -> muted
+     *
+     * The host attaches the actual browser/native listener when the Page is
+     * mounted. Media stores only the portable Control-binding contract.
+     *
+     * @param array<string,mixed> $with
+     */
+    public function listenTo(
+        string $control,
+        string $event,
+        string $action,
+        ?string $from = 'value',
+        array $with = [],
+    ): self {
+        $action = strtolower(trim($action));
+        if (!in_array($action, self::ACTIONS, true)) {
+            throw new JxException('Unsupported Media control-binding action', 'plugin.media.control', true, ['action' => $action]);
+        }
+
+        if (in_array($action, ['play', 'pause', 'toggle', 'stop'], true)) {
+            $from = null;
+        } elseif ($from === null) {
+            throw new JxException('Media value action needs a Control value path', 'plugin.media.control', true, ['action' => $action]);
+        }
+
+        // Sensible default coercions for the common player properties. The
+        // caller may override these with an explicit `as` coercion.
+        if (!array_key_exists('as', $with)) {
+            $with['as'] = match ($action) {
+                'volume', 'seek', 'rate' => 'float',
+                'muted', 'loop' => 'boolean',
+                'source' => 'string',
+                default => 'raw',
+            };
+        }
+
+        $binding = new ControlBinding(
+            $control,
+            $event,
+            $this->id,
+            $action,
+            $from,
+            $with,
+        );
+
+        $copy = clone $this;
+        $copy->controlBindings[$binding->id()] = $binding;
+        return $copy;
+    }
+
+    /** Short rhetorical alias. */
+    public function listen(
+        string $control,
+        string $event,
+        string $action,
+        ?string $from = 'value',
+        array $with = [],
+    ): self {
+        return $this->listenTo($control, $event, $action, $from, $with);
+    }
+
+    /** Stop listening to one Control binding without changing Media state. */
+    public function unlisten(string $bindingId): self
+    {
+        $bindingId = self::bindingId($bindingId);
+        $copy = clone $this;
+        unset($copy->controlBindings[$bindingId]);
         return $copy;
     }
 
@@ -114,6 +204,10 @@ final class MediaControl implements JsonSerializable
             'mime' => $this->mime,
             'source' => $this->source,
             'with' => $this->with,
+            'controlBindings' => array_map(
+                static fn(ControlBinding $binding): array => $binding->jsonSerialize(),
+                array_values($this->controlBindings),
+            ),
             'extensions' => $this->extensions,
             'events' => ['play', 'pause', 'ended', 'time', 'seek', 'volume', 'error'],
         ];
@@ -233,7 +327,7 @@ final class MediaControl implements JsonSerializable
     {
         $value = strtolower(trim($value));
         if (!preg_match('/^[a-f0-9]{24}$/', $value)) {
-            throw new JxException('Invalid Bag binding id for media', 'plugin.media', true, ['binding' => $value]);
+            throw new JxException('Invalid binding id for Media', 'plugin.media', true, ['binding' => $value]);
         }
         return $value;
     }
@@ -245,7 +339,13 @@ final class MediaPlugin implements JxPlugin
 
     public function id(): string { return 'media'; }
     public function version(): string { return self::VERSION; }
-    public function capabilities(): array { return ['media.mp3', 'media.mp4', 'media.audio', 'media.video', 'media.extensions']; }
+    public function capabilities(): array
+    {
+        return [
+            'media.mp3', 'media.mp4', 'media.audio', 'media.video',
+            'media.control-bindings', 'media.extensions',
+        ];
+    }
 
     /** mp3($named, $from, $with): direct asset/URL. */
     public static function mp3(string $named, string $from, array $with = []): MediaControl
