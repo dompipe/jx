@@ -1,0 +1,21 @@
+{
+  "id": "language",
+  "title": "JX Language Road",
+  "window": { "id": "language-road", "title": "JX Language Road", "width": 1040, "height": 760 },
+  "spine": ["origin", "pasl", "jx", "books", "windows", "os-road", "next"],
+  "leaves": {
+    "origin":  { "mode": "state-ready", "channels": ["language"] },
+    "pasl":    { "mode": "state-ready", "channels": ["language"] },
+    "jx":      { "mode": "state-ready", "channels": ["language"] },
+    "books":   { "mode": "state-ready", "channels": ["language"] },
+    "windows": { "mode": "state-ready", "channels": ["language"] },
+    "os-road": { "mode": "state-ready", "channels": ["language"] },
+    "next":    { "mode": "normalized",  "channels": ["language"] }
+  },
+  "drops": {
+    "enabled": true,
+    "channel": "drop",
+    "dir": "inbox",
+    "accept": ["*.json"]
+  }
+}

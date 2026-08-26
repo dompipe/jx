@@ -44,3 +44,4 @@ $bookId = htmlspecialchars($bind->bookId(), ENT_QUOTES, 'UTF-8');
   </tbody>
 </table>
 <p class="meta">Drop JSON into <code>data/books/cover/inbox/*.json</code> — picked up on next interaction (no refresh loop).</p>
+<p><a href="/?book=language">Open the JX Language Road Book</a></p>
