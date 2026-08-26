@@ -4,7 +4,7 @@ JX pages need one layout and style language that can be rendered by a browser, W
 
 The JX rule is:
 
-> **Controls say what exists. Bags hold what changes. Anchors say where. Style says how it breathes and looks.**
+> **Controls say what exists. Bags hold what changes. Collectors say what belongs together. Anchors say where. Style says how it breathes and looks.**
 
 ## 1. CSS-like, host-neutral
 
@@ -13,6 +13,11 @@ JX Style intentionally borrows the vocabulary people already know from CSS:
 ```text
 color
 background
+background-color
+background-image
+background-size
+background-position
+background-repeat
 border
 border-width
 border-radius
@@ -32,7 +37,7 @@ column-gap
 opacity
 ```
 
-A browser host may translate these directly into CSS. A Win32 or X11 host translates the same values into native colors, fonts, bounds, and spacing math.
+A browser host may translate these directly into CSS. A Win32 or X11 host translates the same values into native colors, images, fonts, bounds, and spacing math.
 
 The property names are the contract. CSS is one renderer.
 
@@ -43,16 +48,6 @@ Colors use hex strings so they remain portable and compact:
 ```text
 #RRGGBB
 #RRGGBBAA
-```
-
-Examples:
-
-```php
-$style = [
-    'color' => '#EAF2FF',
-    'background' => '#101722',
-    'border' => '#69F0AE',
-];
 ```
 
 A Control may carry those values directly:
@@ -85,9 +80,47 @@ Control style = presentation attached to this Control
 Bag style data = presentation values that can change or be shared
 ```
 
-A renderer can resolve Bag-backed values before drawing.
+A renderer resolves Bag-backed values before drawing.
 
-## 3. Gap is first-class
+## 3. Every Control may have a background image
+
+Background imagery is a Style feature, not a special privilege of the Image control.
+
+```php
+$cardStyle = [
+    'background-color' => '#101722',
+    'background-image' => '/assets/card-grid.png',
+    'background-size' => 'cover',
+    'background-position' => 'center center',
+    'background-repeat' => 'no-repeat',
+];
+```
+
+The same Style record can be attached to text, buttons, spinners, drawings, images, panels, or future Control types.
+
+A browser can lower it to CSS. Native hosts load the image and paint it into the Control rectangle before the foreground Control is rendered.
+
+The order is conceptually:
+
+```text
+background color
+    -> background image
+        -> border
+            -> Control content
+```
+
+A Bag may provide the image source too:
+
+```php
+$skin = Bag::underwrite(1024);
+Flow::put('/assets/panel-dark.png', $skin, 'background-image');
+Flow::put('#101722', $skin, 'background-color');
+Flow::put('cover', $skin, 'background-size');
+```
+
+This lets themes, state, and user-selected skins change backgrounds without rebuilding the Control.
+
+## 4. Gap is first-class
 
 `gap` belongs to Style instead of being another positional argument in every layout call.
 
@@ -99,9 +132,9 @@ $style = [
 
 JX gives `gap` two predictable meanings.
 
-### On a group or container
+### On a collector or container
 
-It is the spacing between children, just as a CSS-aware programmer would expect:
+It is the spacing between members or children:
 
 ```text
 A   12   B   12   C
@@ -122,13 +155,15 @@ The relationship establishes direction. Style establishes breathing room.
 
 > **Attach the relationship. Style the distance.**
 
-## 4. Margin, padding, and gap are different
+## 5. Margin, padding, and gap are different
 
 ```text
 margin  = space outside one Control
-padding = space inside one Control
-gap     = space between related Controls or children
+dpadding = space inside one Control
+gap     = space between related Controls or collector members
 ```
+
+The intended spelling is `padding`; `dpadding` above is only explanatory emphasis and is not a property name.
 
 Example:
 
@@ -151,7 +186,74 @@ $gridStyle = [
 
 This vocabulary prevents geometry calls from accumulating spacing parameters.
 
-## 5. Anchors are composable
+## 6. Group collectors
+
+A collector is a named, non-owning set of Controls. It works like a selector or class without making browser CSS the runtime model.
+
+Conceptually:
+
+```php
+$page->collect('form-fields', [
+    'username',
+    'password',
+    'email',
+]);
+```
+
+Then layout or Style can target the collector once:
+
+```php
+$page->style('form-fields', [
+    'background' => '#101722',
+    'color' => '#EAF2FF',
+    'padding' => 10,
+    'gap' => 12,
+]);
+```
+
+Collectors do not copy Controls and do not become another ownership container. They collect references.
+
+A Control may belong to several collectors:
+
+```text
+username -> form-fields
+username -> required
+username -> account-panel
+```
+
+That permits useful selector-like composition without duplicating the Control.
+
+### Collector cascade
+
+A practical specificity order is:
+
+```text
+Book
+ -> Page
+    -> collector
+       -> more-specific collector
+          -> Control
+             -> live Bag override
+```
+
+When collectors overlap, later/more-specific collector rules override earlier collector values before the Control's own Style is applied.
+
+### Collector layout
+
+Collectors may also participate in layout:
+
+```php
+$page->stack('form-fields', downward());
+$page->style('form-fields', [
+    'gap' => 12,
+]);
+```
+
+The collector supplies the members. Layout supplies the relationship. Style supplies the spacing.
+
+> **Collect what belongs together. Style it once.**
+
+## 7. Anchors are composable
 
 An anchor is the combination of a horizontal relationship and a vertical relationship.
 
@@ -207,7 +309,7 @@ and Style may then add:
 ['gap' => 8]
 ```
 
-## 6. A tooltip is a Bag
+## 8. A tooltip is a Bag
 
 Tooltip content is data, so it belongs in a Bag rather than inside a special tooltip widget.
 
@@ -228,6 +330,7 @@ Flow::put('Compile this Book.', $tip, 'text');
 Flow::put('Ctrl+Enter', $tip, 'shortcut');
 Flow::put('#EAF2FF', $tip, 'color');
 Flow::put('#101722', $tip, 'background');
+Flow::put('/assets/tip-grid.png', $tip, 'background-image');
 ```
 
 This keeps presentation data roomy without making Control constructors larger.
@@ -235,17 +338,18 @@ This keeps presentation data roomy without making Control constructors larger.
 The separation is:
 
 ```text
-Control = what it is
-Bag     = what it contains or remembers
-Layout  = where it is
-Style   = how it looks and breathes
-Event   = when it acts
-PASL    = what happens
+Control   = what it is
+Bag       = what it contains or remembers
+Collector = what belongs together
+Layout    = where it is
+Style     = how it looks and breathes
+Event     = when it acts
+PASL      = what happens
 ```
 
-## 7. Style may come from a Bag
+## 9. Style may come from a Bag
 
-JX should allow a Control to resolve style from either inline values or a Bag.
+JX should allow a Control or collector to resolve Style from either inline values or a Bag.
 
 Conceptually:
 
@@ -262,27 +366,28 @@ or:
 
 ```php
 $page->style('save', fromBag($buttonStyle));
+$page->style('form-fields', fromBag($formStyle));
 ```
 
 This gives Books enough room for themes and live styling without inventing a second state system.
 
-## 8. Cascade without browser dependence
+## 10. Cascade without browser dependence
 
 JX can use a small cascade:
 
 ```text
 Book style
   -> Page style
-      -> group/container style
+      -> collector style
           -> Control style
               -> live Bag override
 ```
 
-Later, more-specific values override earlier ones. The resolved result is a flat host-neutral style record before rendering.
+Later, more-specific values override earlier ones. The resolved result is a flat host-neutral Style record before rendering.
 
 The browser may turn it into CSS. Native hosts do not need a CSS engine; they receive the resolved values.
 
-## 9. Page contract
+## 11. Page contract
 
 The coherent visible Page becomes:
 
@@ -290,8 +395,9 @@ The coherent visible Page becomes:
 Page
 |- Controls      what exists
 |- Bags          what changes / content
+|- Collectors    what belongs together
 |- Layout        relationships and anchors
-|- Style         color, size, gap, margin, padding
+|- Style         color, images, size, gap, margin, padding
 |- Events        when something happens
 `- PASL          what the event does
 ```
@@ -301,7 +407,7 @@ HTML is therefore one output:
 ```text
 JX Page Contract
        |
-   resolve layout/style
+ collect + resolve layout/style
        |
   +----+------+------+
   |           |      |
@@ -309,15 +415,16 @@ browser     Win32   X11
 HTML/CSS    native  native
 ```
 
-## 10. Rhetorical rule
+## 12. Rhetorical rule
 
 Do not make layout pseudo-English. Make the next role predictable.
 
 ```text
-attach -> subject -> by anchor -> to target -> by anchor
-style  -> subject -> with properties
-stack  -> subjects -> direction
-align  -> subject -> anchor -> in container
+collect -> name -> members
+attach  -> subject -> by anchor -> to target -> by anchor
+style   -> subject/collector -> with properties
+stack   -> subjects/collector -> direction
+align   -> subject/collector -> anchor -> in container
 ```
 
 Spacing stays out of those sentences when Style can express it.
