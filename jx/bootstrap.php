@@ -12,6 +12,7 @@ require_once __DIR__ . '/Flow.php';
 require_once __DIR__ . '/SQL.php';
 require_once __DIR__ . '/BindingCoercion.php';
 require_once __DIR__ . '/Plugin.php';
+require_once __DIR__ . '/ControlBinding.php';
 
 // Bundled host-neutral plugins. Hosts still choose their rendering/backend work.
 require_once __DIR__ . '/plugins/Charts.php';
