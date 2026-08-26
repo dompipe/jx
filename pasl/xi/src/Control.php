@@ -59,6 +59,23 @@ final class Control
         ];
     }
 
+    /** @param array<int, array{x:int|float,y:int|float}> $degrees */
+    public static function curve(string $refId, array ...$degrees): array
+    {
+        $points = [];
+        foreach ($degrees as $degree) {
+            $points[] = [
+                'x' => (int)($degree['x'] ?? 0),
+                'y' => (int)($degree['y'] ?? 0),
+            ];
+        }
+        return [
+            'op' => 'curve',
+            'refId' => self::name($refId, 'curve'),
+            'degrees' => $points,
+        ];
+    }
+
     /** @param array<string, mixed> $props */
     public static function image(string $id, string $label, string $src, string $mime = 'image/*', array $props = []): self
     {
@@ -150,11 +167,43 @@ final class Control
                 $svg .= '<circle cx="' . (int)($op['cx'] ?? 0) . '" cy="' . (int)($op['cy'] ?? 0) . '" r="' . max(1, (int)($op['r'] ?? 8)) . '" fill="' . self::color((string)($op['fill'] ?? '#777')) . '"/>';
             } elseif ($kind === 'rect') {
                 $svg .= '<rect x="' . (int)($op['x'] ?? 0) . '" y="' . (int)($op['y'] ?? 0) . '" width="' . max(1, (int)($op['width'] ?? 16)) . '" height="' . max(1, (int)($op['height'] ?? 16)) . '" fill="' . self::color((string)($op['fill'] ?? '#ddd')) . '"/>';
+            } elseif ($kind === 'curve') {
+                $svg .= $this->renderCurve($op);
             }
         }
         $svg .= '</svg>';
         $svg .= '<input type="hidden" name="control[' . $id . ']" value="drawing-contract">';
         return $svg;
+    }
+
+    /** @param array<string, mixed> $op */
+    private function renderCurve(array $op): string
+    {
+        $degrees = is_array($op['degrees'] ?? null) ? array_values($op['degrees']) : [];
+        if (count($degrees) < 2) {
+            return '';
+        }
+        $first = $degrees[0];
+        $d = 'M ' . (int)($first['x'] ?? 0) . ' ' . (int)($first['y'] ?? 0);
+        if (count($degrees) === 2) {
+            $p = $degrees[1];
+            $d .= ' L ' . (int)($p['x'] ?? 0) . ' ' . (int)($p['y'] ?? 0);
+        } elseif (count($degrees) === 3) {
+            $c = $degrees[1];
+            $p = $degrees[2];
+            $d .= ' Q ' . (int)($c['x'] ?? 0) . ' ' . (int)($c['y'] ?? 0) . ' ' . (int)($p['x'] ?? 0) . ' ' . (int)($p['y'] ?? 0);
+        } else {
+            $c1 = $degrees[1];
+            $c2 = $degrees[2];
+            $p = $degrees[3];
+            $d .= ' C ' . (int)($c1['x'] ?? 0) . ' ' . (int)($c1['y'] ?? 0) . ' ' . (int)($c2['x'] ?? 0) . ' ' . (int)($c2['y'] ?? 0) . ' ' . (int)($p['x'] ?? 0) . ' ' . (int)($p['y'] ?? 0);
+            for ($i = 4; $i < count($degrees); $i++) {
+                $p = $degrees[$i];
+                $d .= ' L ' . (int)($p['x'] ?? 0) . ' ' . (int)($p['y'] ?? 0);
+            }
+        }
+        $ref = htmlspecialchars((string)($op['refId'] ?? 'curve'), ENT_QUOTES, 'UTF-8');
+        return '<path data-ref="' . $ref . '" data-motion="curve" d="' . htmlspecialchars($d, ENT_QUOTES, 'UTF-8') . '" fill="none" stroke="' . self::color((string)($op['stroke'] ?? '#7c3aed')) . '" stroke-width="' . max(1, (int)($op['width'] ?? 3)) . '"/>';
     }
 
     private function renderImage(): string

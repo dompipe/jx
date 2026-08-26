@@ -16,6 +16,7 @@ $controls = [
         ['op' => 'rect', 'x' => 16, 'y' => 18, 'width' => 112, 'height' => 72, 'fill' => '#dbeafe'],
         ['op' => 'circle', 'cx' => 196, 'cy' => 78, 'r' => 38, 'fill' => '#f59e0b'],
         Control::line('sweep-line', ['x' => 26, 'y' => 150], ['x' => 330, 'y' => 34], true) + ['stroke' => '#111827', 'width' => 3],
+        Control::curve('motion-curve', ['x' => 24, 'y' => 108], ['x' => 92, 'y' => 20], ['x' => 228, 'y' => 166], ['x' => 336, 'y' => 88]) + ['stroke' => '#7c3aed', 'width' => 4],
     ]),
     Control::image('image.any', 'Any image type', $image, $mime, ['alt' => 'Image contract accepts any MIME-backed image source']),
 ];

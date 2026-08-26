@@ -46,3 +46,19 @@ Control::line('sweep-line', ['x' => 0, 'y' => 40], ['x' => 160, 'y' => 40], true
 
 The fourth argument is `pong`. When `pong` is true, the host contract means the
 line travels start-to-finish and finish-to-start instead of one-way motion.
+
+Drawing controls also support movement paths:
+
+```php
+Control::curve(
+    'motion-curve',
+    ['x' => 0, 'y' => 80],
+    ['x' => 40, 'y' => 10],
+    ['x' => 120, 'y' => 130],
+    ['x' => 180, 'y' => 80],
+);
+```
+
+`curve(degree1, degree2, degree3, ...)` stores the degree/control points as a
+path for movement. The HTML renderer shows it as an SVG path, but native hosts
+should treat it as a motion contract a control can travel along.
