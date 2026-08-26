@@ -19,6 +19,8 @@ unset($jxRuntime);
  */
 final class Bag
 {
+    private const SERIAL_VERSION = 'jx.bag/1';
+
     private \jx\Bag $inner;
 
     /** @param array<string,mixed> $data */
@@ -125,15 +127,46 @@ final class Bag
         }
     }
 
+    /**
+     * Persist both Bag data and declarative source bindings.
+     *
+     * The envelope is versioned so ChannelBus can restore bindings after a
+     * process restart. fromJson() remains compatible with legacy flat Bag JSON.
+     */
     public function toJson(): string
     {
-        return $this->inner->toJson();
+        return json_encode([
+            '__jx_bag__' => self::SERIAL_VERSION,
+            'capacity' => $this->inner->capacity(),
+            'data' => $this->inner->all(),
+            'bindings' => $this->inner->bindings(),
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}';
     }
 
     public static function fromJson(string $json, ?int $capacity = null): self
     {
-        $data = json_decode($json, true);
-        return is_array($data) ? self::from($data, $capacity) : self::empty($capacity ?? 65_536);
+        $decoded = json_decode($json, true);
+        if (!is_array($decoded)) {
+            return self::empty($capacity ?? 65_536);
+        }
+
+        if (($decoded['__jx_bag__'] ?? null) === self::SERIAL_VERSION) {
+            $data = is_array($decoded['data'] ?? null) ? $decoded['data'] : [];
+            $bindings = is_array($decoded['bindings'] ?? null) ? $decoded['bindings'] : [];
+            $storedCapacity = max(0, (int)($decoded['capacity'] ?? 0));
+            $resolvedCapacity = $capacity ?? max(
+                65_536,
+                $storedCapacity,
+                strlen(serialize($data)) * 2 + 256,
+            );
+
+            $bag = self::from($data, $resolvedCapacity);
+            $bag->restoreBindings($bindings);
+            return $bag;
+        }
+
+        // Legacy XI format: the JSON object itself was the Bag data.
+        return self::from($decoded, $capacity);
     }
 
     /** Canonical Bag for SQL/Book/runtime boundaries that understand jx\Bag. */
