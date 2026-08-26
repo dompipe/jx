@@ -237,7 +237,7 @@ visible separately from the hot-operation benchmark.
 | Platform | Commands | Shared active plugins |
 |----------|----------|-----------------------|
 | Linux | `/etc/bin/jx`, `/etc/bin/jx-install` | `/etc/jx/plugins` |
-| macOS | `/usr/local/bin/jx`, `/usr/local/share/jx/plugins` | `/usr/local/share/jx/plugins` |
+| macOS | `/usr/local/bin/jx`, `/usr/local/bin/jx-install` | `/usr/local/share/jx/plugins` |
 | Windows | `%LOCALAPPDATA%\jx\bin` (User PATH) | `%ProgramData%\jx\plugins` |
 
 Plugins are independent packages. A Book or library links only the packages it
