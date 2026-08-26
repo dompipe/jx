@@ -11,6 +11,7 @@ require_once dirname(__DIR__) . '/jx.php';
 require_once __DIR__ . '/Flow.php';
 require_once __DIR__ . '/SQL.php';
 require_once __DIR__ . '/BindingCoercion.php';
+require_once __DIR__ . '/RefId.php';
 require_once __DIR__ . '/Plugin.php';
 require_once __DIR__ . '/ControlBinding.php';
 
