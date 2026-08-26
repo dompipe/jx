@@ -20,7 +20,7 @@ The JX v0.1 books read from the human-facing language down into the engine. Shar
 14. Complex numbers
 15. The browser is a host, not the language
 16. **Web Hosting: Apache outside, JX inside** — `JX_v0.1_Web_Hosting.md`
-17. **SQL as a first-class JX object; live SQL Binding into Bags and Pages** — `JX_v0.1_SQL.md`
+17. **SQL as a first-class JX object; Bags bind/unbind live data and Pages use Bags** — `JX_v0.1_SQL.md`
 18. **NoSQL as a sibling persistence object** — next shared chapter
 19. Learn by building one small Book
 20. The habits JX v0.1 wants to teach
@@ -34,7 +34,8 @@ How does it look and line up?
 What does it do?
 Where does it run?
 Where does durable relational data go?
-How does persistence change the active Page?
+How does a Bag acquire, coerce, and release persistent data?
+Which Pages use that Bag?
 Where does non-relational data go?
 ```
 
@@ -45,11 +46,11 @@ Controls
    -> Style / Layout
       -> PASL / PASM
          -> Browser / Apache / native host
-            -> SQL
-               -> Binding
-                  -> Bags
-                     -> Page patch
-                        -> NoSQL
+            -> SQL / NoSQL / other source
+               -> Bag.bind / Bag.unbind
+                  -> coercion / Bag state
+                     -> Binding Page-to-Bag use
+                        -> Page patch
 ```
 
 ## Engine Manual reading order
@@ -80,7 +81,7 @@ Controls
 24. Controls are a compiler/host contract
 25. **Page Style resolution, Collectors, Anchors, Images, and Transparency** — `JX_v0.1_Page_Style.md`
 26. **Apache / web deployment and persistent JX hosting** — `JX_v0.1_Web_Hosting.md`
-27. **SQL security, adapters, transactions, Bag synchronization, and live Binding** — `JX_v0.1_SQL.md`
+27. **SQL security, adapters, transactions, Bag binding/unbinding, coercion, and Page use** — `JX_v0.1_SQL.md`
 28. **NoSQL adapters and Bag synchronization** — next shared chapter
 29. Rhetorical roles can become compiler evidence
 30. Libraries should lower with the Book
@@ -125,22 +126,27 @@ Book / Bags
           -> other PDO-backed adapter
 ```
 
-Live persistence then resolves through Binding rather than through hard-coded Page lookups:
+Live persistence belongs to the Bag that receives it:
 
 ```text
-named SQL source
-    -> Binding listener
-       -> Bag sign / set / commit
-          -> dependent Controls / Collectors / Style
-             -> Page patch
+named SQL / NoSQL / other source
+    -> Bag.bind
+       -> query/listener
+          -> coercion
+             -> Bag sign / set / commit
+                -> Binding says which Page uses the Bag
+                   -> dependent Controls / Collectors / Style
+                      -> Page patch
 ```
 
-Binding snapshots keep names, destinations, modes, scopes, and revision tokens; live PDO handles, passwords, certificates, and private keys remain server-side.
+`Bag.unbind()` removes that external dependency without requiring the Page or Bag to be destroyed. Stable binding descriptors survive host restarts, and bound values may be exposed as raw data, strings, algebra, numbers, booleans, or JSON. Algebra expressions and string templates remain restricted data transformations; they do not use PHP `eval()`.
+
+Bag binding snapshots keep source names, query/listener names, modes, coercion instructions, destination nodes, and safe parameters. Page Binding snapshots Page-to-Bag usage. Live PDO handles, passwords, certificates, and private keys remain server-side.
 
 SQL results come back through the JX boundary and can be committed into Bags; credentials and live database handles never cross into the browser.
 
-NoSQL follows as its own sibling object rather than being disguised as SQL, while reusing the same Binding -> Bag -> Page relationship where appropriate.
+NoSQL follows as its own sibling object rather than being disguised as SQL, while reusing the same source -> Bag -> Page relationship where appropriate.
 
 ## Shared application mnemonic
 
-> **Controls say what exists. Bags hold what changes. Collectors gather. Anchors place. Style paints and spaces. PASL makes it act. Apache guards the doorway. SQL persists relations. Binding carries persistence into Bags and Pages. NoSQL persists its native model.**
+> **Controls say what exists. Bags hold what changes and remember where it comes from. Collectors gather. Anchors place. Style paints and spaces. PASL makes it act. Apache guards the doorway. SQL persists relations. NoSQL persists its native model. Binding says where each Bag is used.**
