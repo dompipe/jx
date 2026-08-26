@@ -243,66 +243,81 @@ Internet
 
 Apache owns public HTTP/TLS. The SQL adapter owns database authentication/TLS/file security. The Book owns the application relationship between them.
 
-## Listening SQL: Binding changes the Page
+## Bags own live data bindings
 
-A Page should not repeatedly hunt for one hard-coded SQL instance. JX should let Binding describe a named persistence dependency and let the host resolve the actual connection from the Book.
+A Page should not repeatedly hunt for one hard-coded SQL instance. The external-data relationship belongs to the Bag because the Bag is the JX object that receives, owns, and remembers the resulting value.
 
 The reactive direction is:
 
 ```text
-SQL source
-   -> Binding
-      -> Bag
-         -> Page
+SQL / NoSQL / other source
+          -> Bag.bind(...)
+             -> Bag node
+                -> Page Binding uses Bag
+                   -> Controls / Collectors / Style
+                      -> Page patch
 ```
 
 The core rule is:
 
-> **Binding remembers what to listen to. It does not store the live database connection.**
+> **The Bag remembers its data source. Page Binding remembers that the Page uses the Bag.**
 
-A Binding can therefore remain serializable:
-
-```json
-{
-  "page": "users",
-  "kind": "sql",
-  "source": "main",
-  "listener": "active-users",
-  "into": "state",
-  "at": "users",
-  "mode": "auto"
-}
-```
-
-The live SQL object stays server-side in the Book/host. When `users` becomes the active Page, the host resolves the named source `main`, activates the named listener or refresh strategy, and commits the returned data into Bag `state` at node `users`.
-
-A rhetorical API can read:
+A Bag binding is a serializable descriptor, not a live database handle:
 
 ```php
-$binding->listen(
-    'users',
+$state = jx\Bag::underwrite(16_384);
+
+$sourceBinding = $state->bind(
     'main',
     'active-users',
-    'state',
     'users',
+    'auto',
 );
 ```
 
 Read it as:
 
-> On Page `users`, listen to `main.active-users`, into Bag `state` at `users`.
+> Bind this Bag from source `main`, through `active-users`, at node `users`, automatically.
 
-The semantic order is Page -> source -> listener -> destination Bag -> node -> optional behavior.
+`unbind()` removes the data-source relationship without erasing the Bag's current value:
+
+```php
+$state->unbind($sourceBinding);
+```
+
+The last successfully committed value can therefore remain visible while the Bag is no longer listening for future changes.
+
+### Page Binding uses the Bag
+
+Page navigation does not need to own SQL source names or query text. It only needs to know which Bags the active Page depends on:
+
+```php
+$binding->useBag('users', 'state');
+```
+
+This separates two lifetimes cleanly:
+
+```text
+Bag binding
+    source -> query/listener -> Bag node
+
+Page Binding
+    Page -> uses Bag
+```
+
+The JX host can activate the relevant Bag bindings when a Page that uses that Bag is active, or keep a Book-scoped Bag live when the Book deliberately requests that behavior.
+
+For compatibility, the earlier `Binding::listen(...)` form can lower immediately into a Bag source binding plus a Page-to-Bag use record. It should not become a second persistence model.
 
 ### Named sources and named queries
 
-Pages should depend on stable names such as:
+A Bag depends on stable source names such as:
 
 ```text
 main.active-users
 ```
 
-not on PDO handles, hostnames, driver setup, passwords, ports, or TLS material.
+not on PDO handles, hostnames, passwords, ports, or TLS material.
 
 An SQL object may name reusable queries/listeners:
 
@@ -313,24 +328,119 @@ $main->query(
 );
 ```
 
-Binding then depends on the name instead of embedding the connection machinery in the Page.
+The host resolves `main`. The Bag descriptor says which named query/listener it wants.
 
-### Navigation controls subscriptions
+## Bindings can coerce incoming values
 
-Binding already owns Page navigation state, so listener lifetime belongs to that same lifecycle.
+External data often arrives in the wrong representation for the Page. JX therefore allows a Bag binding to declare how the value should be coerced before it is committed.
 
-```text
-Page opens
-   -> activate listeners for that Page
-   -> resolve named source
-   -> refresh / subscribe
-   -> commit results into Bags
+Simple coercion can turn a source value into algebra or a string:
 
-Page closes
-   -> deactivate listeners unique to that Page
+```php
+$state->bind(
+    'main',
+    'price',
+    'price',
+    'auto',
+    ['as' => 'algebra'],
+);
 ```
 
-Book-scoped listeners may remain active when deliberately declared as Book scoped.
+```php
+$state->bind(
+    'main',
+    'status',
+    'status-label',
+    'auto',
+    ['as' => 'string'],
+);
+```
+
+The coercion boundary also supports `number`, `integer`, `float`, `boolean`, and `json` where those are useful.
+
+### Algebra can be an expression
+
+A bound row can be reduced to an arithmetic result without arbitrary code evaluation:
+
+```php
+$state->bind(
+    'main',
+    'cart-row',
+    'total',
+    'auto',
+    [
+        'as' => 'algebra',
+        'expression' => 'price * quantity + shipping',
+    ],
+);
+```
+
+The allowed algebra grammar is deliberately small:
+
+```text
+numbers
+named fields
+nested dotted fields
++  -  *  /  %
+parentheses
+unary + / -
+```
+
+There are no function calls and no PHP `eval()`. Names resolve only from the incoming bound data, with `value` meaning the current pipeline value.
+
+### Strings can be templates
+
+```php
+$state->bind(
+    'main',
+    'player',
+    'label',
+    'auto',
+    [
+        'as' => 'string',
+        'template' => '{player.name}: {player.score}',
+    ],
+);
+```
+
+A template may use `{value}` or named/dotted fields from the original bound value.
+
+### Coercions can form a pipeline
+
+Algebra can feed a string without teaching the database or Page about the conversion:
+
+```php
+$state->bind(
+    'main',
+    'cart-row',
+    'total-label',
+    'auto',
+    [
+        'coerce' => [
+            [
+                'as' => 'algebra',
+                'expression' => 'price * quantity',
+            ],
+            [
+                'as' => 'string',
+                'template' => 'Total: {value}',
+            ],
+        ],
+    ],
+);
+```
+
+The flow is:
+
+```text
+source row
+   -> algebra
+      -> string template
+         -> Boundary import
+            -> Bag sign / set / commit
+```
+
+This coercion contract is implemented in `jx/BindingCoercion.php`. It is intentionally data-shaped so PASL can later compile algebra coercions instead of changing the public Bag sentence.
 
 ### Persistence changes flow through Bags
 
@@ -338,8 +448,9 @@ SQL should never repaint the Page directly and should never bypass Bag law.
 
 ```text
 Database changes
-      -> SQL listener notices
-      -> Binding refreshes named result
+      -> source adapter notices
+      -> resolve Bag binding
+      -> apply declared coercion
       -> Boundary import
       -> Bag sign / set / commit
       -> dependent Controls / Collectors / Style resolve
@@ -350,7 +461,7 @@ This lets database state affect both content and appearance. A theme Bag can rec
 
 ### Listening strategy is adapter-specific
 
-`listen` describes the desired behavior, not one database vendor's mechanism. With `mode = auto`, the SQL adapter should choose the strongest legal strategy available:
+`mode = auto` describes the desired behavior, not one database vendor's mechanism. The SQL adapter should choose the strongest legal strategy available:
 
 ```text
 PostgreSQL
@@ -368,25 +479,27 @@ other SQL adapters
     -> safe polling or a dedicated native notification mechanism
 ```
 
-The Page should not change just because the Book changes database engines.
+The Bag and Page should not change just because the Book changes database engines.
 
 ### Binding snapshots never contain live credentials
 
-Binding may snapshot source names, listener names, modes, scope, destination Bags/nodes, and revision tokens. It must not snapshot PDO handles, database passwords, certificates, private keys, or other live connection material.
+A Bag binding may snapshot source names, listener/query names, modes, destination nodes, coercion instructions, and revision tokens. It must not snapshot PDO handles, database passwords, certificates, private keys, or other live connection material.
 
-That keeps the same Binding portable across browser hosting, Apache deployment, native hosts, Book restarts, and restored sessions.
+Page Binding snapshots Page-to-Bag use, not database credentials.
 
-The same model prepares JX for NoSQL:
+That keeps the same relationship portable across browser hosting, Apache deployment, native hosts, Book restarts, and restored sessions.
+
+The same ownership model prepares JX for NoSQL:
 
 ```text
 SQL -----\
           \
-NoSQL ----> Binding -> Bags -> Page
+NoSQL ----> Bag.bind -> Bag -> Page Binding -> Page
           /
 Channel -/
 ```
 
-**Implementation status:** the SQL object and the existing navigation/channel Binding are present now. The reactive SQL-listener registry and listener lifecycle described here are the next Binding implementation and must be execution-tested before they are described as completed runtime behavior.
+**Implementation status:** the SQL object, canonical Bag source-binding metadata, XI Bag persistence adapter, Page-to-Bag Binding records, and binding coercion boundary are present. The host-side executor that actively resolves named SQL sources and refreshes bound Bags is the next integration step and still needs execution tests against PDO SQLite/MySQL/PostgreSQL drivers.
 
 ## Next: NoSQL as its own object
 
@@ -400,4 +513,4 @@ Book
 `- Pages
 ```
 
-The two persistence objects can share JX laws around secrets, host boundaries, result import, Bag synchronization, and secure transport while keeping their native data models intact.
+The two persistence objects can share JX laws around secrets, host boundaries, result import, Bag synchronization, secure transport, source binding, and coercion while keeping their native data models intact.
