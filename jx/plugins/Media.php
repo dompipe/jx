@@ -10,6 +10,7 @@ use JsonSerializable;
 use jx\Boundary;
 use jx\JxException;
 use jx\JxPlugin;
+use jx\JxPluginExtension;
 use jx\Plugins;
 
 /**
@@ -67,19 +68,22 @@ final class MediaControl implements JsonSerializable
     /**
      * Attach an installed plugin that explicitly extends `media`.
      *
-     * The extension receives its own open, boundary-safe option map. The base
+     * The extension receives its own open, boundary-safe option map and then
+     * normalizes that map using the extension plugin's vocabulary. The base
      * player remains unaware of EQ, compression, spatialization, visualization,
      * or later processing vocabulary.
      */
     public function extend(string $plugin, array $with = []): self
     {
         $plugin = self::name($plugin, 'plugin');
-        if (!Plugins::isExtensionOf($plugin, 'media')) {
+        $descriptor = Plugins::get($plugin);
+        if (!$descriptor instanceof JxPluginExtension
+            || !Plugins::isExtensionOf($plugin, 'media')) {
             throw new JxException('Plugin does not extend Media', 'plugin.media', true, ['plugin' => $plugin]);
         }
 
         $options = self::extensionOptions($with);
-        $descriptor = Plugins::get($plugin);
+        $options = $descriptor->normalizeExtensionOptions($options);
 
         $copy = clone $this;
         $copy->extensions[] = [
