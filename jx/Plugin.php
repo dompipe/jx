@@ -30,6 +30,11 @@ interface JxPlugin
 interface JxPluginExtension extends JxPlugin
 {
     public function extendsPlugin(): string;
+
+    /** @param array<string,mixed> $with
+     *  @return array<string,mixed>
+     */
+    public function normalizeExtensionOptions(array $with): array;
 }
 
 final class Plugins
