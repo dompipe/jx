@@ -23,6 +23,7 @@ jobs:
           php -l pasm-loop-fuser.php
           php -l pasm-iterator-abi.php
           php -l pasm-register-command.php
+          php -l pasm-register-fast-vm.php
           php -l pasm-lang.php
           php -l jx-alias.php
           php -l pasm-bag-hotops.php
