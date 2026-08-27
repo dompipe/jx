@@ -24,6 +24,8 @@ jobs:
           php -l jx-alias.php
           php -l pasm-bag-hotops.php
           php -l jx-bag-containers.php
+          php -l benchmark-loop-active.php
+          php -l benchmark-loop-legacy.php
       - name: Loop-space model
         run: php test-pasm-loop-space.php
       - name: Compiled loop emission
@@ -36,3 +38,7 @@ jobs:
         run: php test-pasm-bag-hotops.php
       - name: Bag-backed containers
         run: php test-jx-bag-containers.php
+      - name: Legacy inline loop benchmark
+        run: php benchmark-loop-legacy.php 10000 9
+      - name: Active compiled loop benchmark
+        run: php benchmark-loop-active.php 10000 9
