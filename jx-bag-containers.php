@@ -14,13 +14,6 @@ if (!class_exists(Bag::class, false)) {
     require_once __DIR__ . '/jx.php';
 }
 
-/**
- * Canonical Bag container disciplines.
- *
- * A container is not a second memory system. It is a Bag plus an access law.
- * Hot operations stay in target-native state; checkpoint() is the explicit
- * canonical boundary that commits a snapshot through the Bag handshake.
- */
 final class BagDiscipline
 {
     public const RECORD = 'record';
@@ -201,10 +194,6 @@ class VectorBag extends BagContainer
         if (!array_key_exists($index,$this->values)) throw new OutOfBoundsException("VectorBag index {$index}");
         $this->values[$index]=$value; $this->changed(); return $this;
     }
-    /**
-     * Canonical fallback for BEMPLACE. The PHP host uses one array_splice call;
-     * native lowering computes one address and performs one overlap-safe tail move.
-     */
     public function emplace(int $index, mixed $value): static
     {
         $n = count($this->values);
@@ -317,9 +306,13 @@ class MapBag extends BagContainer
     public function __construct(Bag $bag, ?string $elementType=null, string $kind=BagDiscipline::MAP){parent::__construct($bag,$kind,$elementType);}
     public function count(): int{return count($this->values);}
     public function put(string|int $key,mixed $value): static{$this->values[$key]=$value;$this->changed();return $this;}
-    /** Insert only when absent; return the existing or newly inserted value. */
-    public function emplace(string|int $key, mixed $value): mixed
+    /** Map BEMPLACE: emplace(key, value), insert only when absent. */
+    public function emplace(mixed ...$args): mixed
     {
+        if (count($args) !== 2 || (!is_string($args[0]) && !is_int($args[0]))) {
+            throw new \InvalidArgumentException('MapBag::emplace expects (string|int key, mixed value)');
+        }
+        $key=$args[0];$value=$args[1];
         if (array_key_exists($key, $this->values)) return $this->values[$key];
         $this->values[$key] = $value;
         $this->changed();
@@ -349,14 +342,15 @@ final class SetBag extends MapBag
             default=>'x:'.hash('xxh3',serialize($value)),
         };
     }
-    /** Insert only when absent; return the existing or newly inserted value. */
-    public function emplaceValue(mixed $value): mixed
+    /** Set BEMPLACE: emplace(value), insert only when absent. */
+    public function emplace(mixed ...$args): mixed
     {
-        $k=$this->keyOf($value);
+        if (count($args) !== 1) throw new \InvalidArgumentException('SetBag::emplace expects (mixed value)');
+        $value=$args[0];$k=$this->keyOf($value);
         if(array_key_exists($k,$this->values)) return $this->values[$k];
         $this->values[$k]=$value;$this->changed();return $value;
     }
-    public function add(mixed $value): static{$this->emplaceValue($value);return $this;}
+    public function add(mixed $value): static{$this->emplace($value);return $this;}
     public function contains(mixed $value): bool{return array_key_exists($this->keyOf($value),$this->values);}
     public function discard(mixed $value): bool{$k=$this->keyOf($value);if(!array_key_exists($k,$this->values))return false;unset($this->values[$k]);$this->changed();return true;}
     public function toArray(): array{return array_values($this->values);}
