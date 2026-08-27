@@ -38,6 +38,11 @@ foreach ($rows as $row) $by[$row['host_id']] = $row;
 if (($by['x11:1002']['focused'] ?? false) !== true || ($by['x11:1001']['focused'] ?? true) !== false) {
     throw new RuntimeException('desktop host bridge focus exclusivity failed');
 }
+if (($by['x11:1002']['pid'] ?? null) !== 42 || ($by['x11:1002']['class'] ?? '') !== 'Firefox'
+    || ($by['x11:1002']['x'] ?? null) !== 40 || ($by['x11:1002']['y'] ?? null) !== 50
+    || ($by['x11:1002']['width'] ?? null) !== 1024 || ($by['x11:1002']['height'] ?? null) !== 768) {
+    throw new RuntimeException('desktop host bridge focus patch erased existing metadata');
+}
 
 $bridge->apply([
     'event' => 'window-update',
@@ -48,6 +53,11 @@ $by = [];
 foreach ($rows as $row) $by[$row['host_id']] = $row;
 if (($by['x11:1002']['title'] ?? '') !== 'JX Browser' || ($by['x11:1002']['x'] ?? null) !== 60) {
     throw new RuntimeException('desktop host bridge update failed');
+}
+if (($by['x11:1002']['pid'] ?? null) !== 42 || ($by['x11:1002']['class'] ?? '') !== 'Firefox'
+    || ($by['x11:1002']['y'] ?? null) !== 50 || ($by['x11:1002']['width'] ?? null) !== 1024
+    || ($by['x11:1002']['height'] ?? null) !== 768 || ($by['x11:1002']['focused'] ?? false) !== true) {
+    throw new RuntimeException('desktop host bridge partial update erased existing metadata');
 }
 
 $bridge->apply(['event' => 'window-close', 'host_id' => 'x11:1001']);
