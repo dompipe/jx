@@ -5,9 +5,9 @@
  * Run:
  *   ./jx11 --desktop desktop.jx11
  *
- * `jx` is the compiler/runtime. `jx11` is the Linux/X11 desktop host.
- * Canonical Desktop objects compile to the small JX11/1 execution shadow used
- * here. XIDs, Cairo surfaces and other host resources never enter JX source.
+ * Hot-path law:
+ *   canonical names/assets -> startup prelink/cache -> numeric native slots.
+ * Event handling never resolves canonical names and never decodes images.
  */
 #include <xcb/xcb.h>
 #include <cairo/cairo.h>
@@ -21,18 +21,26 @@
 
 #define MAX_ICONS 256
 #define MAX_WINDOWS 256
+#define XID_INDEX_SIZE 1024
 #define ICON_W 104
 #define ICON_H 94
 #define ICON_IMAGE 56
 #define MAX_TITLE 160
+#define MAX_TASK_BUTTONS 256
+
+#define DIRTY_NONE    0u
+#define DIRTY_TASKBAR 1u
+#define DIRTY_ROOT    2u
 
 typedef struct {
     char id[129];
     char label[257];
-    char image[2049];
+    char image_path[2049];
     char program[1025];
     int x, y;
     xcb_window_t window;
+    cairo_surface_t *image;
+    int in_use;
 } jx11_icon;
 
 typedef struct {
@@ -41,7 +49,21 @@ typedef struct {
     int16_t x, y;
     uint16_t width, height;
     int mapped;
+    int in_use;
 } jx11_window;
+
+typedef struct {
+    xcb_window_t xid;
+    int16_t slot;
+    uint8_t kind; /* 1 icon, 2 managed window */
+    uint8_t used;
+} xid_index_entry;
+
+typedef struct {
+    int16_t window_slot;
+    int16_t x;
+    int16_t width;
+} task_button;
 
 static xcb_connection_t *conn;
 static xcb_screen_t *screen;
@@ -58,6 +80,11 @@ static jx11_icon icons[MAX_ICONS];
 static size_t icon_count = 0;
 static jx11_window windows[MAX_WINDOWS];
 static size_t window_count = 0;
+static xid_index_entry xid_index[XID_INDEX_SIZE];
+static task_button task_buttons[MAX_TASK_BUTTONS];
+static size_t task_button_count = 0;
+static cairo_surface_t *wallpaper_image = NULL;
+static unsigned dirty_flags = DIRTY_NONE;
 
 static void die(const char *msg) { fprintf(stderr, "jx11: %s\n", msg); exit(2); }
 
@@ -139,12 +166,15 @@ static void load_desktop(const char *path) {
                 }
             }
             for (int i = 0; i < 4; ++i) if (!safe_field(parts[i])) die("unsafe icon manifest field");
-            jx11_icon *ic = &icons[icon_count++];
+            jx11_icon *ic = &icons[icon_count];
+            memset(ic, 0, sizeof *ic);
+            ic->in_use = 1;
             snprintf(ic->id, sizeof ic->id, "%s", parts[0]);
             snprintf(ic->label, sizeof ic->label, "%s", parts[1]);
-            snprintf(ic->image, sizeof ic->image, "%s", parts[2]);
+            snprintf(ic->image_path, sizeof ic->image_path, "%s", parts[2]);
             snprintf(ic->program, sizeof ic->program, "%s", parts[3]);
             ic->x = atoi(parts[4]); ic->y = atoi(parts[5]);
+            ++icon_count;
             continue;
         }
         fprintf(stderr, "jx11: ignoring unknown manifest row: %s\n", line);
@@ -165,16 +195,22 @@ static cairo_surface_t *xcb_surface(xcb_drawable_t drawable, int width, int heig
     return cairo_xcb_surface_create(conn, drawable, root_visual, width, height);
 }
 
-static void paint_png_cover(cairo_t *cr, const char *path, double width, double height) {
-    if (!path || !*path) return;
+static cairo_surface_t *load_png_once(const char *path, int noisy) {
+    if (!path || !*path) return NULL;
     cairo_surface_t *img = cairo_image_surface_create_from_png(path);
     if (cairo_surface_status(img) != CAIRO_STATUS_SUCCESS) {
-        fprintf(stderr, "jx11: cannot load PNG asset %s: %s\n", path, cairo_status_to_string(cairo_surface_status(img)));
+        if (noisy) fprintf(stderr, "jx11: cannot load PNG asset %s: %s\n", path,
+                           cairo_status_to_string(cairo_surface_status(img)));
         cairo_surface_destroy(img);
-        return;
+        return NULL;
     }
+    return img;
+}
+
+static void paint_surface_cover(cairo_t *cr, cairo_surface_t *img, double width, double height) {
+    if (!img) return;
     double iw = cairo_image_surface_get_width(img), ih = cairo_image_surface_get_height(img);
-    if (iw <= 0 || ih <= 0) { cairo_surface_destroy(img); return; }
+    if (iw <= 0 || ih <= 0) return;
     double scale = width / iw;
     if (ih * scale < height) scale = height / ih;
     double dw = iw * scale, dh = ih * scale;
@@ -184,18 +220,13 @@ static void paint_png_cover(cairo_t *cr, const char *path, double width, double 
     cairo_set_source_surface(cr, img, 0, 0);
     cairo_paint(cr);
     cairo_restore(cr);
-    cairo_surface_destroy(img);
 }
 
-static void paint_png_fit(cairo_t *cr, const char *path, double x, double y, double width, double height) {
-    if (!path || !*path) return;
-    cairo_surface_t *img = cairo_image_surface_create_from_png(path);
-    if (cairo_surface_status(img) != CAIRO_STATUS_SUCCESS) {
-        cairo_surface_destroy(img);
-        return;
-    }
+static void paint_surface_fit(cairo_t *cr, cairo_surface_t *img,
+                              double x, double y, double width, double height) {
+    if (!img) return;
     double iw = cairo_image_surface_get_width(img), ih = cairo_image_surface_get_height(img);
-    if (iw <= 0 || ih <= 0) { cairo_surface_destroy(img); return; }
+    if (iw <= 0 || ih <= 0) return;
     double scale = width / iw;
     if (ih * scale > height) scale = height / ih;
     double dw = iw * scale, dh = ih * scale;
@@ -205,30 +236,79 @@ static void paint_png_fit(cairo_t *cr, const char *path, double x, double y, dou
     cairo_set_source_surface(cr, img, 0, 0);
     cairo_paint(cr);
     cairo_restore(cr);
-    cairo_surface_destroy(img);
 }
+
+static uint32_t xid_hash(xcb_window_t xid) {
+    uint32_t x = xid;
+    x ^= x >> 16;
+    x *= 0x7feb352dU;
+    x ^= x >> 15;
+    x *= 0x846ca68bU;
+    x ^= x >> 16;
+    return x & (XID_INDEX_SIZE - 1u);
+}
+
+static void xid_index_clear(void) { memset(xid_index, 0, sizeof xid_index); }
+
+static void xid_index_put(xcb_window_t xid, uint8_t kind, int16_t slot) {
+    if (xid == XCB_NONE) return;
+    uint32_t at = xid_hash(xid);
+    for (uint32_t probe = 0; probe < XID_INDEX_SIZE; ++probe) {
+        xid_index_entry *e = &xid_index[(at + probe) & (XID_INDEX_SIZE - 1u)];
+        if (!e->used || e->xid == xid) {
+            e->used = 1; e->xid = xid; e->kind = kind; e->slot = slot;
+            return;
+        }
+    }
+    die("XID index exhausted");
+}
+
+static int xid_index_get(xcb_window_t xid, uint8_t kind) {
+    if (xid == XCB_NONE) return -1;
+    uint32_t at = xid_hash(xid);
+    for (uint32_t probe = 0; probe < XID_INDEX_SIZE; ++probe) {
+        xid_index_entry *e = &xid_index[(at + probe) & (XID_INDEX_SIZE - 1u)];
+        if (!e->used) return -1;
+        if (e->xid == xid && e->kind == kind) return e->slot;
+    }
+    return -1;
+}
+
+/* Deletion is uncommon and the table is tiny (<=512 live XIDs). Rebuild keeps
+ * lookup probing simple and avoids tombstones in the event hot path. */
+static void xid_index_rebuild(void) {
+    xid_index_clear();
+    for (size_t i = 0; i < icon_count; ++i)
+        if (icons[i].in_use && icons[i].window != XCB_NONE) xid_index_put(icons[i].window, 1, (int16_t)i);
+    for (int i = 0; i < MAX_WINDOWS; ++i)
+        if (windows[i].in_use && windows[i].window != XCB_NONE) xid_index_put(windows[i].window, 2, (int16_t)i);
+}
+
+static int window_slot_by_xid(xcb_window_t win) { return xid_index_get(win, 2); }
+static int icon_slot_by_xid(xcb_window_t win) { return xid_index_get(win, 1); }
+
+static void invalidate(unsigned flags) { dirty_flags |= flags; }
 
 static void paint_background(void) {
     uint32_t values[] = { background_pixel };
     xcb_change_window_attributes(conn, root, XCB_CW_BACK_PIXEL, values);
     xcb_clear_area(conn, 0, root, 0, 0, 0, 0);
-    if (!wallpaper_path[0]) return;
+    if (!wallpaper_image) return;
     cairo_surface_t *surface = xcb_surface(root, screen->width_in_pixels, screen->height_in_pixels);
     cairo_t *cr = cairo_create(surface);
-    paint_png_cover(cr, wallpaper_path, screen->width_in_pixels, screen->height_in_pixels);
+    paint_surface_cover(cr, wallpaper_image, screen->width_in_pixels, screen->height_in_pixels);
     cairo_destroy(cr);
     cairo_surface_flush(surface);
     cairo_surface_destroy(surface);
 }
 
-static jx11_window *managed_by_xid(xcb_window_t win) {
-    for (size_t i = 0; i < window_count; ++i) if (windows[i].window == win) return &windows[i];
-    return NULL;
-}
-
-static void read_title(jx11_window *mw) {
-    if (!mw) return;
-    xcb_get_property_cookie_t ck = xcb_get_property(conn, 0, mw->window, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 0, MAX_TITLE);
+static void read_title(int slot) {
+    if (slot < 0 || slot >= MAX_WINDOWS || !windows[slot].in_use) return;
+    jx11_window *mw = &windows[slot];
+    char previous[MAX_TITLE + 1];
+    memcpy(previous, mw->title, sizeof previous);
+    xcb_get_property_cookie_t ck = xcb_get_property(conn, 0, mw->window,
+        XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 0, MAX_TITLE);
     xcb_get_property_reply_t *rp = xcb_get_property_reply(conn, ck, NULL);
     if (!rp) return;
     int n = xcb_get_property_value_length(rp);
@@ -238,49 +318,60 @@ static void read_title(jx11_window *mw) {
         mw->title[n] = '\0';
     }
     free(rp);
+    if (strcmp(previous, mw->title) != 0) invalidate(DIRTY_TASKBAR);
 }
 
-static void read_geometry(jx11_window *mw) {
-    if (!mw) return;
+static void read_geometry(int slot) {
+    if (slot < 0 || slot >= MAX_WINDOWS || !windows[slot].in_use) return;
+    jx11_window *mw = &windows[slot];
     xcb_get_geometry_reply_t *g = xcb_get_geometry_reply(conn, xcb_get_geometry(conn, mw->window), NULL);
     if (!g) return;
     mw->x = g->x; mw->y = g->y; mw->width = g->width; mw->height = g->height;
     free(g);
 }
 
-static void draw_taskbar(void);
+static int allocate_window_slot(void) {
+    for (int i = 0; i < MAX_WINDOWS; ++i) if (!windows[i].in_use) return i;
+    return -1;
+}
 
 static void add_managed(xcb_window_t win) {
-    if (win == XCB_NONE || win == root || win == taskbar_window || managed_by_xid(win)) return;
-    for (size_t i = 0; i < icon_count; ++i) if (icons[i].window == win) return;
-    if (window_count >= MAX_WINDOWS) return;
-    jx11_window *mw = &windows[window_count++];
+    if (win == XCB_NONE || win == root || win == taskbar_window || window_slot_by_xid(win) >= 0) return;
+    if (icon_slot_by_xid(win) >= 0) return;
+    int slot = allocate_window_slot();
+    if (slot < 0) return;
+    jx11_window *mw = &windows[slot];
     memset(mw, 0, sizeof *mw);
-    mw->window = win; mw->mapped = 1;
+    mw->window = win; mw->mapped = 1; mw->in_use = 1;
     snprintf(mw->title, sizeof mw->title, "0x%08x", win);
+    xid_index_put(win, 2, (int16_t)slot);
+    ++window_count;
     uint32_t ev = XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_STRUCTURE_NOTIFY | XCB_EVENT_MASK_FOCUS_CHANGE;
     xcb_change_window_attributes(conn, win, XCB_CW_EVENT_MASK, &ev);
-    read_geometry(mw); read_title(mw);
-    draw_taskbar();
+    read_geometry(slot); read_title(slot);
+    invalidate(DIRTY_TASKBAR);
 }
 
 static void remove_managed(xcb_window_t win) {
-    for (size_t i = 0; i < window_count; ++i) {
-        if (windows[i].window != win) continue;
-        if (i + 1 < window_count) memmove(&windows[i], &windows[i+1], (window_count-i-1) * sizeof windows[0]);
-        --window_count;
-        draw_taskbar();
-        return;
-    }
+    int slot = window_slot_by_xid(win);
+    if (slot < 0) return;
+    memset(&windows[slot], 0, sizeof windows[slot]);
+    if (window_count) --window_count;
+    if (focused == win) focused = XCB_NONE;
+    xid_index_rebuild();
+    invalidate(DIRTY_TASKBAR);
 }
 
 static void focus_window(xcb_window_t win) {
     if (win == XCB_NONE || win == root || win == taskbar_window) return;
-    focused = win;
+    if (window_slot_by_xid(win) < 0) return;
+    if (focused != win) {
+        focused = win;
+        invalidate(DIRTY_TASKBAR);
+    }
     xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, win, XCB_CURRENT_TIME);
     uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
     xcb_configure_window(conn, win, XCB_CONFIG_WINDOW_STACK_MODE, stack);
-    draw_taskbar();
 }
 
 static void manage_map(xcb_map_request_event_t *e) {
@@ -300,8 +391,8 @@ static void manage_configure(xcb_configure_request_event_t *e) {
     if (mask & XCB_CONFIG_WINDOW_SIBLING) values[i++] = e->sibling;
     if (mask & XCB_CONFIG_WINDOW_STACK_MODE) values[i++] = e->stack_mode;
     xcb_configure_window(conn, e->window, mask, values);
-    jx11_window *mw = managed_by_xid(e->window);
-    if (mw) read_geometry(mw);
+    int slot = window_slot_by_xid(e->window);
+    if (slot >= 0) read_geometry(slot);
 }
 
 static pid_t launch_program(const char *program) {
@@ -315,19 +406,16 @@ static pid_t launch_program(const char *program) {
     return pid;
 }
 
-static jx11_icon *icon_by_window(xcb_window_t win) {
-    for (size_t i = 0; i < icon_count; ++i) if (icons[i].window == win) return &icons[i];
-    return NULL;
-}
-
-static void draw_icon(jx11_icon *ic) {
-    if (!ic || ic->window == XCB_NONE) return;
+static void draw_icon(int slot) {
+    if (slot < 0 || slot >= (int)icon_count || !icons[slot].in_use) return;
+    jx11_icon *ic = &icons[slot];
+    if (ic->window == XCB_NONE) return;
     cairo_surface_t *surface = xcb_surface(ic->window, ICON_W, ICON_H);
     cairo_t *cr = cairo_create(surface);
     double r,g,b; rgb_double(background_pixel, &r,&g,&b);
     cairo_set_source_rgba(cr, r,g,b, 0.86); cairo_paint(cr);
 
-    if (ic->image[0]) paint_png_fit(cr, ic->image, (ICON_W-ICON_IMAGE)/2.0, 5, ICON_IMAGE, ICON_IMAGE);
+    if (ic->image) paint_surface_fit(cr, ic->image, (ICON_W-ICON_IMAGE)/2.0, 5, ICON_IMAGE, ICON_IMAGE);
     else {
         cairo_set_source_rgba(cr, 1,1,1,0.7); cairo_set_line_width(cr, 2);
         cairo_rectangle(cr, (ICON_W-ICON_IMAGE)/2.0, 5, ICON_IMAGE, ICON_IMAGE); cairo_stroke(cr);
@@ -345,6 +433,7 @@ static void draw_icon(jx11_icon *ic) {
 static void create_icons(void) {
     for (size_t i = 0; i < icon_count; ++i) {
         jx11_icon *ic = &icons[i];
+        if (ic->image_path[0]) ic->image = load_png_once(ic->image_path, 0);
         ic->window = xcb_generate_id(conn);
         uint32_t values[] = { background_pixel,
             XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE, 1 };
@@ -352,6 +441,7 @@ static void create_icons(void) {
             (int16_t)ic->x, (int16_t)ic->y, ICON_W, ICON_H, 0,
             XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual,
             XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK | XCB_CW_OVERRIDE_REDIRECT, values);
+        xid_index_put(ic->window, 1, (int16_t)i);
         xcb_map_window(conn, ic->window);
     }
 }
@@ -365,15 +455,27 @@ static void draw_taskbar(void) {
     cairo_select_font_face(cr, "sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, 12);
 
+    task_button_count = 0;
     int left = 8;
     int usable = width - 16;
-    int slot = window_count ? usable / (int)window_count : usable;
-    if (slot > 220) slot = 220;
-    if (slot < 80) slot = 80;
-    for (size_t i = 0; i < window_count; ++i) {
-        int x = left + (int)i * slot;
+    int slot_width = window_count ? usable / (int)window_count : usable;
+    if (slot_width > 220) slot_width = 220;
+    if (slot_width < 80) slot_width = 80;
+
+    int ordinal = 0;
+    for (int i = 0; i < MAX_WINDOWS; ++i) {
+        if (!windows[i].in_use) continue;
+        int x = left + ordinal * slot_width;
+        ++ordinal;
         if (x >= width - 8) break;
-        int w = slot - 5; if (x + w > width - 8) w = width - 8 - x;
+        int w = slot_width - 5;
+        if (x + w > width - 8) w = width - 8 - x;
+        if (task_button_count < MAX_TASK_BUTTONS) {
+            task_buttons[task_button_count].window_slot = (int16_t)i;
+            task_buttons[task_button_count].x = (int16_t)x;
+            task_buttons[task_button_count].width = (int16_t)w;
+            ++task_button_count;
+        }
         if (windows[i].window == focused) cairo_set_source_rgba(cr, 0.22,0.42,0.72,0.95);
         else cairo_set_source_rgba(cr, 0.18,0.19,0.22,0.92);
         cairo_rectangle(cr, x, 4, w, taskbar_height - 8); cairo_fill(cr);
@@ -398,13 +500,27 @@ static void create_taskbar(void) {
 }
 
 static void taskbar_click(int x) {
-    if (!window_count) return;
-    int usable = screen->width_in_pixels - 16;
-    int slot = usable / (int)window_count;
-    if (slot > 220) slot = 220;
-    if (slot < 80) slot = 80;
-    int index = (x - 8) / slot;
-    if (x >= 8 && index >= 0 && (size_t)index < window_count) focus_window(windows[index].window);
+    for (size_t i = 0; i < task_button_count; ++i) {
+        task_button *b = &task_buttons[i];
+        if (x < b->x || x >= b->x + b->width) continue;
+        int slot = b->window_slot;
+        if (slot >= 0 && slot < MAX_WINDOWS && windows[slot].in_use) focus_window(windows[slot].window);
+        return;
+    }
+}
+
+static void render_dirty(void) {
+    unsigned flags = dirty_flags;
+    dirty_flags = DIRTY_NONE;
+    if (flags & DIRTY_ROOT) paint_background();
+    if (flags & DIRTY_TASKBAR) draw_taskbar();
+}
+
+static void destroy_assets(void) {
+    if (wallpaper_image) { cairo_surface_destroy(wallpaper_image); wallpaper_image = NULL; }
+    for (size_t i = 0; i < icon_count; ++i) {
+        if (icons[i].image) { cairo_surface_destroy(icons[i].image); icons[i].image = NULL; }
+    }
 }
 
 int main(int argc, char **argv) {
@@ -452,11 +568,13 @@ int main(int argc, char **argv) {
         free(error); xcb_disconnect(conn); return 3;
     }
 
-    paint_background();
+    xid_index_clear();
+    if (wallpaper_path[0]) wallpaper_image = load_png_once(wallpaper_path, 1);
     create_icons();
     create_taskbar();
+    invalidate(DIRTY_ROOT | DIRTY_TASKBAR);
+    render_dirty();
     flush_or_die("startup");
-    draw_taskbar();
 
     if (launch_now) {
         pid_t pid = launch_program(launch_now);
@@ -475,32 +593,38 @@ int main(int argc, char **argv) {
             case XCB_CONFIGURE_REQUEST: manage_configure((xcb_configure_request_event_t *)event); break;
             case XCB_EXPOSE: {
                 xcb_expose_event_t *e = (xcb_expose_event_t *)event;
-                jx11_icon *ic = icon_by_window(e->window);
-                if (ic && e->count == 0) draw_icon(ic);
-                else if (e->window == taskbar_window && e->count == 0) draw_taskbar();
+                int icon_slot = icon_slot_by_xid(e->window);
+                if (icon_slot >= 0 && e->count == 0) draw_icon(icon_slot);
+                else if (e->window == taskbar_window && e->count == 0) invalidate(DIRTY_TASKBAR);
                 break;
             }
             case XCB_BUTTON_PRESS: {
                 xcb_button_press_event_t *e = (xcb_button_press_event_t *)event;
-                jx11_icon *ic = icon_by_window(e->event);
-                if (ic && e->detail == 1) {
+                int icon_slot = icon_slot_by_xid(e->event);
+                if (icon_slot >= 0 && e->detail == 1) {
+                    jx11_icon *ic = &icons[icon_slot];
                     pid_t pid = launch_program(ic->program);
                     if (pid > 0) fprintf(stderr, "jx11: icon %s launched %s pid=%ld\n", ic->id, ic->program, (long)pid);
                 } else if (e->event == taskbar_window && e->detail == 1) {
                     taskbar_click(e->event_x);
-                } else if (e->child != XCB_NONE) focus_window(e->child);
+                } else if (e->child != XCB_NONE) {
+                    focus_window(e->child);
+                }
                 break;
             }
             case XCB_PROPERTY_NOTIFY: {
                 xcb_property_notify_event_t *e = (xcb_property_notify_event_t *)event;
-                jx11_window *mw = managed_by_xid(e->window);
-                if (mw) { read_title(mw); draw_taskbar(); }
+                int slot = window_slot_by_xid(e->window);
+                if (slot >= 0) read_title(slot);
                 break;
             }
             case XCB_CONFIGURE_NOTIFY: {
                 xcb_configure_notify_event_t *e = (xcb_configure_notify_event_t *)event;
-                jx11_window *mw = managed_by_xid(e->window);
-                if (mw) { mw->x=e->x; mw->y=e->y; mw->width=e->width; mw->height=e->height; }
+                int slot = window_slot_by_xid(e->window);
+                if (slot >= 0) {
+                    windows[slot].x=e->x; windows[slot].y=e->y;
+                    windows[slot].width=e->width; windows[slot].height=e->height;
+                }
                 break;
             }
             case XCB_UNMAP_NOTIFY: {
@@ -510,21 +634,25 @@ int main(int argc, char **argv) {
             }
             case XCB_DESTROY_NOTIFY: {
                 xcb_destroy_notify_event_t *e = (xcb_destroy_notify_event_t *)event;
-                if (focused == e->window) focused = XCB_NONE;
                 remove_managed(e->window);
                 break;
             }
             case XCB_FOCUS_IN: {
                 xcb_focus_in_event_t *e = (xcb_focus_in_event_t *)event;
-                if (managed_by_xid(e->event)) { focused = e->event; draw_taskbar(); }
+                if (window_slot_by_xid(e->event) >= 0 && focused != e->event) {
+                    focused = e->event;
+                    invalidate(DIRTY_TASKBAR);
+                }
                 break;
             }
             default: break;
         }
         free(event);
+        render_dirty();
         flush_or_die("event");
     }
 
+    destroy_assets();
     xcb_disconnect(conn);
     return 0;
 }
