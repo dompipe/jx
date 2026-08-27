@@ -12,9 +12,12 @@ if ($text === false) throw new RuntimeException('jx11 manifest missing');
 $needles = [
     "JX11/1\n",
     "background=#20242b\n",
-    "icon=terminal|Terminal|xterm|28|28\n",
-    "icon=files|Files|thunar|28|132\n",
-    "icon=browser|Browser|firefox|28|236\n",
+    "taskbar=1\n",
+    "taskbar-height=34\n",
+    "window-bag=desktop-windows\n",
+    "icon=terminal|Terminal|/icons/terminal.png|xterm|28|28\n",
+    "icon=files|Files|/icons/files.png|thunar|28|132\n",
+    "icon=browser|Browser|/icons/browser.png|firefox|28|236\n",
 ];
 foreach ($needles as $needle) {
     if (!str_contains($text, $needle)) throw new RuntimeException('jx11 manifest missing: ' . trim($needle));
