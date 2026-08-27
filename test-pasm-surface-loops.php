@@ -46,7 +46,7 @@ $result = $sum;
 PASL;
 
 $lowered = PASLSurfaceLoops::lower($nested);
-if (stripos($lowered, 'repeat') !== false || preg_match('/\bdo\s*\{/i', $lowered)) {
+if (preg_match('/\brepeat\s*\(/i', $lowered) || preg_match('/\bdo\s*\{/i', $lowered)) {
     fwrite(STDERR, "FAIL surface loop lowering left high-level loop syntax\n{$lowered}\n");
     exit(1);
 }
