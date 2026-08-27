@@ -45,7 +45,7 @@ jobs:
       - name: Build jx11
         run: cc -O2 -Wall -Wextra -Werror -o /tmp/jx11 host/linux/jx11.c $(pkg-config --cflags --libs xcb cairo-xcb)
       - name: Verify native register ABI
-        run: cc -O2 -Wall -Wextra -Werror -o /tmp/jx11-register-abi tests/jx11-register-abi.c && /tmp/jx11-register-abi
+        run: cc -O2 -Wall -Wextra -Werror -o /tmp/jx11-register-abi tests/jx11-register-abi.c host/linux/jx11-register.c && /tmp/jx11-register-abi
       - name: Verify jx11 CLI
         run: /tmp/jx11 --help
 
