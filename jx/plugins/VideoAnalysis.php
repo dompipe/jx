@@ -60,7 +60,7 @@ final class VideoFrameBinding implements JsonSerializable
             $clean[$measure] = $measure;
         }
         $this->measures = array_values($clean);
-        $this->with = self::options($with);
+        $this->with = self::normalizeOptions($with);
         $shape = [$this->media, $this->bag, $this->at, $this->everyMs, $this->measures, $this->with];
         $this->id = substr(hash('sha256', "video-frames-v1\0" . serialize($shape)), 0, 24);
     }
@@ -105,7 +105,7 @@ final class VideoFrameBinding implements JsonSerializable
         ];
     }
 
-    private static function options(array $with): array
+    private static function normalizeOptions(array $with): array
     {
         $with = Boundary::import($with);
         foreach ($with as $key => $value) {
