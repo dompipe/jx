@@ -1,11 +1,11 @@
 /* Integrated JX11 awake-window shadow benchmark.
  *
- * Measures the production-shaped hot path introduced by WindowBag registers:
+ * Measures the production-shaped WindowBag-register path:
  *   semantic baseline: event kind -> switch -> construct reaction identities
- *   integrated:        cached jx11_window_hot + inline event mask -> dirty byte
+ *   integrated:        cached event reaction -> dirty byte + direct hot refs
  *
  * XCB/Cairo are deliberately excluded. This isolates dispatch/state-bookkeeping
- * cost and verifies identical semantic reaction identities with a checksum.
+ * cost and verifies identical reaction identities and dirty masks.
  *
  * Build (from repo root):
  *   cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/linux \
@@ -80,14 +80,11 @@ static uint64_t legacy_dispatch(uint8_t reg, uint8_t slot, uint8_t kind, uint8_t
 }
 
 static inline uint64_t integrated_dispatch(bench_window *w, uint8_t kind) {
-    uint8_t mask = jx11_shadow_mask_for_event(kind);
-    w->dirty |= mask;
-    uint64_t sum = 0;
-    if (mask & (uint8_t)(1u << JX11_SHADOW_STATE)) sum += token(w->hot.state);
-    if (mask & (uint8_t)(1u << JX11_SHADOW_TASKBAR)) sum += token(w->hot.taskbar);
-    if (mask & (uint8_t)(1u << JX11_SHADOW_TITLE)) sum += token(w->hot.title);
-    if (mask & (uint8_t)(1u << JX11_SHADOW_FOCUS)) sum += token(w->hot.focus);
-    if (mask & (uint8_t)(1u << JX11_SHADOW_GEOMETRY)) sum += token(w->hot.geometry);
+    const jx11_window_reaction *reaction = jx11_window_hot_reaction(&w->hot, kind);
+    if (!reaction) return 0;
+    w->dirty |= reaction->mask;
+    uint64_t sum = token(reaction->first);
+    if (reaction->count == 2u) sum += token(reaction->second);
     return sum;
 }
 
