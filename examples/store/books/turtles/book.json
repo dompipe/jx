@@ -1,0 +1,11 @@
+{
+  "id": "turtles",
+  "title": "The Turtle House",
+  "window": { "id": "store-turtles", "title": "The Turtle House", "width": 1180, "height": 820 },
+  "spine": ["home", "habitats", "care"],
+  "leaves": {
+    "home": { "mode": "state-ready", "pasl": "pages/home.jx", "channels": ["store", "turtles"] },
+    "habitats": { "mode": "state-ready", "pasl": "pages/habitats.jx", "channels": ["store", "turtles"] },
+    "care": { "mode": "state-ready", "pasl": "pages/care.jx", "channels": ["store", "turtles"] }
+  }
+}
