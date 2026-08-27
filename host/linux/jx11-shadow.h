@@ -13,8 +13,19 @@ enum {
     JX11_SHADOW_FIRST_DYNAMIC = 16
 };
 
+enum {
+    JX11_EVENT_STATE_OPEN = 1,
+    JX11_EVENT_TITLE = 2,
+    JX11_EVENT_FOCUS = 3,
+    JX11_EVENT_GEOMETRY = 4,
+    JX11_EVENT_STATE_CLOSE = 5
+};
+
 static inline int jx11_shadow_is_reserved(uint8_t shadow) {
     return shadow < JX11_SHADOW_FIRST_DYNAMIC;
 }
+
+uint8_t jx11_shadow_mask_for_event(uint8_t event_kind);
+int jx11_shadow_mask_has(uint8_t mask, uint8_t shadow);
 
 #endif
