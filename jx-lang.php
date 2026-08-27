@@ -5,6 +5,7 @@
 namespace jx;
 
 require_once __DIR__ . '/jx.php';
+require_once __DIR__ . '/jx-alias.php';
 require_once __DIR__ . '/pasm-lang.php';
 
 use pasm\lang\Engine;
@@ -17,6 +18,8 @@ final class JxEngine
     /** @var array<string,mixed> */
     private array $vars = [];
     private ?Book $book = null;
+    /** @var list<array{source:string,canonical:string}> */
+    private array $aliasTrace = [];
 
     public function __construct(
         private bool $optimize = true,
@@ -40,6 +43,12 @@ final class JxEngine
             throw new JxException("Cannot read {$path}", 'io');
         }
         return $this->runSource($src);
+    }
+
+    /** Source-to-canonical statement pairs retained for diagnostics/provenance. */
+    public function aliasProvenance(): array
+    {
+        return $this->aliasTrace;
     }
 
     /** Emit PASL bytecode for a pure arithmetic fragment (no bags). */
@@ -109,14 +118,20 @@ final class JxEngine
 
     private function execStmt(string $stmt): mixed
     {
-        $stmt = trim($stmt);
+        $sourceStmt = trim($stmt);
+        $stmt = JxAlias::canonicalizeSurface($sourceStmt);
+        $stmt = $this->canonicalizeKnownMembers($stmt);
+        if ($stmt !== $sourceStmt) {
+            $this->aliasTrace[] = ['source'=>$sourceStmt, 'canonical'=>$stmt];
+        }
+
         if ($this->verbose) {
             fwrite(STDERR, "; jx: {$stmt}\n");
         }
 
-        // book = Book.open("name") | Jx::book(...)
-        if (preg_match('/^\$?(\w+)\s*=\s*Book\.(open|load)\s*\(\s*["\']([^"\']+)["\']\s*(?:,\s*(\d+))?\s*\)$/i', $stmt, $m)) {
-            $this->book = Book::open($m[3], isset($m[4]) ? (int)$m[4] : 8_388_608);
+        // book = Book.open("name") | aliases canonicalized before matching.
+        if (preg_match('/^\$?(\w+)\s*=\s*Book\.open\s*\(\s*["\']([^"\']+)["\']\s*(?:,\s*(\d+))?\s*\)$/i', $stmt, $m)) {
+            $this->book = Book::open($m[2], isset($m[3]) ? (int)$m[3] : 8_388_608);
             $this->vars[$m[1]] = $this->book;
             return $this->book;
         }
@@ -151,7 +166,7 @@ final class JxEngine
             return $ref;
         }
 
-        // bag.set(expr).commit(ref)  or  bag.set("str").commit(ref)
+        // bag.set(expr).commit(ref)
         if (preg_match('/^\$?(\w+)\.set\s*\(\s*(.+)\s*\)\s*\.commit\s*\(\s*\$?(\w+)\s*\)$/i', $stmt, $m)) {
             $bag = $this->needBag($m[1]);
             $ref = $this->needRef($m[3]);
@@ -169,7 +184,7 @@ final class JxEngine
             return $data;
         }
 
-        // task.push("k", v)
+        // task/bag.push("k", v)
         if (preg_match('/^\$?(\w+)\.push\s*\(\s*["\']([^"\']+)["\']\s*,\s*(.+)\s*\)$/i', $stmt, $m)) {
             $bag = $this->needBag($m[1]);
             $val = $this->evalValue(trim($m[3]));
@@ -191,7 +206,7 @@ final class JxEngine
             return $v;
         }
 
-        // x = delivery(root, "a.b.c") or x = Jx.delivery(...)
+        // x = delivery(root, "a.b.c")
         if (preg_match('/^\$?(\w+)\s*=\s*(?:delivery|Jx\.delivery)\s*\(\s*\$?(\w+)\s*,\s*["\']([^"\']+)["\']\s*(?:,\s*(.+))?\s*\)$/i', $stmt, $m)) {
             $root = $this->vars[$m[2]] ?? null;
             $default = isset($m[4]) ? $this->evalValue(trim($m[4])) : null;
@@ -214,29 +229,54 @@ final class JxEngine
             return $v;
         }
 
-        // Pure arithmetic / PASL subset → executable compiler (bytecode VM)
         if ($this->isPaslLowerable($stmt)) {
             return $this->runPasl($stmt);
         }
 
-        // Generic assignment of evaluated value
         if (preg_match('/^\$?(\w+)\s*=\s*(.+)$/s', $stmt, $m)) {
             $v = $this->evalValue(trim($m[2]));
             $this->vars[$m[1]] = $v;
             return $v;
         }
 
-        // Bare expression
         return $this->evalValue($stmt);
+    }
+
+    /** Canonicalize member spellings after runtime type is known. */
+    private function canonicalizeKnownMembers(string $stmt): string
+    {
+        return preg_replace_callback('/(\$?\w+)\.(\w+)\s*(?=\()/i', function(array $m): string {
+            $name = ltrim($m[1], '$');
+            $obj = $this->vars[$name] ?? null;
+            $domain = match (true) {
+                $obj instanceof Task => AliasDomain::TASK,
+                $obj instanceof Bag => AliasDomain::BAG,
+                $obj instanceof Book => AliasDomain::BOOK,
+                $obj instanceof Page => AliasDomain::PAGE,
+                default => null,
+            };
+            if ($domain === null) return $m[0];
+            $resolved = JxAlias::resolve($domain, $m[2], null, false);
+            $method = $this->canonicalMethodName($resolved->canonical);
+            return $m[1] . '.' . $method;
+        }, $stmt) ?? $stmt;
+    }
+
+    private function canonicalMethodName(string $canonical): string
+    {
+        return match ($canonical) {
+            'SETSTATE' => 'setState',
+            'REGISTER_BAG' => 'registerBag',
+            'REGISTER_PAGE' => 'registerPage',
+            default => strtolower($canonical),
+        };
     }
 
     private function isPaslLowerable(string $stmt): bool
     {
-        // No bag/task/book/delivery/tell in pure path
         if (preg_match('/\b(Bag|Task|Book|Jx|delivery|tell|sign|commit|underwrite|push)\b/i', $stmt)) {
             return false;
         }
-        // Looks like PASL assignment / loop / complex
         if (preg_match('/^(complex\s+|while\s*\(|for\s*\(|if\s*\(|\$?\w+\s*=)/i', $stmt)) {
             return true;
         }
@@ -245,12 +285,9 @@ final class JxEngine
 
     private function runPasl(string $stmt): mixed
     {
-        // Ensure statement terminator for compiler
         $src = str_ends_with(trim($stmt), ';') ? $stmt : $stmt . ';';
         try {
-            $result = $this->pasl->runSource($src);
-            // Reflect simple $var = from PASL is not shared; return VM result only
-            return $result;
+            return $this->pasl->runSource($src);
         } catch (LangException $e) {
             throw new JxException('PASL lower failed: ' . $e->getMessage(), 'compile', true);
         }
@@ -259,30 +296,13 @@ final class JxEngine
     private function evalValue(string $expr): mixed
     {
         $expr = trim($expr);
-        if ($expr === '') {
-            return null;
-        }
-        // string literal
-        if (preg_match('/^["\']([^"\']*)["\']$/', $expr, $m)) {
-            return $m[1];
-        }
-        // int
-        if (preg_match('/^-?\d+$/', $expr)) {
-            return (int)$expr;
-        }
-        // float
-        if (preg_match('/^-?\d+\.\d+$/', $expr)) {
-            return (float)$expr;
-        }
-        // complex literal
+        if ($expr === '') return null;
+        if (preg_match('/^["\']([^"\']*)["\']$/', $expr, $m)) return $m[1];
+        if (preg_match('/^-?\d+$/', $expr)) return (int)$expr;
+        if (preg_match('/^-?\d+\.\d+$/', $expr)) return (float)$expr;
         if (preg_match('/i$/i', $expr) || preg_match('/^[+-]?\d+[+-]\d*i$/i', str_replace(' ', '', $expr))) {
-            try {
-                return Complex::parse($expr);
-            } catch (JxException $e) {
-                /* fall through */
-            }
+            try { return Complex::parse($expr); } catch (JxException $e) { /* fall through */ }
         }
-        // variable
         if (preg_match('/^\$?(\w+)$/', $expr, $m)) {
             $name = $m[1];
             if (!array_key_exists($name, $this->vars)) {
@@ -291,7 +311,6 @@ final class JxEngine
             $v = $this->vars[$name];
             return $v instanceof ConstBox ? $v->value : $v;
         }
-        // bag.quotient() form as expression
         if (preg_match('/^\$?(\w+)\.(quotient|capacity|used|id)\s*\(\s*\)$/i', $expr, $m)) {
             $bag = $this->needBag($m[1]);
             return match (strtolower($m[2])) {
@@ -301,14 +320,10 @@ final class JxEngine
                 'id' => $bag->id(),
             };
         }
-        // PASL arithmetic expression as resistant/native via compiler
         if (preg_match('/^[\w$\s+\-*\/%()]+$/', $expr) && !preg_match('/Bag|Task|Book/i', $expr)) {
-            // Bind known int vars into a small PASL prelude
             $prelude = '';
             foreach ($this->vars as $k => $v) {
-                if (is_int($v)) {
-                    $prelude .= "\${$k} = {$v}; ";
-                }
+                if (is_int($v)) $prelude .= "\${$k} = {$v}; ";
             }
             $assign = "\$__jx_r = ({$expr});";
             try {
@@ -323,18 +338,14 @@ final class JxEngine
     private function needBag(string $name): Bag
     {
         $b = $this->vars[$name] ?? null;
-        if (!$b instanceof Bag) {
-            throw new JxException("{$name} is not a Bag", 'type', true);
-        }
+        if (!$b instanceof Bag) throw new JxException("{$name} is not a Bag", 'type', true);
         return $b;
     }
 
     private function needRef(string $name): RefSign
     {
         $r = $this->vars[$name] ?? null;
-        if (!$r instanceof RefSign) {
-            throw new JxException("{$name} is not a RefSign", 'type', true);
-        }
+        if (!$r instanceof RefSign) throw new JxException("{$name} is not a RefSign", 'type', true);
         return $r;
     }
 }
