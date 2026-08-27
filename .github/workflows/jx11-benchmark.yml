@@ -1,0 +1,32 @@
+name: JX11 benchmark
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'host/linux/jx11.c'
+      - 'benchmarks/jx11-hotpath-bench.c'
+      - 'docs/JX11-HOT-PATH.md'
+      - '.github/workflows/jx11-benchmark.yml'
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build benchmark
+        run: cc -O3 -std=c11 -Wall -Wextra -Werror -o jx11-hotpath-bench benchmarks/jx11-hotpath-bench.c
+
+      - name: Run million-event benchmark
+        run: ./jx11-hotpath-bench 1000000 256 16 | tee jx11-hotpath-benchmark.txt
+
+      - name: Upload benchmark output
+        uses: actions/upload-artifact@v4
+        with:
+          name: jx11-hotpath-benchmark
+          path: |
+            jx11-hotpath-benchmark.txt
+            jx11-hotpath-benchmark.json
