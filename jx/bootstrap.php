@@ -14,6 +14,7 @@ require_once __DIR__ . '/BindingCoercion.php';
 require_once __DIR__ . '/RefId.php';
 require_once __DIR__ . '/Plugin.php';
 require_once __DIR__ . '/ControlBinding.php';
+require_once __DIR__ . '/Desktop.php';
 
 // Bundled host-neutral plugins. Hosts still choose their rendering/backend work.
 require_once __DIR__ . '/plugins/Charts.php';
