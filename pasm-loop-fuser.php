@@ -2,6 +2,8 @@
 
 namespace pasm\lang;
 
+require_once __DIR__ . '/pasm-surface-loops.php';
+
 /**
  * Post-lowering loop-block fuser.
  *
