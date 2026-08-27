@@ -6,7 +6,7 @@
 static int has_forbidden_byte(const char *line, size_t length) {
     for (size_t i = 0; i < length; ++i) {
         unsigned char c = (unsigned char)line[i];
-        if (c == 0u || c == ';' || c == '|' || c == '&' || c == '`' || c == '\\' || c == '"' || c == '\'') return 1;
+        if (c == 0u || c == ';' || c == '|' || c == '&' || c == '`' || c == '\\' || c == '"' || c == 0x27u) return 1;
         if (c < 0x20u && c != '\n' && c != '\r' && c != '\t') return 1;
         if (c > 0x7eu) return 1;
     }
