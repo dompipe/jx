@@ -491,11 +491,19 @@ final class Compiler
     private function condJump(string $cond, string $Lt, string $Lf): void
     {
         $cond = trim($cond);
-        if (preg_match('/^(.+?)\s*(==|!=)\s*(.+)$/', $cond, $m)) {
+        if (preg_match('/^(.+?)\s*(==|!=|<=|>=|<|>)\s*(.+)$/', $cond, $m)) {
             $a = $this->emitIntExpr(trim($m[1]));
             $b = $this->emitIntExpr(trim($m[3]));
             $this->emit("        CMP   {$a} {$b}");
-            $this->emit($m[2] === '==' ? "        JZ    {$Lt}" : "        JNZ   {$Lt}");
+            $jump = match ($m[2]) {
+                '==' => 'JZ',
+                '!=' => 'JNZ',
+                '<'  => 'JL',
+                '<=' => 'JLE',
+                '>'  => 'JG',
+                '>=' => 'JGE',
+            };
+            $this->emit(sprintf('        %-5s %s', $jump, $Lt));
             $this->emit("        JMP   {$Lf}");
             return;
         }
