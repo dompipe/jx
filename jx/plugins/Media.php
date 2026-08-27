@@ -57,8 +57,8 @@ final class MediaControl implements JsonSerializable
             throw new JxException('Unsupported media type', 'plugin.media', true, ['type' => $this->type]);
         }
         $this->mime = self::mime($this->mime, $this->type);
-        $this->source = self::source($this->source);
-        $this->with = self::options($this->with, $this->type);
+        $this->source = self::normalizeSource($this->source);
+        $this->with = self::normalizeOptions($this->with, $this->type);
     }
 
     public function id(): string { return $this->id; }
@@ -148,7 +148,7 @@ final class MediaControl implements JsonSerializable
     }
 
     /** @param array<string,mixed> $source */
-    private static function source(array $source): array
+    private static function normalizeSource(array $source): array
     {
         $kind = strtolower(trim((string)($source['kind'] ?? '')));
         if ($kind === 'asset' || $kind === 'stream') {
@@ -181,7 +181,7 @@ final class MediaControl implements JsonSerializable
         return $uri;
     }
 
-    private static function options(array $with, string $type): array
+    private static function normalizeOptions(array $with, string $type): array
     {
         $with = self::safeOptions($with);
         foreach (['controls', 'autoplay', 'loop', 'muted', 'playsinline'] as $flag) if (array_key_exists($flag, $with)) $with[$flag] = (bool)$with[$flag];
