@@ -1,0 +1,4 @@
+$young = 5;
+$adult = 8;
+$rescues = 3;
+$total = $young + $adult + $rescues;
