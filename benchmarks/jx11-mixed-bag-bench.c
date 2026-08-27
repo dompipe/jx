@@ -8,7 +8,7 @@
  *
  * mixed hot path:
  *   XID -> hash index -> precomputed WindowBag reaction -> mutate dense state
- *       -> OR dirty mask -> repaint once per event burst
+ *       -> OR per-event dirty mask -> repaint once per event burst
  *
  * XCB/Cairo painting itself is intentionally excluded; repaint counts are
  * reported separately. This benchmark measures the bookkeeping/dispatch work
@@ -145,9 +145,13 @@ static uint64_t semantic_dispatch(uint8_t reg, uint8_t slot, uint8_t kind, uint8
     return sum;
 }
 
-static inline uint64_t cached_dispatch(bench_window *w, uint8_t kind) {
+static inline uint64_t cached_dispatch(bench_window *w, uint8_t kind, uint8_t *event_dirty) {
     const jx11_window_reaction *reaction = jx11_window_hot_reaction(&w->hot, kind);
-    if (!reaction) return 0;
+    if (!reaction) {
+        *event_dirty = 0u;
+        return 0;
+    }
+    *event_dirty = reaction->mask;
     w->dirty |= reaction->mask;
     uint64_t sum = token(reaction->first);
     if (reaction->count == 2u) sum += token(reaction->second);
@@ -228,10 +232,10 @@ int main(int argc, char **argv) {
             if (slot < 0) { free(stream); return 3; }
             bench_window *w = &rows[(uint32_t)slot];
             w->value += 1u;
-            uint8_t before = w->dirty;
+            uint8_t event_dirty = 0u;
             mixed_sum += (uint64_t)w->value;
-            mixed_sum += cached_dispatch(w, stream[i].kind);
-            batch_dirty |= (uint8_t)(w->dirty ^ before);
+            mixed_sum += cached_dispatch(w, stream[i].kind, &event_dirty);
+            batch_dirty |= event_dirty;
         }
         if (batch_dirty & DIRTY_TASKBAR) ++mixed_paints;
     }
@@ -249,6 +253,12 @@ int main(int argc, char **argv) {
             free(stream);
             return 5;
         }
+    }
+    if (burst == 1u && baseline_paints != mixed_paints) {
+        fprintf(stderr, "jx11-mixed-bag-bench: burst=1 paint mismatch (%" PRIu64 " != %" PRIu64 ")\n",
+                baseline_paints, mixed_paints);
+        free(stream);
+        return 6;
     }
 
     sink_u64 = mixed_sum ^ mixed_paints;
