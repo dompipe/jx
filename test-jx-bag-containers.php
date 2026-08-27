@@ -23,14 +23,16 @@ same($record->get('health'), 100, 'record checkpoint restore');
 same($record->slot('phi'), 1, 'record dense slot');
 
 $vector = BagContainers::vector(4096, 'int');
-$vector->append(1)->append(2);
+$vector->append(1)->append(3)->emplace(1,2);
+same($vector->toArray(), [1,2,3], 'vector emplace packs tail');
 same($vector->get(1), 2, 'vector get');
-same($vector->pop(), 2, 'vector pop');
+same($vector->pop(), 3, 'vector pop');
 
 $stack = BagContainers::stack(4096, 'string');
-$stack->pushValue('a')->pushValue('b');
-same($stack->top(), 'b', 'stack top');
-same($stack->pop(), 'b', 'stack pop');
+$stack->pushValue('a')->pushValue('c')->emplace(1,'b');
+same($stack->toArray(), ['a','b','c'], 'stack contiguous emplace');
+same($stack->top(), 'c', 'stack top');
+same($stack->pop(), 'c', 'stack pop');
 
 $queue = BagContainers::queue(4096, 'int', 2);
 $queue->enqueue(1)->enqueue(2)->enqueue(3);
@@ -44,12 +46,16 @@ same($deque->popBack(), 3, 'deque pop back');
 same($deque->back(), 2, 'deque back');
 
 $map = BagContainers::map(4096, 'int');
-$map->put('a', 1)->put('b', 2);
-same($map->get('a'), 1, 'map get');
-same($map->has('b'), true, 'map has');
+$map->put('a', 1);
+same($map->emplace('a', 99), 1, 'map emplace returns existing');
+same($map->get('a'), 1, 'map emplace does not replace');
+same($map->emplace('b', 2), 2, 'map emplace inserts absent');
+same($map->get('b'), 2, 'map emplace stored absent');
 
 $set = BagContainers::set(4096, 'string');
-$set->add('x')->add('x')->add('y');
+same($set->emplace('x'), 'x', 'set emplace inserts');
+same($set->emplace('x'), 'x', 'set emplace existing');
+$set->add('x')->add('y');
 same(count($set), 2, 'set uniqueness');
 same($set->contains('y'), true, 'set contains');
 
