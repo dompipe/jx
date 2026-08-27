@@ -1,0 +1,5 @@
+$food = 12;
+$light = 10;
+$checkup = 25;
+$weeks = 4;
+$total = ($food + $light) * $weeks + $checkup;
