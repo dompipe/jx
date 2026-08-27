@@ -15,6 +15,7 @@ require_once __DIR__ . '/RefId.php';
 require_once __DIR__ . '/Plugin.php';
 require_once __DIR__ . '/ControlBinding.php';
 require_once __DIR__ . '/Desktop.php';
+require_once __DIR__ . '/DesktopWindowRegister.php';
 require_once __DIR__ . '/DesktopHostBridge.php';
 
 // Bundled host-neutral plugins. Hosts still choose their rendering/backend work.
