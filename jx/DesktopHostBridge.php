@@ -5,8 +5,8 @@ namespace jx;
 /**
  * Applies normalized native-desktop events to a canonical Bag.
  *
- * Host handles (XID/HWND) may appear only as opaque host_id strings. The bridge
- * owns the mutable index and publishes a data-shaped list into one Bag node.
+ * Host handles may appear only as opaque host_id strings. Hot native identity
+ * may also be supplied as a packed 16-bit [slot:shadow] window_ref.
  */
 final class DesktopHostBridge
 {
@@ -66,8 +66,22 @@ final class DesktopHostBridge
     {
         $title = substr((string)($row['title'] ?? ''), 0, 1024);
         $class = substr((string)($row['class'] ?? ''), 0, 256);
+
+        $packed = null;
+        if (isset($row['window_ref'])) {
+            $packed = is_string($row['window_ref'])
+                ? DesktopWindowRegister::parse($row['window_ref'])
+                : (int)$row['window_ref'];
+            $parts = DesktopWindowRegister::unpack($packed);
+        } else {
+            $parts = ['slot'=>null, 'shadow'=>null];
+        }
+
         return [
             'host_id' => $hostId,
+            'window_ref' => $packed,
+            'slot' => $parts['slot'],
+            'shadow' => $parts['shadow'],
             'pid' => isset($row['pid']) ? (int)$row['pid'] : null,
             'title' => $title,
             'class' => $class,
