@@ -44,7 +44,8 @@ final class JxBytecodePageReport
     public function compact(): string
     {
         return sprintf(
-            'JX PAGE %s  OK  %dB  %s  deps:%d  regs:%d  iter:%d  target:%s',
+            '%s PAGE %s  OK  %dB  %s  deps:%d  regs:%d  iter:%d  target:%s',
+            self::EXECUTABLE,
             $this->id(),
             $this->bytes(),
             $this->mode(),
@@ -59,7 +60,6 @@ final class JxBytecodePageReport
     public function verbose(): string
     {
         $lines = [$this->compact()];
-        $lines[] = '  executable : ' . self::EXECUTABLE;
         if ($this->source !== null) $lines[] = '  source     : ' . $this->source;
         if ($this->shadow !== null) $lines[] = '  shadow     : ' . $this->shadow;
         if ($this->output !== null) $lines[] = '  output     : ' . $this->output;
