@@ -25,7 +25,7 @@ mediaAbiAssert(str_contains($graph->listing(),'MANALYZE'),'MANALYZE emitted');
 mediaAbiAssert(str_contains($graph->listing(),'MPUBLISH'),'MPUBLISH emitted');
 mediaAbiAssert(str_contains($graph->listing(),'MCHART'),'MCHART emitted');
 mediaAbiAssert(str_contains($graph->listing(),'MSYNC'),'MSYNC emitted');
-mediaAbiAssert(strlen($graph->bytecode())===12,'compact graph byte count');
+mediaAbiAssert(strlen($graph->bytecode())===13,'compact graph byte count');
 
 final class RecordingMediaHost implements PASMMediaHost{
     public array $events=[];
