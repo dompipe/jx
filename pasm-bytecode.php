@@ -99,10 +99,8 @@ final class PASMAssembler {
             'STORE32'=>chr(PASMBC::STORE32).chr($r($a[0])).chr($r($a[1])).chr((int)($a[2]??0)&255),
             'ITERF'=>chr(PASMBC::ITERF).chr((int)$a[0]&255),
             'ITERR'=>chr(PASMBC::ITERR).chr((int)$a[0]&255),
-            // Named-memory address remains exactly two bytes: [space][slot].
             'NLOAD'=>chr(PASMBC::NLOAD).$this->pack1($r($a[0])).$this->idBytes($a[1]),
             'NSTORE'=>chr(PASMBC::NSTORE).$this->pack1($r($a[0])).$this->idBytes($a[1]),
-            // Method identity remains exactly two sorted bytes; register tuple follows in command order.
             'MCALL0'=>chr(PASMBC::MCALL0).$this->idBytes($a[0]).$this->pack1($r($a[1])),
             'MCALL1'=>chr(PASMBC::MCALL1).$this->idBytes($a[0]).$this->pack2($r($a[1]),$r($a[2])),
             'MCALL2'=>chr(PASMBC::MCALL2).$this->idBytes($a[0]).$this->pack3($r($a[1]),$r($a[2]),$r($a[3])),
@@ -181,6 +179,11 @@ final class PASMBytecodeVM {
                 case PASMBC::ITERF: case PASMBC::ITERR:
                     $slot=ord($code[$pc++]); $it=$this->iteratorTable();
                     $item=$op===PASMBC::ITERF?$it->forward($slot):$it->reverse($slot);
+                    if($item->valid){
+                        $descriptor=$it->descriptor($slot);
+                        if($descriptor->valueRegister!==null)$r[$descriptor->valueRegister]=(int)$item->value;
+                        if($descriptor->keyRegister!==null)$r[$descriptor->keyRegister]=(int)$item->key;
+                    }
                     $ret=$item; $zero=!$item->valid; break;
 
                 case PASMBC::NLOAD:
