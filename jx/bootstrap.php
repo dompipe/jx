@@ -17,6 +17,7 @@ require_once __DIR__ . '/ControlBinding.php';
 require_once __DIR__ . '/HotRegister.php';
 require_once __DIR__ . '/HotEvent.php';
 require_once __DIR__ . '/HotShadow.php';
+require_once __DIR__ . '/NativeBook64.php';
 require_once __DIR__ . '/Desktop.php';
 require_once __DIR__ . '/DesktopWindowRegister.php';
 require_once __DIR__ . '/DesktopHostBridge.php';
