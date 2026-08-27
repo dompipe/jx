@@ -3,79 +3,60 @@
 namespace jx;
 
 /**
- * Compact desktop window identity for native/JX11 hot paths.
+ * Desktop specialization of the base awake-state register model.
+ *
+ * Bags remember; registers react.
  *
  * A WindowBag register resolves a canonical Bag name once. Individual hot
- * references are then a 16-bit [slot:shadow] pair: high byte window slot,
- * low byte compiled/reactive shadow id.
+ * references are a packed 16-bit [slot:shadow] pair shared with HotRef.
  */
 final class DesktopWindowRegister
 {
-    public const VERSION = 'jx.window-register/1';
-    public const MAX_REGISTERS = 256;
-    public const MAX_SLOT = 255;
-    public const MAX_SHADOW = 255;
+    public const VERSION = 'jx.window-register/2';
+    public const MAX_REGISTERS = HotRegisterBank::MAX_REGISTERS;
+    public const MAX_SLOT = HotRef::MAX_SLOT;
+    public const MAX_SHADOW = HotRef::MAX_SHADOW;
 
-    /** @var array<int,string> */
-    private array $bags = [];
-    /** @var array<string,int> */
-    private array $byName = [];
+    private HotRegisterBank $bank;
+
+    public function __construct()
+    {
+        $this->bank = new HotRegisterBank('window-bag');
+    }
 
     public function intern(string $bag): int
     {
-        $bag = Desktop::name($bag, 'window Bag');
-        if (isset($this->byName[$bag])) return $this->byName[$bag];
-        $reg = count($this->bags);
-        if ($reg >= self::MAX_REGISTERS) {
-            throw new JxException('WindowBag register table exhausted', 'desktop.window-register', true);
-        }
-        $this->bags[$reg] = $bag;
-        $this->byName[$bag] = $reg;
-        return $reg;
+        return $this->bank->intern(Desktop::name($bag, 'window Bag'));
     }
 
     public function bag(int $register): string
     {
-        if (!isset($this->bags[$register])) {
-            throw new JxException('Unknown WindowBag register', 'desktop.window-register', true, ['register'=>$register]);
-        }
-        return $this->bags[$register];
+        return $this->bank->target($register);
     }
 
-    /** Pack [slot:shadow] into two bytes. */
     public static function pack(int $slot, int $shadow = 0): int
     {
-        if ($slot < 0 || $slot > self::MAX_SLOT || $shadow < 0 || $shadow > self::MAX_SHADOW) {
-            throw new JxException('Window reference must fit [8-bit slot:8-bit shadow]', 'desktop.window-register', true,
-                ['slot'=>$slot,'shadow'=>$shadow]);
-        }
-        return (($slot & 0xff) << 8) | ($shadow & 0xff);
+        return HotRef::pack($slot, $shadow);
     }
 
     /** @return array{slot:int,shadow:int} */
     public static function unpack(int $packed): array
     {
-        if ($packed < 0 || $packed > 0xffff) {
-            throw new JxException('Packed window reference must be uint16', 'desktop.window-register', true);
-        }
-        return ['slot'=>($packed >> 8) & 0xff, 'shadow'=>$packed & 0xff];
+        return HotRef::unpack($packed);
     }
 
     public static function canonical(int $packed): string
     {
-        $v = self::unpack($packed);
-        return '['.$v['slot'].':'.$v['shadow'].']';
+        return HotRef::canonical($packed);
     }
 
     public static function parse(string $source): int
     {
-        $source = trim($source);
-        if (!preg_match('/^\[(\d{1,3}):(\d{1,3})\]$/', $source, $m)) {
-            throw new JxException('Invalid canonical window reference', 'desktop.window-register', true, ['source'=>$source]);
-        }
-        return self::pack((int)$m[1], (int)$m[2]);
+        return HotRef::parse($source);
     }
 
     /** @return array<int,string> */
-    public function table(): array { return $this->bags; }
+    public function table(): array { return $this->bank->table(); }
+
+    public function clearAwakeState(): void { $this->bank->clearAwakeState(); }
 }
