@@ -21,9 +21,9 @@ $task->push('title', 'Smoke Page');
 assert($task->prop('title') === 'Smoke Page');
 assert($task->id() > 0);
 
-// Sign + handshake write
+// Sign + handshake write. The write node is explicit and must match the signed node.
 $ref = $bag->sign('cell');
-$bag->set('hello')->commit($ref);
+$bag->set('hello', 'cell')->commit($ref);
 assert($bag->get($ref, 'cell') === 'hello');
 assert($bag->quotient() < 256);
 
@@ -36,7 +36,7 @@ assert($bag->peek('cell2') === 'world');
 try {
     $small = Jx::bag(8);
     $r = $small->sign('x');
-    $small->set(str_repeat('A', 100))->commit($r);
+    $small->set(str_repeat('A', 100), 'x')->commit($r);
     fwrite(STDERR, "FAIL: expected overflow\n");
     exit(1);
 } catch (JxException $e) {
