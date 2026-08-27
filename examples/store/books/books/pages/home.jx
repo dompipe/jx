@@ -1,0 +1,4 @@
+$featured = 3;
+$stock = 42;
+$price = 18;
+$value = $featured * $price + $stock;
