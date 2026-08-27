@@ -14,6 +14,7 @@ on:
       - 'benchmarks/jx11-hotpath-bench.c'
       - 'benchmarks/jx11-shadow-dispatch-bench.c'
       - 'benchmarks/jx11-integrated-shadow-bench.c'
+      - 'benchmarks/jx11-mixed-bag-bench.c'
       - 'docs/JX11-HOT-PATH.md'
       - '.github/workflows/jx11-benchmark.yml'
   workflow_dispatch:
@@ -47,6 +48,22 @@ jobs:
       - name: Run million-event integrated shadow benchmark
         run: ./jx11-integrated-shadow-bench 1000000 256 | tee jx11-integrated-shadow-benchmark.txt
 
+      - name: Build mixed-bag benchmark
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/linux
+          -o jx11-mixed-bag-bench
+          benchmarks/jx11-mixed-bag-bench.c
+          host/linux/jx11-window-hot.c
+
+      - name: Sweep million-event mixed-bag benchmark
+        shell: bash
+        run: |
+          : > jx11-mixed-bag-benchmark.txt
+          for burst in 1 2 4 8 16 32 64; do
+            echo "=== burst=$burst ===" | tee -a jx11-mixed-bag-benchmark.txt
+            ./jx11-mixed-bag-bench 1000000 256 "$burst" | tee -a jx11-mixed-bag-benchmark.txt
+          done
+
       - name: Upload benchmark output
         uses: actions/upload-artifact@v4
         with:
@@ -58,3 +75,5 @@ jobs:
             jx11-shadow-dispatch-benchmark.json
             jx11-integrated-shadow-benchmark.txt
             jx11-integrated-shadow-benchmark.json
+            jx11-mixed-bag-benchmark.txt
+            jx11-mixed-bag-benchmark-b*.json
