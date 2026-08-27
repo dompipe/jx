@@ -204,11 +204,6 @@ static xcb_visualtype_t *find_visual(xcb_visualid_t id) {
     xcb_depth_iterator_t di = xcb_screen_allowed_depths_iterator(screen);
     for (; di.rem; xcb_depth_next(&di)) {
         xcb_visualtype_iterator_t vi = xcb_depth_visuals_iterator(di.data);
-        for (; vi.rem; xcb_depth_next(&di)) { (void)vi; }
-    }
-    di = xcb_screen_allowed_depths_iterator(screen);
-    for (; di.rem; xcb_depth_next(&di)) {
-        xcb_visualtype_iterator_t vi = xcb_depth_visuals_iterator(di.data);
         for (; vi.rem; xcb_visualtype_next(&vi)) if (vi.data->visual_id == id) return vi.data;
     }
     return NULL;
