@@ -18,6 +18,7 @@ jobs:
           coverage: none
       - name: Lint compiler files
         run: |
+          php -l pasm-bytecode.php
           php -l pasm-loop-space.php
           php -l pasm-lang-compiler-loop.php
           php -l pasm-loop-fuser.php
@@ -31,6 +32,8 @@ jobs:
           php -l benchmark-loop-active.php
           php -l benchmark-loop-legacy.php
           php -l benchmark-register-command.php
+      - name: Active packed PASM bytecode
+        run: php test-pasm-packed-active.php
       - name: Loop-space model
         run: php test-pasm-loop-space.php
       - name: Compiled loop emission
