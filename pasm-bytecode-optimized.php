@@ -3,15 +3,7 @@ namespace pasm;
 
 require_once __DIR__ . '/pasm-bytecode.php';
 
-/**
- * Reserved superinstruction opcode IDs.
- *
- * These identities remain stable for manifests/provenance.  The active
- * optimizing layer deliberately emits the canonical packed base ABI until a
- * superinstruction is repacked and independently benchmarked.  Correctness
- * and one executable ABI take precedence over preserving an older unpacked
- * shadow format.
- */
+/** Reserved superinstruction opcode IDs. */
 final class PASMSuperBC
 {
     public const MOVI2_ADD = 0x80;
@@ -35,38 +27,32 @@ final class PASMSuperBC
     }
 }
 
-/**
- * Optimization compatibility layer.
- *
- * PASL loop/body fusion happens before this assembly stage.  This class now
- * uses PASMAssembler as the single source of truth for byte sizes, label
- * offsets, and packed 3-bit register tuples.  Future superinstructions must
- * be added on top of this ABI rather than creating a second encoding.
- */
+/** One optimizing assembler, one canonical packed PASM ABI. */
 final class PASMOptimizingAssembler
 {
     public function __construct(private bool $enabled = true) {}
-
-    public function compile(string|array $source): string
-    {
-        return (new PASMAssembler())->compile($source);
-    }
+    public function compile(string|array $source): string { return (new PASMAssembler())->compile($source); }
 }
 
-/**
- * Optimized execution facade over the one canonical packed PASM VM.
- * Keeping this type preserves the Engine API while eliminating the former
- * incompatible unpacked-register execution path.
- */
+/** Optimized facade over the same packed/address-aware PASM VM. */
 final class PASMOptimizedBytecodeVM
 {
     public function __construct(
         private PASMRuntime $runtime,
         private int $maxInstructions = 1_000_000,
+        private ?PASMNamedMemory $namedMemory = null,
+        private ?PASMMethodABI $methods = null,
+        private ?PASMIteratorTable $iterators = null,
     ) {}
 
     public function run(string $code): mixed
     {
-        return (new PASMBytecodeVM($this->runtime, $this->maxInstructions))->run($code);
+        return (new PASMBytecodeVM(
+            $this->runtime,
+            $this->maxInstructions,
+            $this->namedMemory,
+            $this->methods,
+            $this->iterators,
+        ))->run($code);
     }
 }
