@@ -201,6 +201,18 @@ class VectorBag extends BagContainer
         if (!array_key_exists($index,$this->values)) throw new OutOfBoundsException("VectorBag index {$index}");
         $this->values[$index]=$value; $this->changed(); return $this;
     }
+    /**
+     * Canonical fallback for BEMPLACE. The PHP host uses one array_splice call;
+     * native lowering computes one address and performs one overlap-safe tail move.
+     */
+    public function emplace(int $index, mixed $value): static
+    {
+        $n = count($this->values);
+        if ($index < 0 || $index > $n) throw new OutOfBoundsException("VectorBag emplace index {$index}");
+        array_splice($this->values, $index, 0, [$value]);
+        $this->changed();
+        return $this;
+    }
     public function pop(): mixed
     {
         if ($this->values===[]) throw new UnderflowException('VectorBag is empty');
@@ -208,7 +220,7 @@ class VectorBag extends BagContainer
     }
     public function clear(): static { if($this->values!==[]){$this->values=[];$this->changed();} return $this; }
     public function toArray(): array { return $this->values; }
-    public function nativeLayout(): array { return ['strategy'=>'contiguous-vector','index'=>'base + index * element_size','element_type'=>$this->elementType]; }
+    public function nativeLayout(): array { return ['strategy'=>'contiguous-vector','index'=>'base + index * element_size','emplace'=>'address + one bulk tail move + store','element_type'=>$this->elementType]; }
     protected function exportPayload(): array { return ['values'=>$this->values]; }
     protected function importPayload(array $payload): void { $this->values=array_values($payload['values']??[]); }
 }
@@ -222,7 +234,7 @@ final class StackBag extends VectorBag
         if ($this->values===[]) throw new UnderflowException('StackBag is empty');
         return $this->values[array_key_last($this->values)];
     }
-    public function nativeLayout(): array { return ['strategy'=>'contiguous-stack','push'=>'data[count++]','pop'=>'data[--count]','element_type'=>$this->elementType]; }
+    public function nativeLayout(): array { return ['strategy'=>'contiguous-stack','push'=>'data[count++]','pop'=>'data[--count]','emplace'=>'address + one bulk tail move + store','element_type'=>$this->elementType]; }
 }
 
 class QueueBag extends BagContainer
@@ -305,12 +317,20 @@ class MapBag extends BagContainer
     public function __construct(Bag $bag, ?string $elementType=null, string $kind=BagDiscipline::MAP){parent::__construct($bag,$kind,$elementType);}
     public function count(): int{return count($this->values);}
     public function put(string|int $key,mixed $value): static{$this->values[$key]=$value;$this->changed();return $this;}
+    /** Insert only when absent; return the existing or newly inserted value. */
+    public function emplace(string|int $key, mixed $value): mixed
+    {
+        if (array_key_exists($key, $this->values)) return $this->values[$key];
+        $this->values[$key] = $value;
+        $this->changed();
+        return $value;
+    }
     public function get(string|int $key,mixed $default=null): mixed{return $this->values[$key]??$default;}
     public function has(string|int $key): bool{return array_key_exists($key,$this->values);}
     public function remove(string|int $key): bool{if(!array_key_exists($key,$this->values))return false;unset($this->values[$key]);$this->changed();return true;}
     public function clear(): static{if($this->values!==[]){$this->values=[];$this->changed();}return $this;}
     public function toArray(): array{return $this->values;}
-    public function nativeLayout(): array{return ['strategy'=>'native-hash','element_type'=>$this->elementType];}
+    public function nativeLayout(): array{return ['strategy'=>'native-hash','emplace'=>'probe once; insert if absent','element_type'=>$this->elementType];}
     protected function exportPayload(): array{return ['values'=>$this->values];}
     protected function importPayload(array $payload): void{$this->values=$payload['values']??[];}
 }
@@ -329,11 +349,18 @@ final class SetBag extends MapBag
             default=>'x:'.hash('xxh3',serialize($value)),
         };
     }
-    public function add(mixed $value): static{$k=$this->keyOf($value);if(!isset($this->values[$k])){$this->values[$k]=$value;$this->changed();}return $this;}
+    /** Insert only when absent; return the existing or newly inserted value. */
+    public function emplaceValue(mixed $value): mixed
+    {
+        $k=$this->keyOf($value);
+        if(array_key_exists($k,$this->values)) return $this->values[$k];
+        $this->values[$k]=$value;$this->changed();return $value;
+    }
+    public function add(mixed $value): static{$this->emplaceValue($value);return $this;}
     public function contains(mixed $value): bool{return array_key_exists($this->keyOf($value),$this->values);}
     public function discard(mixed $value): bool{$k=$this->keyOf($value);if(!array_key_exists($k,$this->values))return false;unset($this->values[$k]);$this->changed();return true;}
     public function toArray(): array{return array_values($this->values);}
-    public function nativeLayout(): array{return ['strategy'=>'native-hash-set','element_type'=>$this->elementType];}
+    public function nativeLayout(): array{return ['strategy'=>'native-hash-set','emplace'=>'probe once; insert key if absent','element_type'=>$this->elementType];}
 }
 
 final class BagContainers
