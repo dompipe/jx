@@ -3,10 +3,10 @@
 // Run:     php pasm-run.php --print complex.pbc
 
 $sum = 0;
-$i = 5;
-while ($i) {
-    $sum = $sum + $i;
-    $i--;
+$counter = 5;
+while ($counter) {
+    $sum = $sum + $counter;
+    $counter--;
 }
 
 $j = 0;
@@ -16,7 +16,8 @@ for ($k = 0; $k != 4; $k++) {
 
 complex $z = 3+4i;
 complex $w = 1-2i;
-complex $p = $z * $w;
+complex $p;
+$p = $z * $w;
 
 $mode = 2;
 select ($mode) {
