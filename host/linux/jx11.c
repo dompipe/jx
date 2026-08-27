@@ -1,7 +1,7 @@
 /* JX11 X11 desktop host: jx.desktop/1
  *
  * Build (Debian/Ubuntu):
- *   cc -O2 -Wall -Wextra -o jx11 jx11.c jx11-register.c jx11-shadow.c jx11-window-hot.c $(pkg-config --cflags --libs xcb cairo-xcb)
+ *   cc -O2 -Wall -Wextra -o jx11 jx11.c jx11-register.c jx11-shadow.c jx11-window-hot.c jx11-ewmh.c $(pkg-config --cflags --libs xcb cairo-xcb)
  * Run:
  *   ./jx11 --desktop desktop.jx11
  *
@@ -19,6 +19,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include "jx11-window-hot.h"
+#include "jx11-ewmh.h"
 
 #define MAX_ICONS 256
 #define MAX_WINDOWS 256
@@ -90,6 +91,9 @@ static task_button task_buttons[MAX_TASK_BUTTONS];
 static size_t task_button_count = 0;
 static cairo_surface_t *wallpaper_image = NULL;
 static unsigned dirty_flags = DIRTY_NONE;
+static jx11_ewmh_atoms ewmh_atoms;
+static jx11_ewmh_clients ewmh_clients;
+static int ewmh_ready = 0;
 
 static void die(const char *msg) { fprintf(stderr, "jx11: %s\n", msg); exit(2); }
 
@@ -200,6 +204,11 @@ static xcb_visualtype_t *find_visual(xcb_visualid_t id) {
     xcb_depth_iterator_t di = xcb_screen_allowed_depths_iterator(screen);
     for (; di.rem; xcb_depth_next(&di)) {
         xcb_visualtype_iterator_t vi = xcb_depth_visuals_iterator(di.data);
+        for (; vi.rem; xcb_depth_next(&di)) { (void)vi; }
+    }
+    di = xcb_screen_allowed_depths_iterator(screen);
+    for (; di.rem; xcb_depth_next(&di)) {
+        xcb_visualtype_iterator_t vi = xcb_depth_visuals_iterator(di.data);
         for (; vi.rem; xcb_visualtype_next(&vi)) if (vi.data->visual_id == id) return vi.data;
     }
     return NULL;
@@ -288,8 +297,6 @@ static int xid_index_get(xcb_window_t xid, uint8_t kind) {
     return -1;
 }
 
-/* Deletion is uncommon and the table is tiny (<=512 live XIDs). Rebuild keeps
- * lookup probing simple and avoids tombstones in the event hot path. */
 static void xid_index_rebuild(void) {
     xid_index_clear();
     for (size_t i = 0; i < icon_count; ++i)
@@ -301,6 +308,14 @@ static void xid_index_rebuild(void) {
 static int window_slot_by_xid(xcb_window_t win) { return xid_index_get(win, 2); }
 static int icon_slot_by_xid(xcb_window_t win) { return xid_index_get(win, 1); }
 static void invalidate(unsigned flags) { dirty_flags |= flags; }
+
+static void publish_ewmh_clients(void) {
+    if (ewmh_ready) jx11_ewmh_publish_clients(conn, root, &ewmh_atoms, &ewmh_clients);
+}
+
+static void publish_ewmh_active(void) {
+    if (ewmh_ready) jx11_ewmh_publish_active(conn, root, &ewmh_atoms, focused);
+}
 
 static void dispatch_window_event(int slot, uint8_t event_kind) {
     if (slot < 0 || slot >= MAX_WINDOWS || !windows[slot].in_use) return;
@@ -374,6 +389,10 @@ static void add_managed(xcb_window_t win) {
     xcb_change_window_attributes(conn, win, XCB_CW_EVENT_MASK, &ev);
     read_geometry(slot); read_title(slot);
     dispatch_window_event(slot, JX11_EVENT_STATE_OPEN);
+    if (ewmh_ready) {
+        if (jx11_ewmh_clients_add(&ewmh_clients, win) < 0) fprintf(stderr, "jx11: EWMH client list full for 0x%08x\n", win);
+        publish_ewmh_clients();
+    }
 }
 
 static void remove_managed(xcb_window_t win) {
@@ -382,7 +401,14 @@ static void remove_managed(xcb_window_t win) {
     dispatch_window_event(slot, JX11_EVENT_STATE_CLOSE);
     memset(&windows[slot], 0, sizeof windows[slot]);
     if (window_count) --window_count;
-    if (focused == win) focused = XCB_NONE;
+    if (focused == win) {
+        focused = XCB_NONE;
+        publish_ewmh_active();
+    }
+    if (ewmh_ready) {
+        jx11_ewmh_clients_remove(&ewmh_clients, win);
+        publish_ewmh_clients();
+    }
     xid_index_rebuild();
 }
 
@@ -393,6 +419,7 @@ static void focus_window(xcb_window_t win) {
     if (focused != win) {
         focused = win;
         dispatch_window_event(slot, JX11_EVENT_FOCUS);
+        publish_ewmh_active();
     }
     xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, win, XCB_CURRENT_TIME);
     uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
@@ -418,6 +445,28 @@ static void manage_configure(xcb_configure_request_event_t *e) {
     xcb_configure_window(conn, e->window, mask, values);
     int slot = window_slot_by_xid(e->window);
     if (slot >= 0) read_geometry(slot);
+}
+
+static void adopt_existing_windows(void) {
+    xcb_query_tree_reply_t *tree = xcb_query_tree_reply(conn, xcb_query_tree(conn, root), NULL);
+    if (!tree) return;
+    int count = xcb_query_tree_children_length(tree);
+    xcb_window_t *children = xcb_query_tree_children(tree);
+    size_t adopted = 0;
+    for (int i = 0; i < count; ++i) {
+        xcb_window_t win = children[i];
+        xcb_get_window_attributes_reply_t *attrs = xcb_get_window_attributes_reply(
+            conn, xcb_get_window_attributes(conn, win), NULL);
+        if (!attrs) continue;
+        int adopt = !attrs->override_redirect && attrs->map_state == XCB_MAP_STATE_VIEWABLE;
+        free(attrs);
+        if (!adopt) continue;
+        size_t before = window_count;
+        add_managed(win);
+        if (window_count > before) ++adopted;
+    }
+    free(tree);
+    if (adopted) fprintf(stderr, "jx11: adopted %zu existing mapped client%s\n", adopted, adopted == 1 ? "" : "s");
 }
 
 static pid_t launch_program(const char *program) {
@@ -607,6 +656,7 @@ static void handle_event(xcb_generic_event_t *event) {
             if (slot >= 0 && focused != e->event) {
                 focused = e->event;
                 dispatch_window_event(slot, JX11_EVENT_FOCUS);
+                publish_ewmh_active();
             }
             break;
         }
@@ -666,6 +716,18 @@ int main(int argc, char **argv) {
     }
 
     xid_index_clear();
+    jx11_ewmh_clients_reset(&ewmh_clients);
+    if (jx11_ewmh_init_atoms(conn, &ewmh_atoms) != 0) die("cannot initialize EWMH atoms");
+    ewmh_ready = 1;
+    jx11_ewmh_publish_supported(conn, root, &ewmh_atoms);
+    jx11_ewmh_publish_desktops(conn, root, &ewmh_atoms, 1u, 0u);
+    jx11_ewmh_publish_workarea(conn, root, &ewmh_atoms, 0u, 0u,
+        screen->width_in_pixels,
+        (uint32_t)(screen->height_in_pixels - (taskbar_enabled ? taskbar_height : 0)));
+    publish_ewmh_clients();
+    publish_ewmh_active();
+
+    adopt_existing_windows();
     if (wallpaper_path[0]) wallpaper_image = load_png_once(wallpaper_path, 1);
     create_icons();
     create_taskbar();
@@ -677,8 +739,8 @@ int main(int argc, char **argv) {
         pid_t pid = launch_program(launch_now);
         if (pid > 0) fprintf(stderr, "jx11: launched %s pid=%ld\n", launch_now, (long)pid);
     }
-    fprintf(stderr, "jx11: desktop active %ux%u icons=%zu taskbar=%s window-bag=%s window-reg=%d root=0x%08x\n",
-            screen->width_in_pixels, screen->height_in_pixels, icon_count,
+    fprintf(stderr, "jx11: desktop active %ux%u icons=%zu windows=%zu taskbar=%s window-bag=%s window-reg=%d root=0x%08x\n",
+            screen->width_in_pixels, screen->height_in_pixels, icon_count, window_count,
             taskbar_enabled ? "on" : "off", window_bag[0] ? window_bag : "-",
             window_register_ready ? (int)window_register : -1, root);
 
@@ -686,8 +748,6 @@ int main(int argc, char **argv) {
         xcb_generic_event_t *event = xcb_wait_for_event(conn);
         if (!event) break;
 
-        /* Process the blocking event, then drain everything already queued.
-         * One logical X11 burst therefore produces one dirty render + flush. */
         handle_event(event);
         free(event);
         while ((event = xcb_poll_for_queued_event(conn)) != NULL) {
