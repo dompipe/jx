@@ -24,6 +24,7 @@
     let pc = 0;
     let steps = 0;
     let zero = false;
+    let compare = 0;
 
     const value = (token) => Object.prototype.hasOwnProperty.call(r, token)
       ? r[token]
@@ -54,9 +55,18 @@
         case 'DEC': r[a] = value(a) - 1n; break;
         case 'NEG': r[a] = -value(a); break;
         case 'JMP': jump(a); break;
-        case 'CMP': zero = value(a) === value(b); break;
+        case 'CMP': {
+          const av = value(a), bv = value(b);
+          compare = av < bv ? -1 : (av > bv ? 1 : 0);
+          zero = compare === 0;
+          break;
+        }
         case 'JNZ': if (!zero) jump(a); break;
         case 'JZ': if (zero) jump(a); break;
+        case 'JL': if (compare < 0) jump(a); break;
+        case 'JLE': if (compare <= 0) jump(a); break;
+        case 'JG': if (compare > 0) jump(a); break;
+        case 'JGE': if (compare >= 0) jump(a); break;
         case 'RET': return { result: value(a), steps, registers: r };
         case 'HALT': return { result: 0n, steps, registers: r };
         default: throw new Error(`Unsupported browser PASM opcode ${op}`);
