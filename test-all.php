@@ -46,7 +46,7 @@ try {
     $examples=glob($root.'/examples/*.php')?:[];sort($examples,SORT_STRING);
     foreach($examples as $file)run_cmd('example '.basename($file),[$php,'-d','zend.assertions=1','-d','assert.exception=1',$file],$root);
 
-    // 4. Public CLI paths: JX, PASL, nested PASL, PBC round trip, and x86 emission.
+    // 4. Public CLI paths: JX, PASL, nested PASL, PBC round trip, and native x86 compile+run.
     run_cmd('CLI JX hello',[$php,$root.'/jx-run.php','--print',$root.'/examples/hello.jx'],$root);
     run_cmd('CLI PASL arith',[$php,$root.'/pasm-run.php','--print',$root.'/examples/arith.pasl'],$root);
     if(is_file($root.'/examples/pasl/arith.pasl'))run_cmd('CLI PASL nested arith',[$php,$root.'/pasm-run.php','--print',$root.'/examples/pasl/arith.pasl'],$root);
@@ -55,7 +55,15 @@ try {
     run_cmd('CLI compile PBC',[$php,$root.'/pasm-run.php','-o',$tmpPbc,$root.'/examples/arith.pasl'],$root);
     if(!is_file($tmpPbc)||filesize($tmpPbc)===0)throw new RuntimeException('PBC output missing');
     run_cmd('CLI run PBC',[$php,$root.'/pasm-run.php','--print',$tmpPbc],$root);@unlink($tmpPbc);
-    if(is_file($root.'/examples/pasl/x86-sum.pasl')){$tmpAsm=sys_get_temp_dir().'/jx-full-gate-'.getmypid().'.s';run_cmd('CLI x86 emission',[$php,$root.'/pasm-run.php','--x86','-o',$tmpAsm,$root.'/examples/pasl/x86-sum.pasl'],$root);if(!is_file($tmpAsm)||filesize($tmpAsm)===0)throw new RuntimeException('x86 assembly output missing');@unlink($tmpAsm);}
+    if(is_file($root.'/examples/pasl/x86-sum.pasl')){
+        $base=sys_get_temp_dir().'/jx-full-gate-'.getmypid();$tmpAsm=$base.'.s';$tmpC=$base.'.c';$tmpExe=$base.'.native';
+        run_cmd('CLI x86 emission',[$php,$root.'/pasm-run.php','--x86','-o',$tmpAsm,$root.'/examples/pasl/x86-sum.pasl'],$root);
+        if(!is_file($tmpAsm)||filesize($tmpAsm)===0)throw new RuntimeException('x86 assembly output missing');
+        file_put_contents($tmpC,"#include <stdio.h>\nextern long pasl_main(void);\nint main(void){ long v=pasl_main(); printf(\"%ld\\n\",v); return v==15?0:3; }\n");
+        run_cmd('assemble/link x86', ['cc','-no-pie','-o',$tmpExe,$tmpC,$tmpAsm],$root);
+        run_cmd('execute x86',[$tmpExe],$root);
+        @unlink($tmpAsm);@unlink($tmpC);@unlink($tmpExe);
+    }
 
     // 5. Every root benchmark harness, normal/default entrypoint.
     $benches=glob($root.'/benchmark-*.php')?:[];sort($benches,SORT_STRING);
