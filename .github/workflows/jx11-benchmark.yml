@@ -8,10 +8,12 @@ on:
       - 'host/linux/jx11-register.h'
       - 'host/linux/jx11-register.c'
       - 'host/linux/jx11-shadow.h'
+      - 'host/linux/jx11-shadow.c'
       - 'host/linux/jx11-window-hot.h'
       - 'host/linux/jx11-window-hot.c'
       - 'benchmarks/jx11-hotpath-bench.c'
       - 'benchmarks/jx11-shadow-dispatch-bench.c'
+      - 'benchmarks/jx11-integrated-shadow-bench.c'
       - 'docs/JX11-HOT-PATH.md'
       - '.github/workflows/jx11-benchmark.yml'
   workflow_dispatch:
@@ -35,6 +37,16 @@ jobs:
       - name: Run million-event shadow-dispatch benchmark
         run: ./jx11-shadow-dispatch-bench 1000000 256 | tee jx11-shadow-dispatch-benchmark.txt
 
+      - name: Build integrated shadow benchmark
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/linux
+          -o jx11-integrated-shadow-bench
+          benchmarks/jx11-integrated-shadow-bench.c
+          host/linux/jx11-window-hot.c
+
+      - name: Run million-event integrated shadow benchmark
+        run: ./jx11-integrated-shadow-bench 1000000 256 | tee jx11-integrated-shadow-benchmark.txt
+
       - name: Upload benchmark output
         uses: actions/upload-artifact@v4
         with:
@@ -44,3 +56,5 @@ jobs:
             jx11-hotpath-benchmark.json
             jx11-shadow-dispatch-benchmark.txt
             jx11-shadow-dispatch-benchmark.json
+            jx11-integrated-shadow-benchmark.txt
+            jx11-integrated-shadow-benchmark.json
