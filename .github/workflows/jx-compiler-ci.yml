@@ -28,6 +28,11 @@ jobs:
         run: php test-hot-shadow.php
       - name: Deterministic native 64B Book package
         run: php test-native-book64.php
+      - name: Native loader recognizes renamed 64B Book
+        run: |
+          php tests/make-jx64-fixture.php /tmp/compiled-book.renamed
+          cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx64-probe tests/jx64-probe.c host/common/jx64-probe.c
+          /tmp/jx64-probe /tmp/compiled-book.renamed
 
   browser-media-smoke:
     runs-on: ubuntu-latest
