@@ -166,3 +166,65 @@ final class JxStage
         $key=strtoupper(trim($operation));if($key==='')throw new InvalidArgumentException('Operation cannot be empty');return $key;
     }
 }
+
+/** Execution representation chosen after canonical legality has been established. */
+final class ExecutionTarget
+{
+    public const NATIVE_MACHINE = 'native-machine';
+    public const BROWSER_LOCAL = 'browser-local';
+    public const PACKED_PASM = 'packed-pasm';
+    public const HOST_FALLBACK = 'host-fallback';
+
+    public static function all(): array
+    {
+        return [self::NATIVE_MACHINE,self::BROWSER_LOCAL,self::PACKED_PASM,self::HOST_FALLBACK];
+    }
+}
+
+final class TargetPlan
+{
+    public function __construct(
+        public readonly string $operation,
+        public readonly EnvironmentProfile $environment,
+        public readonly string $target,
+        public readonly array $fallbacks,
+        public readonly bool $shadowable,
+    ) {}
+}
+
+/**
+ * Execution policy: keep JX/PASL canonical, but push every shadowable operation
+ * as far down as the legal host permits. Native machine code is preferred on
+ * native/server/CLI hosts; browsers stay local; packed PASM is the portable
+ * correctness/debug fallback. Host-only effects remain host calls.
+ */
+final class JxTargetPolicy
+{
+    public function __construct(private ?JxStage $stage=null)
+    {
+        $this->stage ??= JxStage::standard();
+    }
+
+    public function choose(string $operation,EnvironmentProfile $environment,bool $shadowable=true): TargetPlan
+    {
+        $this->stage->assert($operation,$environment);
+        $op=strtoupper(trim($operation));
+
+        if(!$shadowable){
+            return new TargetPlan($op,$environment,ExecutionTarget::HOST_FALLBACK,[],false);
+        }
+
+        if($environment->class===EnvironmentClass::BROWSER){
+            return new TargetPlan($op,$environment,ExecutionTarget::BROWSER_LOCAL,[ExecutionTarget::PACKED_PASM,ExecutionTarget::HOST_FALLBACK],true);
+        }
+
+        $nativeCapable=$environment->has(Capability::NATIVE_ABI)
+            || (($environment->class===EnvironmentClass::SERVER || $environment->class===EnvironmentClass::CLI) && $environment->has(Capability::PROCESS));
+
+        if($nativeCapable){
+            return new TargetPlan($op,$environment,ExecutionTarget::NATIVE_MACHINE,[ExecutionTarget::PACKED_PASM,ExecutionTarget::HOST_FALLBACK],true);
+        }
+
+        return new TargetPlan($op,$environment,ExecutionTarget::PACKED_PASM,[ExecutionTarget::HOST_FALLBACK],true);
+    }
+}
