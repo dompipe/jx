@@ -77,6 +77,31 @@ jobs:
       - name: Verify jx11 CLI
         run: /tmp/jx11 --help
 
+  linux-native-store:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: zip
+          coverage: none
+      - name: Compile canonical JX Store to Linux ELF
+        run: |
+          php examples/store/build-store.php
+          cc -O2 -Ihost/common -o examples/store/build/jx-store examples/store/build/store.c examples/store/build/store-linux.s host/common/jx64-probe.c
+      - name: Verify Linux native pages
+        run: |
+          test "$(examples/store/build/jx-store books/home)" = "books/home=96"
+          test "$(examples/store/build/jx-store turtles/habitats)" = "turtles/habitats=387"
+      - name: Package and rename Linux 64B Book
+        run: |
+          php examples/store/package-native.php linux-elf examples/store/build/jx-store examples/store/build/jx-store.64B
+          cp examples/store/build/jx-store.64B examples/store/build/store.payload
+          examples/store/build/jx-store --probe examples/store/build/store.payload
+
   windows-native-store:
     runs-on: windows-latest
     timeout-minutes: 15
@@ -93,7 +118,7 @@ jobs:
       - name: Build native Windows PE executable
         shell: pwsh
         run: |
-          clang -O2 -o examples/store/build/jx-store.exe examples/store/build/store.c examples/store/build/store-windows.s
+          clang -O2 -Ihost/common -o examples/store/build/jx-store.exe examples/store/build/store.c examples/store/build/store-windows.s host/common/jx64-probe.c
           $cases = @{
             'books/home' = '96'
             'books/catalog' = '60'
@@ -107,3 +132,10 @@ jobs:
             $expected = "$page=$($cases[$page])"
             if ($actual -ne $expected) { throw "Windows JX page mismatch: $actual != $expected" }
           }
+      - name: Package and rename Windows 64B Book
+        shell: pwsh
+        run: |
+          php examples/store/package-native.php windows-pe examples/store/build/jx-store.exe examples/store/build/jx-store.64B
+          Copy-Item examples/store/build/jx-store.64B examples/store/build/store.payload
+          $probe = (& examples/store/build/jx-store.exe --probe examples/store/build/store.payload).Trim()
+          if ($probe -notmatch '^JX64/1\.0 sections=4$') { throw "Windows native JX64 probe failed: $probe" }
