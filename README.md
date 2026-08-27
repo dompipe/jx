@@ -25,6 +25,7 @@ php examples/jx-smoke.php
 | `jx-alias.php` | Language-wide alias domains, collision rules, canonicalization + provenance |
 | `jx-bag-containers.php` | Bag-backed record/vector/stack/queue/deque/map/set disciplines |
 | `pasm-bag-hotops.php` | Canonical Bag hot ops (`BPUSH`, `BPOP`, `BEMPLACE`, etc.) + native lowering recipes |
+| `pasm-loop-space.php` | Single-op variable mutation + bounded compiled loop-space descriptors |
 | `jx-lang.php` / `jx-run.php` | Language engine + executable compiler |
 | `plugins/` | **Single source directory** for all module plugins |
 | `host/modules/` | Per-plugin links to shared active packages |
@@ -62,6 +63,38 @@ JNE             -> PASM JNZ
 ```
 
 See `docs/JX-ALIASES.md`.
+
+## Single-operation variable mutation
+
+Variable changes canonicalize into one operation before target lowering:
+
+```text
+$x++            -> VINC x
+$x--            -> VDEC x
+$x += y         -> VADD x,y
+$x -= y         -> VSUB x,y
+$x *= y         -> VMUL x,y
+$x = algebra    -> VALG x,<compiled algebra tree>
+```
+
+Where the target permits it, increment/decrement and simple compound assignments lower to a single native instruction (`inc`, `dec`, `add`, `sub`, etc.). Recursive algebra remains one canonical mutation; its expression tree is ordered and fused at compile time rather than rediscovered at runtime.
+
+## Compiled loop space
+
+Loops are moving toward **compiled callable bodies** instead of repeated inline interpretation. `pasm-loop-space.php` defines a bounded loop-space allocator and immutable loop block descriptors.
+
+A loop iteration is modeled as:
+
+```text
+LCHECK condition
+LCALL  compiled_body
+[LCALL compiled_step]
+LREPEAT loop_slot
+```
+
+The body and step are compiled blocks. The controller keeps only condition state, iteration state, direct block targets, and a bounded nesting slot. Default nesting depth is 8; exceeding the configured depth is a compile-time error. Sequential loops reuse slots after scope exit, while nested loops occupy ordered slots `0..depth-1`.
+
+This applies to `for`, `while`, `do-while`, `foreach`, and `repeat` lowering. The existing PASL compiler still provides legacy inline loop lowering while this compiled-block loop-space pass is integrated into its final emission path; the new loop-space module is already loaded by `pasm-lang.php` and regression-tested independently.
 
 ## Bags and containers
 
@@ -126,6 +159,8 @@ Regression and benchmark harnesses:
 php test-jx-bag-containers.php
 php test-pasm-bag-hotops.php
 php test-jx-alias.php
+php test-jx-lang-alias.php
+php test-pasm-loop-space.php
 php benchmark-jx-bag-containers.php 1000000 7
 ```
 
@@ -158,11 +193,12 @@ php jx-install.php restore-full <timestamp>
 
 ## Includes
 
-- Decimals (`plugins/decimals` → `jx\Decimal`)
+- Decimals (`plugins/decimals` → `jx\\Decimal`)
 - Complex, Delivery, const, smart compiler, lang bridge
 - Memory law, Books/Bags/Pages, Resistant path
 - Bag-backed record/vector/stack/queue/deque/map/set disciplines
 - Language-wide canonical aliases with zero runtime alias lookup
+- Single-op variable lowering and bounded compiled loop space
 
 See `jx/INTRO.md` for the guided introduction.
 
@@ -172,7 +208,7 @@ See `jx/INTRO.md` for the guided introduction.
 |----------|----------|-----------------------|
 | Linux | `/etc/bin/jx`, `/etc/bin/jx-install` | `/etc/jx/plugins` |
 | macOS | `/usr/local/bin/jx`, `/usr/local/bin/jx-install` | `/usr/local/share/jx/plugins` |
-| Windows | `%LOCALAPPDATA%\jx\bin` (User PATH) | `%ProgramData%\jx\plugins` |
+| Windows | `%LOCALAPPDATA%\\jx\\bin` (User PATH) | `%ProgramData%\\jx\\plugins` |
 
 Plugins are independent packages. A Book or library links only the packages it
 uses:
