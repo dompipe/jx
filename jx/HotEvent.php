@@ -77,24 +77,47 @@ final class HotAddress
  */
 final class HotDelivery
 {
-    public const LATEST = 'latest';       // keep only newest value in a quantum
-    public const QUEUE = 'queue';         // preserve every event in order
-    public const ONCE = 'once';           // one occurrence per quantum
-    public const COUNT = 'count';         // count occurrences per quantum
-    public const ACCUMULATE = 'accumulate'; // combine numeric/delta payloads
+    public const LATEST = 'latest';
+    public const QUEUE = 'queue';
+    public const ONCE = 'once';
+    public const COUNT = 'count';
+    public const ACCUMULATE = 'accumulate';
+
+    private const CODES = [
+        self::LATEST => 0,
+        self::QUEUE => 1,
+        self::ONCE => 2,
+        self::COUNT => 3,
+        self::ACCUMULATE => 4,
+    ];
 
     /** @return list<string> */
     public static function values(): array
     {
-        return [self::LATEST, self::QUEUE, self::ONCE, self::COUNT, self::ACCUMULATE];
+        return array_keys(self::CODES);
     }
 
     public static function normalize(string $policy): string
     {
         $policy = strtolower(trim($policy));
-        if (!in_array($policy, self::values(), true)) {
+        if (!isset(self::CODES[$policy])) {
             throw new JxException('Unsupported hot-event delivery policy', 'hot-event', true,
                 ['policy'=>$policy]);
+        }
+        return $policy;
+    }
+
+    public static function code(string $policy): int
+    {
+        return self::CODES[self::normalize($policy)];
+    }
+
+    public static function fromCode(int $code): string
+    {
+        $policy = array_search($code, self::CODES, true);
+        if ($policy === false) {
+            throw new JxException('Unsupported hot-event delivery code', 'hot-event', true,
+                ['code'=>$code]);
         }
         return $policy;
     }
@@ -141,9 +164,80 @@ final class HotInputPolicy
 }
 
 /**
- * Compiler-facing hot reaction descriptor. It joins a canonical target name to
- * an awake address and a compile-time delivery policy.
+ * Binary datagram envelope for hot input/reactions.
+ *
+ * Byte layout:
+ *   0 version
+ *   1 register
+ *   2 slot
+ *   3 shadow
+ *   4 delivery code
+ *   5 flags
+ *   6..7 payload length (network byte order)
+ *   8.. payload bytes
+ *
+ * The routing address itself is always the three bytes at offsets 1..3.
  */
+final class HotPacket
+{
+    public const VERSION = 1;
+    public const HEADER_BYTES = 8;
+    public const MAX_PAYLOAD = 65535;
+
+    public static function encode(
+        int $address,
+        string $payload = '',
+        string $delivery = HotDelivery::QUEUE,
+        int $flags = 0,
+    ): string {
+        if (strlen($payload) > self::MAX_PAYLOAD) {
+            throw new JxException('Hot packet payload exceeds uint16 length', 'hot-event', true);
+        }
+        if ($flags < 0 || $flags > 255) {
+            throw new JxException('Hot packet flags must be uint8', 'hot-event', true, ['flags'=>$flags]);
+        }
+        $v = HotAddress::unpack($address);
+        return pack('CCCCCCn',
+            self::VERSION,
+            $v['register'],
+            $v['slot'],
+            $v['shadow'],
+            HotDelivery::code($delivery),
+            $flags,
+            strlen($payload),
+        ).$payload;
+    }
+
+    /** @return array{address:int,canonical:string,register:int,slot:int,shadow:int,delivery:string,flags:int,payload:string} */
+    public static function decode(string $packet): array
+    {
+        if (strlen($packet) < self::HEADER_BYTES) {
+            throw new JxException('Hot packet is truncated', 'hot-event', true);
+        }
+        $h = unpack('Cversion/Cregister/Cslot/Cshadow/Cdelivery/Cflags/nlength', substr($packet, 0, self::HEADER_BYTES));
+        if (!is_array($h) || ($h['version'] ?? 0) !== self::VERSION) {
+            throw new JxException('Unsupported hot packet version', 'hot-event', true);
+        }
+        $length = (int)$h['length'];
+        if (strlen($packet) !== self::HEADER_BYTES + $length) {
+            throw new JxException('Hot packet payload length mismatch', 'hot-event', true,
+                ['declared'=>$length, 'actual'=>strlen($packet) - self::HEADER_BYTES]);
+        }
+        $address = HotAddress::pack((int)$h['register'], (int)$h['slot'], (int)$h['shadow']);
+        return [
+            'address'=>$address,
+            'canonical'=>HotAddress::canonical($address),
+            'register'=>(int)$h['register'],
+            'slot'=>(int)$h['slot'],
+            'shadow'=>(int)$h['shadow'],
+            'delivery'=>HotDelivery::fromCode((int)$h['delivery']),
+            'flags'=>(int)$h['flags'],
+            'payload'=>substr($packet, self::HEADER_BYTES),
+        ];
+    }
+}
+
+/** Compiler-facing canonical-target -> awake-route descriptor. */
 final readonly class HotReaction
 {
     public int $address;
