@@ -22,7 +22,9 @@ php examples/jx-smoke.php
 | Path | Role |
 |------|------|
 | `jx.php` | Core runtime (Bag, Task, Page, Book, Delivery, Complex, SmartTable, Sym) |
+| `jx-alias.php` | Language-wide alias domains, collision rules, canonicalization + provenance |
 | `jx-bag-containers.php` | Bag-backed record/vector/stack/queue/deque/map/set disciplines |
+| `pasm-bag-hotops.php` | Canonical Bag hot ops (`BPUSH`, `BPOP`, `BEMPLACE`, etc.) + native lowering recipes |
 | `jx-lang.php` / `jx-run.php` | Language engine + executable compiler |
 | `plugins/` | **Single source directory** for all module plugins |
 | `host/modules/` | Per-plugin links to shared active packages |
@@ -32,12 +34,38 @@ php examples/jx-smoke.php
 | `jx/INSTALL.md` | Install & plugin policy |
 | `jx/COMPILER.md` | Compiler pipeline |
 | `docs/BAG-CONTAINERS.md` | Containers as Bag disciplines + native-shadow strategy |
+| `docs/JX-ALIASES.md` | Language-wide alias rules and canonicalization |
 | `docs/history/` | Original-to-latest Markdown and blame conveyance |
 | `history/jx-lang/` | History-preserving snapshot of the earlier `jx-lang` tree |
 
+## Language-wide aliases
+
+Aliases are a standard compiler feature. Human-facing spellings resolve to one canonical operation before semantic lowering and do not survive into executable code.
+
+```text
+enqueue  ─┐
+append   ─┼─> BPUSH ─> Bag discipline ─> native shadow
+push     ─┘
+```
+
+The alias registry is domain-scoped, collision-safe, plugin-extensible, and provenance-aware. A diagnostic can retain `source_spelling=enqueue` while the compiler and native shadow only see `BPUSH`.
+
+Examples:
+
+```text
+Book.load       -> Book.open
+Bag.allocate    -> Bag.underwrite
+deliver(...)    -> delivery(...)
+SQL exec        -> EXECUTE
+chart draw      -> RENDER
+JNE             -> PASM JNZ
+```
+
+See `docs/JX-ALIASES.md`.
+
 ## Bags and containers
 
-Containers are now modeled as **Bag disciplines**, not as a second memory system. A Bag supplies ownership, capacity, identity and canonical checkpoint law; the discipline supplies the hot access strategy.
+Containers are modeled as **Bag disciplines**, not as a second memory system. A Bag supplies ownership, capacity, identity and canonical checkpoint law; the discipline supplies the hot access strategy.
 
 ```text
 Bag
@@ -69,12 +97,35 @@ $jobs->enqueue($task);
 $jobs->checkpoint();
 ```
 
-The invariant is: **be native while working; become canonical at the Bag boundary**. `nativeLayout()` is a compiler/shadow hint; `canonical()` is the authoritative state image. See `docs/BAG-CONTAINERS.md`.
+The invariant is: **be native while working; become canonical at the Bag boundary**. `nativeLayout()` is a compiler/shadow hint; `canonical()` is the authoritative state image.
+
+### Bag hot operations
+
+The core canonical family is:
+
+```text
+BPUSH BPOP
+BPUSHF BPUSHB BPOPF BPOPB
+BEMPLACE
+BPEEK BRESERVE BDIRTY BSYNC
+```
+
+Normal fixed-width push/pop forms target two machine instructions after register-residency lowering.
+
+`BEMPLACE` computes an insertion location once:
+
+- vector/stack: one address calculation + one overlap-safe bulk tail move + one store
+- map: one probe to existing/insertion address + insert if absent
+- set: one probe to existing/insertion address + insert key if absent
+
+Aliases such as `insert`, `emplace`, `packin`, `putifabsent`, and `addifabsent` all resolve to `BEMPLACE`; the discipline decides the physical lowering.
 
 Regression and benchmark harnesses:
 
 ```bash
 php test-jx-bag-containers.php
+php test-pasm-bag-hotops.php
+php test-jx-alias.php
 php benchmark-jx-bag-containers.php 1000000 7
 ```
 
@@ -96,6 +147,7 @@ program. See `pasl/host/README.md` and the runnable XIP Cover Book.
 - Sourced **only** from `plugins/`
 - Installed **one at a time**; new installs append **last** after need is assessed
 - Dual backup: **pre** (per install) + **full** (total install)
+- Plugins may register aliases only in a collision-safe domain/context
 
 ```bash
 php jx-install.php list
@@ -110,6 +162,7 @@ php jx-install.php restore-full <timestamp>
 - Complex, Delivery, const, smart compiler, lang bridge
 - Memory law, Books/Bags/Pages, Resistant path
 - Bag-backed record/vector/stack/queue/deque/map/set disciplines
+- Language-wide canonical aliases with zero runtime alias lookup
 
 See `jx/INTRO.md` for the guided introduction.
 
