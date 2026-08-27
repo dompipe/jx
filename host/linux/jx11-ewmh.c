@@ -50,6 +50,7 @@ int jx11_ewmh_init_atoms(xcb_connection_t *conn, jx11_ewmh_atoms *atoms) {
     INTERN(net_supported, "_NET_SUPPORTED");
     INTERN(net_client_list, "_NET_CLIENT_LIST");
     INTERN(net_active_window, "_NET_ACTIVE_WINDOW");
+    INTERN(net_close_window, "_NET_CLOSE_WINDOW");
     INTERN(net_number_of_desktops, "_NET_NUMBER_OF_DESKTOPS");
     INTERN(net_current_desktop, "_NET_CURRENT_DESKTOP");
     INTERN(net_wm_desktop, "_NET_WM_DESKTOP");
@@ -66,9 +67,9 @@ int jx11_ewmh_init_atoms(xcb_connection_t *conn, jx11_ewmh_atoms *atoms) {
 void jx11_ewmh_publish_supported(xcb_connection_t *conn, xcb_window_t root, const jx11_ewmh_atoms *atoms) {
     if (!conn || !atoms) return;
     const xcb_atom_t supported[] = {
-        atoms->net_client_list, atoms->net_active_window, atoms->net_number_of_desktops,
-        atoms->net_current_desktop, atoms->net_wm_desktop, atoms->net_workarea,
-        atoms->net_wm_name, atoms->net_wm_pid
+        atoms->net_client_list, atoms->net_active_window, atoms->net_close_window,
+        atoms->net_number_of_desktops, atoms->net_current_desktop, atoms->net_wm_desktop,
+        atoms->net_workarea, atoms->net_wm_name, atoms->net_wm_pid
     };
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms->net_supported,
                         XCB_ATOM_ATOM, 32, (uint32_t)(sizeof supported / sizeof supported[0]), supported);
@@ -101,4 +102,39 @@ void jx11_ewmh_publish_workarea(xcb_connection_t *conn, xcb_window_t root, const
     uint32_t area[4] = { x, y, width, height };
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms->net_workarea,
                         XCB_ATOM_CARDINAL, 32, 4, area);
+}
+
+int jx11_ewmh_supports_delete(xcb_connection_t *conn, xcb_window_t window, const jx11_ewmh_atoms *atoms) {
+    if (!conn || window == XCB_NONE || !atoms || atoms->wm_protocols == XCB_ATOM_NONE || atoms->wm_delete_window == XCB_ATOM_NONE) return 0;
+    xcb_get_property_reply_t *reply = xcb_get_property_reply(conn,
+        xcb_get_property(conn, 0, window, atoms->wm_protocols, XCB_ATOM_ATOM, 0, 64), NULL);
+    if (!reply) return 0;
+    int result = 0;
+    int bytes = xcb_get_property_value_length(reply);
+    if (reply->format == 32 && bytes > 0) {
+        const xcb_atom_t *protocols = (const xcb_atom_t *)xcb_get_property_value(reply);
+        int count = bytes / (int)sizeof(xcb_atom_t);
+        for (int i = 0; i < count; ++i) {
+            if (protocols[i] == atoms->wm_delete_window) { result = 1; break; }
+        }
+    }
+    free(reply);
+    return result;
+}
+
+void jx11_ewmh_request_close(xcb_connection_t *conn, xcb_window_t window, const jx11_ewmh_atoms *atoms, int supports_delete) {
+    if (!conn || window == XCB_NONE || !atoms) return;
+    if (supports_delete && atoms->wm_protocols != XCB_ATOM_NONE && atoms->wm_delete_window != XCB_ATOM_NONE) {
+        xcb_client_message_event_t message;
+        memset(&message, 0, sizeof message);
+        message.response_type = XCB_CLIENT_MESSAGE;
+        message.format = 32;
+        message.window = window;
+        message.type = atoms->wm_protocols;
+        message.data.data32[0] = atoms->wm_delete_window;
+        message.data.data32[1] = XCB_CURRENT_TIME;
+        xcb_send_event(conn, 0, window, XCB_EVENT_MASK_NO_EVENT, (const char *)&message);
+        return;
+    }
+    xcb_kill_client(conn, window);
 }
