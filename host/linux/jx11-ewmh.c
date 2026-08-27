@@ -92,6 +92,11 @@ void jx11_ewmh_publish_desktops(xcb_connection_t *conn, xcb_window_t root, const
     if (!conn || !atoms) return;
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms->net_number_of_desktops,
                         XCB_ATOM_CARDINAL, 32, 1, &count);
+    jx11_ewmh_publish_current_desktop(conn, root, atoms, current);
+}
+
+void jx11_ewmh_publish_current_desktop(xcb_connection_t *conn, xcb_window_t root, const jx11_ewmh_atoms *atoms, uint32_t current) {
+    if (!conn || !atoms) return;
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms->net_current_desktop,
                         XCB_ATOM_CARDINAL, 32, 1, &current);
 }
@@ -102,6 +107,25 @@ void jx11_ewmh_publish_workarea(xcb_connection_t *conn, xcb_window_t root, const
     uint32_t area[4] = { x, y, width, height };
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms->net_workarea,
                         XCB_ATOM_CARDINAL, 32, 4, area);
+}
+
+uint32_t jx11_ewmh_read_window_desktop(xcb_connection_t *conn, xcb_window_t window, const jx11_ewmh_atoms *atoms, uint32_t fallback) {
+    if (!conn || window == XCB_NONE || !atoms || atoms->net_wm_desktop == XCB_ATOM_NONE) return fallback;
+    xcb_get_property_reply_t *reply = xcb_get_property_reply(conn,
+        xcb_get_property(conn, 0, window, atoms->net_wm_desktop, XCB_ATOM_CARDINAL, 0, 1), NULL);
+    if (!reply) return fallback;
+    uint32_t result = fallback;
+    if (reply->format == 32 && xcb_get_property_value_length(reply) >= (int)sizeof(uint32_t)) {
+        result = *(const uint32_t *)xcb_get_property_value(reply);
+    }
+    free(reply);
+    return result;
+}
+
+void jx11_ewmh_publish_window_desktop(xcb_connection_t *conn, xcb_window_t window, const jx11_ewmh_atoms *atoms, uint32_t desktop) {
+    if (!conn || window == XCB_NONE || !atoms) return;
+    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, window, atoms->net_wm_desktop,
+                        XCB_ATOM_CARDINAL, 32, 1, &desktop);
 }
 
 int jx11_ewmh_supports_delete(xcb_connection_t *conn, xcb_window_t window, const jx11_ewmh_atoms *atoms) {
