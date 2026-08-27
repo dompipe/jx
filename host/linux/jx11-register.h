@@ -2,6 +2,7 @@
 #define JX11_REGISTER_H
 
 #include <stdint.h>
+#include "../common/jx-hot-event.h"
 
 /*
  * Shared awake-state ABI with jx\HotRef / DesktopWindowRegister.
@@ -41,6 +42,10 @@ static inline jx11_window_ref jx11_window_ref_make(uint8_t reg, uint8_t slot, ui
     out.reg = reg;
     out.ref = jx11_hotref_pack(slot, shadow);
     return out;
+}
+
+static inline jx_hot_address jx11_window_ref_address(jx11_window_ref ref) {
+    return jx_hot_address_make(ref.reg, jx11_hotref_slot(ref.ref), jx11_hotref_shadow(ref.ref));
 }
 
 /* Awake-state WindowBag register bank. Canonical names are touched only while
