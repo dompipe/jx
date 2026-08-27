@@ -72,17 +72,7 @@ final class JxSqlStatement
     }
 }
 
-/**
- * First-class JX SQL object.
- *
- * Security defaults:
- * - environment capability checked before connection/use;
- * - PDO exceptions enabled;
- * - emulated prepares disabled when the driver supports the attribute;
- * - public operations bind values as parameters rather than concatenating them;
- * - read-only mode rejects write/DDL verbs before PDO execution;
- * - credentials are never exposed through a serialization API.
- */
+/** First-class staged SQL object for SQLite/MySQL/PostgreSQL. */
 final class JxSql
 {
     private PDO $pdo;
@@ -97,7 +87,9 @@ final class JxSql
             $this->environment->require(Capability::SECRETS,'SQL.CONNECT');
         }
         $options=$config->options+[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC];
-        try{$options[PDO::ATTR_EMULATE_PREPARES]=false;}catch(Throwable){}
+        // MySQL/PostgreSQL expose server-side prepare behavior through this attribute;
+        // do not pass a driver-specific attribute to SQLite.
+        if($config->driver!==SqlDriver::SQLITE)$options[PDO::ATTR_EMULATE_PREPARES]=false;
         try{
             $this->pdo=new PDO($config->dsn,$config->username,$config->password,$options);
         }catch(PDOException $e){throw new RuntimeException('JX SQL connection failed: '.$e->getMessage(),0,$e);}
@@ -113,11 +105,7 @@ final class JxSql
         return new JxSqlStatement($this->pdo->prepare($sql),$this);
     }
 
-    public function query(string $sql,array $params=[]): SqlResult
-    {
-        return $this->prepare($sql)->query($params);
-    }
-
+    public function query(string $sql,array $params=[]): SqlResult{return $this->prepare($sql)->query($params);}
     public function execute(string $sql,array $params=[]): int
     {
         $this->assertSqlAllowed($sql,true);
@@ -126,8 +114,8 @@ final class JxSql
 
     public function begin(): self
     {
-        if($this->transactionDepth===0){$this->pdo->beginTransaction();}
-        else{$this->savepoint('__jx_tx_'.$this->transactionDepth);}
+        if($this->transactionDepth===0)$this->pdo->beginTransaction();
+        else $this->savepoint('__jx_tx_'.$this->transactionDepth);
         $this->transactionDepth++;
         return $this;
     }
@@ -150,26 +138,9 @@ final class JxSql
         return $this;
     }
 
-    public function savepoint(string $name): self
-    {
-        $name=$this->safeIdentifier($name);
-        $this->pdo->exec('SAVEPOINT '.$name);
-        return $this;
-    }
-
-    public function rollbackTo(string $name): self
-    {
-        $name=$this->safeIdentifier($name);
-        $this->pdo->exec('ROLLBACK TO SAVEPOINT '.$name);
-        return $this;
-    }
-
-    public function releaseSavepoint(string $name): self
-    {
-        $name=$this->safeIdentifier($name);
-        $this->pdo->exec('RELEASE SAVEPOINT '.$name);
-        return $this;
-    }
+    public function savepoint(string $name): self{$name=$this->safeIdentifier($name);$this->pdo->exec('SAVEPOINT '.$name);return $this;}
+    public function rollbackTo(string $name): self{$name=$this->safeIdentifier($name);$this->pdo->exec('ROLLBACK TO SAVEPOINT '.$name);return $this;}
+    public function releaseSavepoint(string $name): self{$name=$this->safeIdentifier($name);$this->pdo->exec('RELEASE SAVEPOINT '.$name);return $this;}
 
     public function transaction(callable $work): mixed
     {
@@ -186,8 +157,7 @@ final class JxSql
 
     private function isWriteSql(string $sql): bool
     {
-        $s=ltrim($sql);
-        if($s==='')return false;
+        $s=ltrim($sql);if($s==='')return false;
         if(!preg_match('/^([A-Za-z]+)/',$s,$m))return false;
         return in_array(strtoupper($m[1]),['INSERT','UPDATE','DELETE','REPLACE','CREATE','ALTER','DROP','TRUNCATE','VACUUM','ATTACH','DETACH','PRAGMA'],true);
     }
