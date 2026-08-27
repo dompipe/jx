@@ -4,149 +4,117 @@ JX/PASL treats variable mutation and loop control as compiler-lowered primitives
 
 ## Variable mutation
 
-Canonical variable operations are:
-
-- `VSET`
-- `VINC`
-- `VDEC`
-- `VADD`
-- `VSUB`
-- `VMUL`
-- `VDIV`
-- `VMOD`
-- `VAND`
-- `VOR`
-- `VXOR`
-- `VSHL`
-- `VSHR`
-- `VALG`
+Canonical variable operations are `VSET`, `VINC`, `VDEC`, `VADD`, `VSUB`, `VMUL`, `VDIV`, `VMOD`, `VAND`, `VOR`, `VXOR`, `VSHL`, `VSHR`, and `VALG`.
 
 `VALG` represents one mutation whose right-hand side is an ordered algebra tree. The tree is compiled/fused before execution. Increment, decrement, and simple compound operations may lower to one native instruction.
 
 ## Active loop body extraction
 
-`pasm-lang.php` loads `pasm-lang-compiler-loop.php` as the active PASL compiler. `for` and `while` bodies are compiled once into out-of-line blocks instead of being emitted inline in the controller. `do ... while` and `repeat(n)` are surface forms lowered into that same bounded machinery before register allocation.
+`pasm-lang.php` loads `pasm-lang-compiler-loop.php` as the active PASL compiler. `for` and `while` bodies compile once into out-of-line blocks. `do ... while`, `repeat(n)`, `foreach`, and `reveach` enter the same bounded execution model through surface/compiler passes rather than separate interpreters.
 
 Conceptually:
 
 ```text
 loop slot N
-  condition state
+  condition / iterator state
   body target
   optional step target
-  iteration state
 
-LCHECK condition
-LCALL  body
-LCALL  step      # for loops where needed
+LCHECK or ITER
+LCALL body
+[LCALL step]
 LREPEAT slot
 ```
 
-The current PASM ISA does not need a new runtime `CALL` instruction for this shape. Because each loop block has a fixed continuation, canonical `LCALL` lowers to a direct branch to the out-of-line block, and that block branches to its known continuation. Native ELF/EXE targets may emit a machine `call` or inline the block when profitable.
+On the current PASM ISA, canonical `LCALL` lowers to a direct branch because each block has a fixed continuation. Native targets may use a machine call, tail branch, or inline body when profitable.
 
-The main program jumps over all deferred loop blocks before its final `RET`, so blocks cannot execute by fall-through.
+## For and while
 
-## For loop lowering
+A `for` loop compiles init once, checks its condition, branches into one compiled body, executes its fused step, and returns to the check. `continue` targets the fused step; `break` targets the loop exit.
 
-A `for` loop is lowered into:
-
-```text
-compile init once
-check_label:
-  LCHECK condition
-  branch body_block or exit
-
-body_block:
-  compiled body
-  branch fused_step/check
-
-fused_step:
-  compiled step mutation
-  branch check_label
-```
-
-`continue` targets the fused step. `break` targets the controller exit label.
-
-## While loop lowering
-
-A `while` loop becomes:
-
-```text
-check_label:
-  LCHECK condition
-  branch body_block or exit
-
-body_block:
-  compiled body
-  branch check_label
-```
-
-`continue` targets the condition check and `break` targets the exit label.
+A `while` loop checks, branches into one compiled body, and returns to the check. `continue` targets the check and `break` targets the exit.
 
 ## Collection loops: foreach and reveach
 
-The canonical source vocabulary is intentionally small:
+The canonical source vocabulary is:
 
 ```jx
 foreach ($players as $player) {
-    // forward traversal
+    $total += $player;
 }
 
 reveach ($players as $player) {
-    // reverse traversal
+    $number = $number * 10 + $player;
 }
 ```
 
-`reveach` is the one reverse-iteration keyword. JX does not use `rforeach` or `foreach reverse` as competing spellings.
+Key/value traversal is also supported:
 
-Their PASM execution targets are:
+```jx
+foreach ($scores as $key => $score) {
+    $total += $key + $score;
+}
+```
+
+`reveach` is the single reverse-iteration keyword. There is no competing `rforeach` or `foreach reverse` syntax.
+
+The engine binds a source-visible collection once:
+
+```php
+$engine = new pasm\lang\Engine(true, false);
+$engine->bindCollection('players', [10, 20, 30]);
+$result = $engine->runSource($source);
+```
+
+Compilation prelinks the iterator slot and the actual 3-bit value/key destination registers. The repeated PASM operation therefore carries no collection identity and no destination register:
 
 ```text
 foreach -> ITERF <slot>
 reveach -> ITERR <slot>
 ```
 
-Both iterator commands are exactly two bytes in active PASM bytecode: one opcode byte plus one unsigned iterator-slot byte. The collection descriptor, cursor state, destination register and optional key destination are prelinked outside the repeated hot path, so each repeated iterator call carries one integer only.
+Both are exactly two bytes:
 
-The active iterator ABI and Bag-container binding layer are already runnable. High-level collection-source lowering into those prelinked descriptors is the remaining front-end connection.
+```text
+19 nn   ITERF nn
+1A nn   ITERR nn
+```
+
+The only repeated integer is the unsigned one-byte slot.
+
+Loop entry emits:
+
+```text
+21 nn   IRESET nn
+```
+
+`IRESET` is also two bytes, but it executes once when entering the collection loop, not on every item. It guarantees correct re-entry after `break` and correct nested-loop behavior without widening `ITERF` or `ITERR`.
+
+The resulting controller is:
+
+```text
+IRESET slot
+check:
+    ITERF slot       # or ITERR
+    JZ exit
+    JMP body
+body:
+    compiled body
+    JMP check
+exit:
+```
+
+The iterator descriptor holds collection snapshot, cursor, value register, and optional key register. `ITERF/ITERR` write yielded scalar values directly into those prelinked registers and set the VM zero flag when traversal is exhausted.
 
 ## Loop kinds
 
-The bounded loop-space semantic model covers:
+The active bounded model now covers `for`, `while`, `do ... while`, `repeat`, `foreach`, and `reveach`.
 
-- `for`
-- `while`
-- `do ... while`
-- `repeat`
-- `foreach`
-- `reveach`
-
-`for`, `while`, `do ... while`, and `repeat(n)` are active PASL surface forms. `foreach` and `reveach` are the canonical collection-loop vocabulary and map to the active `ITERF` / `ITERR` execution ABI while their final collection-source compiler bridge is completed.
-
-## Bounded nesting
-
-Default maximum nesting depth is 8.
-
-Nested loops receive slots in order:
-
-```text
-outer        slot 0
-  inner      slot 1
-    inner    slot 2
-      ...
-```
-
-Exceeding the configured maximum is a compile-time error. Nested bodies are compiled while their parent still owns its slot, so this cap is enforced by the active compiler rather than being descriptive metadata only.
-
-When a loop scope exits its slot is reusable, so a program may contain many sequential loops without growing runtime loop-controller state.
-
-This is the meaning of invoking a series of loops "in space": runtime loop state occupies a small bounded slot array rather than recursively allocating arbitrary controller objects.
+Default nesting depth is 8. Nested loop bodies compile while their parents still own their slots, so exceeding the cap is a compile-time error. Sequential loops reuse bounded loop space rather than recursively allocating arbitrary controller objects.
 
 ## Canonical Shadow Machine
 
-Canonical loop source remains permanent and readable. Extracted loop bodies and controllers are disposable execution shadows. Each block retains a stable canonical relationship through its loop-space descriptor and generated block symbol.
-
-The earlier `pasm-lang-compiler.php` remains in the repository for lineage/reference. It is not the compiler loaded by `pasm-lang.php` on this branch.
+Canonical loop source remains permanent and readable. Extracted bodies, iterator bindings, controller labels, and fused blocks are disposable execution shadows. A richer source form never requires a second runtime loop interpreter.
 
 ## Regression
 
@@ -157,7 +125,10 @@ php test-pasm-loop-space.php
 php test-pasm-loop-compiler.php
 php test-pasm-surface-loops.php
 php test-pasm-iterator-abi.php
+php test-pasm-iterator-bytecode.php
 php test-pasm-foreach-surface.php
+php test-pasm-foreach-runtime.php
+php examples/foreach-reveach.php
 ```
 
-The regression set checks out-of-line body/step labels, canonical variable-op annotations, nested slot allocation, hard nesting-limit failure, runnable `do ... while` / `repeat`, exact two-byte iterator encoding, and the canonical `foreach` / `reveach` direction mapping.
+The collection runtime regression verifies forward traversal, reverse traversal, key/value binding, exact two-byte iterator/reset commands, nested collection-loop reset, early `break` followed by re-entry, and both optimized and unoptimized engines.
