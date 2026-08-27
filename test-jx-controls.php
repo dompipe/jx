@@ -33,7 +33,7 @@ $eq($panel->emit('click',7),[8],'event result');
 $eq($eventValue,7,'event payload');
 
 $html=JxControlRenderer::browser($panel,EnvironmentProfile::browser());
-if(!str_contains($html,'gap:12px')||!str_contains($html,'#fff')||!str_contains($html,'market.png')||!str_contains($html,'--jx-background-opacity:0.75')||!str_contains($html,'title=&quot;Open the trading floor&quot;')){
+if(!str_contains($html,'gap:12px')||!str_contains($html,'#fff')||!str_contains($html,'market.png')||!str_contains($html,'--jx-background-opacity:0.75')||!str_contains($html,'title="Open the trading floor"')){
     fwrite(STDERR,"FAIL browser control shadow: {$html}\n");exit(1);
 }
 
