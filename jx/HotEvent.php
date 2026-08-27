@@ -100,6 +100,46 @@ final class HotDelivery
     }
 }
 
+/** Compile-time defaults for common input/control event families. */
+final class HotInputPolicy
+{
+    /** @var array<string,string> */
+    private const DEFAULTS = [
+        'pointer-move' => HotDelivery::LATEST,
+        'pointer-enter' => HotDelivery::ONCE,
+        'pointer-leave' => HotDelivery::ONCE,
+        'drag-move' => HotDelivery::LATEST,
+        'resize' => HotDelivery::LATEST,
+        'slider-move' => HotDelivery::LATEST,
+        'slider-change' => HotDelivery::LATEST,
+        'hover' => HotDelivery::LATEST,
+        'wheel' => HotDelivery::ACCUMULATE,
+        'scroll' => HotDelivery::ACCUMULATE,
+        'device-orientation' => HotDelivery::LATEST,
+        'click' => HotDelivery::COUNT,
+        'double-click' => HotDelivery::COUNT,
+        'button-down' => HotDelivery::QUEUE,
+        'button-up' => HotDelivery::QUEUE,
+        'key-down' => HotDelivery::QUEUE,
+        'key-up' => HotDelivery::QUEUE,
+        'submit' => HotDelivery::QUEUE,
+        'toggle' => HotDelivery::QUEUE,
+        'select' => HotDelivery::QUEUE,
+        'close' => HotDelivery::QUEUE,
+        'commit' => HotDelivery::QUEUE,
+    ];
+
+    public static function forEvent(string $event, ?string $override = null): string
+    {
+        if ($override !== null) return HotDelivery::normalize($override);
+        $event = strtolower(trim($event));
+        return self::DEFAULTS[$event] ?? HotDelivery::QUEUE;
+    }
+
+    /** @return array<string,string> */
+    public static function defaults(): array { return self::DEFAULTS; }
+}
+
 /**
  * Compiler-facing hot reaction descriptor. It joins a canonical target name to
  * an awake address and a compile-time delivery policy.
