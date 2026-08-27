@@ -9,6 +9,9 @@ use jx\DesktopLaunch;
 return Desktop::windowManager('main', [
     'background' => '#20242b',
     'workspaces' => 1,
+    'taskbar' => true,
+    'taskbar_height' => 34,
+    'window_bag' => 'desktop-windows',
 ])
     ->icon(new DesktopIcon('terminal', 'Terminal', '/icons/terminal.png', new DesktopLaunch('xterm'), 28, 28))
     ->icon(new DesktopIcon('files', 'Files', '/icons/files.png', new DesktopLaunch('thunar'), 28, 132))
