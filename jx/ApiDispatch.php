@@ -33,13 +33,18 @@ final class ApiTransport
     public const NATIVE = 'native';       // native library or OS service thunk
     public const UNIX = 'unix';           // local AF_UNIX datagram/stream adapter
     public const UDP = 'udp';             // explicit datagram boundary
-    public const HTTP = 'http';           // HTTP/HTTPS adapter
+    public const HTTP = 'http';           // clear HTTP adapter; no TLS implied
+    public const HTTPS = 'https';         // TLS required; verify peer and hostname
+    public const SSH = 'ssh';             // OpenSSH-style authenticated session adapter
     public const DEVICE = 'device';       // host/device adapter
 
     /** @return list<string> */
     public static function values(): array
     {
-        return [self::DIRECT,self::NATIVE,self::UNIX,self::UDP,self::HTTP,self::DEVICE];
+        return [
+            self::DIRECT,self::NATIVE,self::UNIX,self::UDP,
+            self::HTTP,self::HTTPS,self::SSH,self::DEVICE,
+        ];
     }
 
     public static function normalize(string $transport): string
@@ -49,6 +54,12 @@ final class ApiTransport
             throw new JxException('Unsupported API transport', 'api-dispatch', true, ['transport'=>$transport]);
         }
         return $transport;
+    }
+
+    public static function isSecureRemote(string $transport): bool
+    {
+        $transport = self::normalize($transport);
+        return $transport === self::HTTPS || $transport === self::SSH;
     }
 }
 
@@ -78,6 +89,10 @@ final readonly class ApiEndpoint
         }
         if ($capability !== null && (trim($capability) === '' || strlen($capability) > 256 || str_contains($capability, "\0"))) {
             throw new JxException('Invalid API capability', 'api-dispatch', true);
+        }
+        if ($transport === ApiTransport::SSH && $capability !== null && $capability === 'network.ssh') {
+            throw new JxException('SSH capability must be operation-scoped, not generic network.ssh', 'api-dispatch', true,
+                ['capability'=>$capability]);
         }
     }
 
