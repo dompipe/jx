@@ -4,3 +4,4 @@ while ($i) {
     $sum = $sum + $i;
     $i--;
 }
+$result = $sum;
