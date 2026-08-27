@@ -13,7 +13,8 @@ use RuntimeException;
  *   ITERR <u8-slot>  => 0x1A slot
  *
  * The slot is the only integer operand carried by each iteration call.
- * Rich iterator state is prelinked once in PASMIteratorTable.
+ * Rich iterator state, including destination registers, is prelinked once in
+ * PASMIteratorTable.
  */
 final class PASMIterBC
 {
@@ -59,15 +60,17 @@ final class PASMIterBC
 
 /**
  * Prelinked iterator descriptor. This state is NOT repeated in bytecode.
- * A native backend can keep cursor/end/value destination register-resident.
+ * A native backend can keep cursor/end/value/key destinations register-resident.
  */
 final class PASMIteratorDescriptor
 {
     public int $cursor;
     public bool $started = false;
+    public ?int $valueRegister = null;
+    public ?int $keyRegister = null;
 
     /**
-     * @param callable(int):mixed $read  Read logical element index.
+     * @param callable(int):mixed $read Read logical element index.
      * @param null|callable(int):mixed $readKey Optional key/index producer.
      */
     public function __construct(
@@ -79,6 +82,19 @@ final class PASMIteratorDescriptor
         if ($slot < 0 || $slot > 255) throw new InvalidArgumentException('iterator slot 0..255');
         if ($count < 0) throw new InvalidArgumentException('iterator count cannot be negative');
         $this->cursor = 0;
+    }
+
+    /** Prelink the registers that ITERF/ITERR write when an item is valid. */
+    public function targets(?int $valueRegister, ?int $keyRegister = null): self
+    {
+        foreach (['value'=>$valueRegister, 'key'=>$keyRegister] as $name=>$reg) {
+            if ($reg !== null && ($reg < 0 || $reg > 7)) {
+                throw new InvalidArgumentException("{$name} iterator register must be 0..7");
+            }
+        }
+        $this->valueRegister = $valueRegister;
+        $this->keyRegister = $keyRegister;
+        return $this;
     }
 
     public function resetForward(): void
@@ -104,9 +120,7 @@ final class PASMIteratorResult
     ) {}
 }
 
-/**
- * 256-entry prelinked iterator lookup. The hot operation receives only slot id.
- */
+/** 256-entry prelinked iterator lookup. The hot operation receives only slot id. */
 final class PASMIteratorTable
 {
     /** @var array<int,PASMIteratorDescriptor> */
