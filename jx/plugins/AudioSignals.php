@@ -31,7 +31,7 @@ final class AudioSignalBinding implements JsonSerializable
         $this->media=self::name($this->media,'media');
         $this->bag=self::name($this->bag,'Bag');
         $this->at=self::node($this->at);
-        $this->with=self::options($this->mode,$with);
+        $this->with=self::normalizeOptions($this->mode,$with);
         $this->id=substr(hash('sha256',"audio-signal-v1\0".serialize([$this->mode,$this->media,$this->bag,$this->at,$this->with])),0,24);
     }
 
@@ -60,7 +60,7 @@ final class AudioSignalBinding implements JsonSerializable
         };
     }
 
-    private static function options(string $mode,array $with):array
+    private static function normalizeOptions(string $mode,array $with):array
     {
         $with=Boundary::import($with);
         foreach($with as $key=>$value) if(preg_match('/secret|password|token/i',(string)$key)) throw new JxException('Secrets cannot be stored in audio signal options','plugin.audio-signals',true,['key'=>$key]);
