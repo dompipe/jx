@@ -32,7 +32,6 @@ final class PASMLoopFuser
             $stepLines = array_slice($lines, $start + 1, $end - $start - 1);
             if ($stepLines === []) continue;
 
-            // Step blocks must have a single fixed continuation to be fusible.
             $lastIndex = count($stepLines) - 1;
             while ($lastIndex >= 0 && trim($stepLines[$lastIndex]) === '') $lastIndex--;
             if ($lastIndex < 0) continue;
@@ -44,7 +43,6 @@ final class PASMLoopFuser
             if (!isset($blocks[$bodyLabel])) continue;
             [$bodyStart, $bodyEnd] = $blocks[$bodyLabel];
 
-            // Body must flow to this step block on its ordinary path.
             $bodyJump = null;
             for ($i = $bodyEnd - 1; $i > $bodyStart; $i--) {
                 if (trim($lines[$i]) === '') continue;
@@ -57,7 +55,6 @@ final class PASMLoopFuser
 
             $fusedStep = $label . '__fused';
 
-            // Rewrite every continue/flow jump to the old step symbol.
             foreach ($lines as &$line) {
                 $line = preg_replace(
                     '/(\bJMP\s+)' . preg_quote($label, '/') . '\b/i',
@@ -67,20 +64,17 @@ final class PASMLoopFuser
             }
             unset($line);
 
-            // Replace the body's ordinary transfer with the fused step payload.
             $replacement = [$fusedStep . ':'];
             foreach ($payload as $p) $replacement[] = $p;
             $replacement[] = '        JMP   ' . $continuation;
             array_splice($lines, $bodyJump, 1, $replacement);
 
-            // Re-index after the splice and remove the now-dead external step block.
             $blocks = self::indexBlocks($lines);
             if (isset($blocks[$label])) {
                 [$deadStart, $deadEnd] = $blocks[$label];
                 array_splice($lines, $deadStart, $deadEnd - $deadStart);
             }
 
-            // Restart because line indexes changed.
             return self::fuse(implode("\n", $lines));
         }
 
@@ -106,12 +100,12 @@ final class PASMLoopFuser
     }
 }
 
-/**
- * Active compiler facade: raw bounded-loop lowering followed by block fusion.
- */
+/** Active compiler facade: surface canonicalization -> bounded loops -> fusion. */
 final class PASMFusedCompiler
 {
     private Compiler $raw;
+    private bool $optimize;
+    private bool $verbose;
 
     public function __construct(
         bool $optimize = true,
@@ -123,11 +117,9 @@ final class PASMFusedCompiler
         $this->verbose = $verbose;
     }
 
-    private bool $optimize;
-    private bool $verbose;
-
     public function compile(string $source): string
     {
+        $source = PASLSurfaceLoops::lower($source);
         $asm = $this->raw->compile($source);
         if ($this->optimize) $asm = PASMLoopFuser::fuse($asm);
         if ($this->verbose) fwrite(STDERR, $asm . "\n");
