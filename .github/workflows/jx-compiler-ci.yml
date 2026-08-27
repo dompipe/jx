@@ -29,6 +29,7 @@ jobs:
           php -l jx-bag-containers.php
           php -l benchmark-loop-active.php
           php -l benchmark-loop-legacy.php
+          php -l benchmark-register-command.php
       - name: Loop-space model
         run: php test-pasm-loop-space.php
       - name: Compiled loop emission
@@ -45,6 +46,8 @@ jobs:
         run: php test-pasm-bag-hotops.php
       - name: Bag-backed containers
         run: php test-jx-bag-containers.php
+      - name: Packed register command benchmark
+        run: php benchmark-register-command.php 200000 9
       - name: Legacy inline loop benchmark
         run: php benchmark-loop-legacy.php 10000 9
       - name: Active fused loop benchmark
