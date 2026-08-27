@@ -120,6 +120,15 @@ static int safe_field(const char *s) {
     return s && !strchr(s, '|') && !strchr(s, '\n') && !strchr(s, '\r');
 }
 
+static void copy_field_or_die(char *dst, size_t capacity, const char *src, const char *what) {
+    size_t n = strlen(src);
+    if (n >= capacity) {
+        fprintf(stderr, "jx11: %s exceeds %zu bytes\n", what, capacity - 1u);
+        exit(2);
+    }
+    memcpy(dst, src, n + 1u);
+}
+
 static void load_desktop(const char *path) {
     FILE *fp = fopen(path, "r");
     if (!fp) { perror("jx11 desktop"); exit(2); }
@@ -136,7 +145,7 @@ static void load_desktop(const char *path) {
             continue;
         }
         if (!strncmp(line, "wallpaper=", 10)) {
-            snprintf(wallpaper_path, sizeof wallpaper_path, "%s", line + 10);
+            copy_field_or_die(wallpaper_path, sizeof wallpaper_path, line + 10, "wallpaper path");
             continue;
         }
         if (!strncmp(line, "taskbar=", 8)) {
@@ -150,7 +159,7 @@ static void load_desktop(const char *path) {
             continue;
         }
         if (!strncmp(line, "window-bag=", 11)) {
-            snprintf(window_bag, sizeof window_bag, "%s", line + 11);
+            copy_field_or_die(window_bag, sizeof window_bag, line + 11, "window Bag name");
             continue;
         }
         if (!strncmp(line, "icon=", 5)) {
@@ -169,10 +178,10 @@ static void load_desktop(const char *path) {
             jx11_icon *ic = &icons[icon_count];
             memset(ic, 0, sizeof *ic);
             ic->in_use = 1;
-            snprintf(ic->id, sizeof ic->id, "%s", parts[0]);
-            snprintf(ic->label, sizeof ic->label, "%s", parts[1]);
-            snprintf(ic->image_path, sizeof ic->image_path, "%s", parts[2]);
-            snprintf(ic->program, sizeof ic->program, "%s", parts[3]);
+            copy_field_or_die(ic->id, sizeof ic->id, parts[0], "icon id");
+            copy_field_or_die(ic->label, sizeof ic->label, parts[1], "icon label");
+            copy_field_or_die(ic->image_path, sizeof ic->image_path, parts[2], "icon image path");
+            copy_field_or_die(ic->program, sizeof ic->program, parts[3], "icon program");
             ic->x = atoi(parts[4]); ic->y = atoi(parts[5]);
             ++icon_count;
             continue;
@@ -434,8 +443,8 @@ static void create_icons(void) {
         jx11_icon *ic = &icons[i];
         if (ic->image_path[0]) ic->image = load_png_once(ic->image_path, 0);
         ic->window = xcb_generate_id(conn);
-        uint32_t values[] = { background_pixel,
-            XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE, 1 };
+        uint32_t values[] = { background_pixel, 1,
+            XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE };
         xcb_create_window(conn, XCB_COPY_FROM_PARENT, ic->window, root,
             (int16_t)ic->x, (int16_t)ic->y, ICON_W, ICON_H, 0,
             XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual,
@@ -488,8 +497,8 @@ static void draw_taskbar(void) {
 static void create_taskbar(void) {
     if (!taskbar_enabled) return;
     taskbar_window = xcb_generate_id(conn);
-    uint32_t values[] = { 0x101217,
-        XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_STRUCTURE_NOTIFY, 1 };
+    uint32_t values[] = { 0x101217, 1,
+        XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_STRUCTURE_NOTIFY };
     xcb_create_window(conn, XCB_COPY_FROM_PARENT, taskbar_window, root,
         0, (int16_t)(screen->height_in_pixels - taskbar_height),
         screen->width_in_pixels, (uint16_t)taskbar_height, 0,
