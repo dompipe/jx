@@ -3,16 +3,17 @@
 /**
  * JX11 -> canonical JX window Bag bridge.
  *
- * Listens on a Unix datagram socket. The native jx11 process never waits for
- * this service; datagrams are observational/checkpoint traffic only.
+ * JX11E/1 compact packet:
+ * version|event|host_id|wreg|wref|x|y|w|h|focus|mapped|workspace|title_hex|class_hex
  *
- * Usage:
- *   php host/linux/jx11-event-bridge.php /tmp/jx11-events.sock
+ * wreg is the startup-resolved WindowBag register (0..255).
+ * wref is the packed uint16 [slot:shadow] identity.
  */
 require_once dirname(__DIR__, 2) . '/jx/bootstrap.php';
 
 use jx\Bag;
 use jx\DesktopHostBridge;
+use jx\DesktopWindowRegister;
 
 $path = $argv[1] ?? '/tmp/jx11-events.sock';
 if ($path === '' || strlen($path) > 100 || str_contains($path, "\0")) {
@@ -30,6 +31,8 @@ if ($socket === false || !socket_bind($socket, $path)) {
 
 $bag = Bag::empty(1_048_576);
 $bridge = new DesktopHostBridge($bag, 'windows');
+$registers = new DesktopWindowRegister();
+$registers->intern('windows'); // W0 for the first JX11 desktop bridge.
 
 function jx11e_decode_hex(string $hex, int $maxBytes): string
 {
@@ -47,7 +50,7 @@ function jx11e_parse(string $packet): array
 {
     if (strlen($packet) > 8192 || str_contains($packet, "\0")) throw new RuntimeException('packet too large');
     $p = explode('|', trim($packet));
-    if (count($p) !== 12 || $p[0] !== 'JX11E/1') throw new RuntimeException('unsupported packet');
+    if (count($p) !== 14 || $p[0] !== 'JX11E/1') throw new RuntimeException('unsupported packet');
 
     $event = $p[1];
     if (!in_array($event, ['window-open','window-update','window-focus','window-close','window-unmap'], true)) {
@@ -55,24 +58,31 @@ function jx11e_parse(string $packet): array
     }
     if (!preg_match('/^x11:[0-9a-f]{1,8}$/i', $p[2])) throw new RuntimeException('invalid host id');
 
+    $wreg = (int)$p[3];
+    $wref = (int)$p[4];
+    if ($wreg < 0 || $wreg > 255) throw new RuntimeException('invalid WindowBag register');
+    DesktopWindowRegister::unpack($wref); // validates uint16 range.
+
     return [
         'event' => $event,
+        'window_register' => $wreg,
         'window' => [
             'host_id' => strtolower($p[2]),
-            'x' => (int)$p[3],
-            'y' => (int)$p[4],
-            'width' => max(0, (int)$p[5]),
-            'height' => max(0, (int)$p[6]),
-            'focused' => $p[7] === '1',
-            'mapped' => $p[8] === '1',
-            'workspace' => max(0, (int)$p[9]),
-            'title' => jx11e_decode_hex($p[10], 1024),
-            'class' => jx11e_decode_hex($p[11], 256),
+            'window_ref' => $wref,
+            'x' => (int)$p[5],
+            'y' => (int)$p[6],
+            'width' => max(0, (int)$p[7]),
+            'height' => max(0, (int)$p[8]),
+            'focused' => $p[9] === '1',
+            'mapped' => $p[10] === '1',
+            'workspace' => max(0, (int)$p[11]),
+            'title' => jx11e_decode_hex($p[12], 1024),
+            'class' => jx11e_decode_hex($p[13], 256),
         ],
     ];
 }
 
-fwrite(STDERR, "jx11-event-bridge: listening {$path}\n");
+fwrite(STDERR, "jx11-event-bridge: listening {$path} W0=windows\n");
 register_shutdown_function(static function () use ($socket, $path): void {
     if ($socket !== false) @socket_close($socket);
     @unlink($path);
@@ -86,9 +96,8 @@ for (;;) {
     try {
         $event = jx11e_parse($packet);
         $bridge->apply($event);
-        // This service is deliberately data-shaped. stdout is a checkpoint
-        // stream suitable for tests, supervisors, or a later shared Bag host.
         echo json_encode([
+            'window_register' => $event['window_register'],
             'bag' => 'windows',
             'event' => $event['event'],
             'rows' => $bridge->rows(),
