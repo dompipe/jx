@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #define JX11_EWMH_MAX_CLIENTS 256u
+#define JX11_EWMH_STICKY_DESKTOP 0xffffffffu
 
 typedef struct {
     xcb_atom_t net_supported;
@@ -37,7 +38,10 @@ void jx11_ewmh_publish_supported(xcb_connection_t *conn, xcb_window_t root, cons
 void jx11_ewmh_publish_clients(xcb_connection_t *conn, xcb_window_t root, const jx11_ewmh_atoms *atoms, const jx11_ewmh_clients *clients);
 void jx11_ewmh_publish_active(xcb_connection_t *conn, xcb_window_t root, const jx11_ewmh_atoms *atoms, xcb_window_t active);
 void jx11_ewmh_publish_desktops(xcb_connection_t *conn, xcb_window_t root, const jx11_ewmh_atoms *atoms, uint32_t count, uint32_t current);
+void jx11_ewmh_publish_current_desktop(xcb_connection_t *conn, xcb_window_t root, const jx11_ewmh_atoms *atoms, uint32_t current);
 void jx11_ewmh_publish_workarea(xcb_connection_t *conn, xcb_window_t root, const jx11_ewmh_atoms *atoms, uint32_t x, uint32_t y, uint32_t width, uint32_t height);
+uint32_t jx11_ewmh_read_window_desktop(xcb_connection_t *conn, xcb_window_t window, const jx11_ewmh_atoms *atoms, uint32_t fallback);
+void jx11_ewmh_publish_window_desktop(xcb_connection_t *conn, xcb_window_t window, const jx11_ewmh_atoms *atoms, uint32_t desktop);
 int jx11_ewmh_supports_delete(xcb_connection_t *conn, xcb_window_t window, const jx11_ewmh_atoms *atoms);
 void jx11_ewmh_request_close(xcb_connection_t *conn, xcb_window_t window, const jx11_ewmh_atoms *atoms, int supports_delete);
 
