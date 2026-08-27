@@ -33,7 +33,8 @@ if ((int)(new Engine(true, false))->runSource($loop) !== 10) {
     throw new RuntimeException('while < comparator failed');
 }
 
-$for = '$sum=0; for($i=0; $i <= 4; $i++){ $sum += $i; }';
+// Allocate $i first so $sum remains the compiler-selected result register.
+$for = '$i=0; $sum=0; for($i=0; $i <= 4; $i++){ $sum += $i; }';
 if ((int)(new Engine(true, false))->runSource($for) !== 10) {
     throw new RuntimeException('for <= comparator failed');
 }
