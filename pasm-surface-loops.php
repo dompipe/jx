@@ -41,7 +41,8 @@ final class PASLSurfaceLoops
                 $id = $this->seq++;
                 $gate = '__jx_do_' . $id;
                 $loweredBody = $this->lowerBlock($body);
-                $out .= "for (\${$gate}=1; \${$gate}!=0; \${$gate}=({$cond})) {\n{$loweredBody}\n}\n";
+                $gateExpr = $this->truthValueExpr($cond);
+                $out .= "for (\${$gate}=1; \${$gate}!=0; \${$gate}=({$gateExpr})) {\n{$loweredBody}\n}\n";
                 $i = $afterCond;
                 continue;
             }
@@ -59,7 +60,6 @@ final class PASLSurfaceLoops
                 continue;
             }
 
-            // Preserve strings verbatim so keywords inside them are never lowered.
             if ($src[$i] === '"' || $src[$i] === "'") {
                 $q = $src[$i];
                 $start = $i++;
@@ -76,6 +76,27 @@ final class PASLSurfaceLoops
         }
 
         return $out;
+    }
+
+    /**
+     * Convert a surface truth condition into an integer-valued expression that
+     * the current scalar assignment lowering can compile in a for-step.
+     *
+     * `a != b` is naturally `(a-b)`: zero means false, nonzero means true.
+     * Plain integer expressions already obey the same truth convention.
+     * Equality and ordered comparisons need boolean materialization in the core
+     * expression compiler and therefore fail explicitly rather than accidentally.
+     */
+    private function truthValueExpr(string $cond): string
+    {
+        $cond = trim($cond);
+        if (preg_match('/^(.+?)\s*!=\s*(.+)$/s', $cond, $m)) {
+            return '(' . trim($m[1]) . ')-(' . trim($m[2]) . ')';
+        }
+        if (preg_match('/(^|[^!])==|<=|>=|(?<![<>=])<(?![<])|(?<![<>=])>(?![>])/s', $cond)) {
+            throw new LangException('do-while equality/ordered comparison awaits boolean materialization; use != or an integer truth expression', 'parse');
+        }
+        return $cond;
     }
 
     /** @return array{0:string,1:int} body, offset-after-body */
