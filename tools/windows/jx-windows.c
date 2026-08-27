@@ -14,7 +14,7 @@
 
 static void die(const char *message)
 {
-    fprintf(stderr, "jx: %s\n", message);
+    fprintf(stderr, "jx.exe: %s\n", message);
     exit(1);
 }
 
@@ -27,9 +27,7 @@ static bool is_file(const char *path)
 static char *dupstr(const char *value)
 {
     char *out = _strdup(value);
-    if (out == NULL) {
-        die("out of memory");
-    }
+    if (out == NULL) die("out of memory");
     return out;
 }
 
@@ -37,9 +35,7 @@ static char *join2(const char *a, const char *b)
 {
     size_t n = strlen(a) + strlen(b) + 2;
     char *out = (char *)calloc(n, 1);
-    if (out == NULL) {
-        die("out of memory");
-    }
+    if (out == NULL) die("out of memory");
     snprintf(out, n, "%s\\%s", a, b);
     return out;
 }
@@ -49,25 +45,17 @@ static char *dir_name(const char *path)
     char *copy = dupstr(path);
     char *slash = strrchr(copy, '\\');
     char *alt = strrchr(copy, '/');
-    if (alt != NULL && (slash == NULL || alt > slash)) {
-        slash = alt;
-    }
-    if (slash == NULL) {
-        strcpy(copy, ".");
-    } else if (slash == copy) {
-        slash[1] = '\0';
-    } else {
-        *slash = '\0';
-    }
+    if (alt != NULL && (slash == NULL || alt > slash)) slash = alt;
+    if (slash == NULL) strcpy(copy, ".");
+    else if (slash == copy) slash[1] = '\0';
+    else *slash = '\0';
     return copy;
 }
 
 static char *real_or_dup(const char *path)
 {
     char full[MAX_PATH];
-    if (_fullpath(full, path, MAX_PATH) != NULL) {
-        return dupstr(full);
-    }
+    if (_fullpath(full, path, MAX_PATH) != NULL) return dupstr(full);
     return dupstr(path);
 }
 
@@ -85,13 +73,8 @@ static char *find_root(const char *argv0)
 {
     char env[32767];
     DWORD env_len = GetEnvironmentVariableA("JX_ROOT", env, sizeof(env));
-    if (env_len > 0 && env_len < sizeof(env) && valid_root(env)) {
-        return real_or_dup(env);
-    }
-
-    if (JX_ROOT_COMPILED[0] != '\0' && valid_root(JX_ROOT_COMPILED)) {
-        return real_or_dup(JX_ROOT_COMPILED);
-    }
+    if (env_len > 0 && env_len < sizeof(env) && valid_root(env)) return real_or_dup(env);
+    if (JX_ROOT_COMPILED[0] != '\0' && valid_root(JX_ROOT_COMPILED)) return real_or_dup(JX_ROOT_COMPILED);
 
     char exe[MAX_PATH];
     DWORD got = GetModuleFileNameA(NULL, exe, sizeof(exe));
@@ -122,33 +105,37 @@ static char *find_root(const char *argv0)
 static void exec_php(int argc, char **argv, const char *script)
 {
     char **args = (char **)calloc((size_t)argc + 4, sizeof(char *));
-    if (args == NULL) {
-        die("out of memory");
-    }
+    if (args == NULL) die("out of memory");
 
     args[0] = "php";
     args[1] = (char *)script;
-    for (int i = 0; i < argc; i++) {
-        args[i + 2] = argv[i];
-    }
+    for (int i = 0; i < argc; i++) args[i + 2] = argv[i];
     args[argc + 2] = NULL;
 
     _execvp("php", (const char * const *)args);
-    fprintf(stderr, "jx: failed to exec php: %s\n", strerror(errno));
+    fprintf(stderr, "jx.exe: failed to exec php: %s\n", strerror(errno));
     exit(1);
 }
 
 static void usage(void)
 {
-    puts("jx Windows native launcher");
+    puts("jx.exe - JX compiler / runtime");
     puts("");
-    puts("Usage:");
-    puts("  jx.exe [jx-run args...]");
+    puts("Compile / run:");
+    puts("  jx.exe [-O0|-O1] [-o out.pbc] [--report[=compact|verbose|json]|--quiet] file.jx");
+    puts("  jx.exe --print file.jx");
+    puts("  jx.exe -c \"$a = 1; $result = $a * 2;\"");
+    puts("");
+    puts("Hosts:");
     puts("  jx.exe window-server <start|stop|status|open> [...]");
     puts("  jx.exe xi <host:port> <start|stop|status> [config.json] [--foreground]");
     puts("  jx.exe book open [book] [host:port]");
     puts("");
+    puts("Bytecode page output:");
+    puts("  jx.exe PAGE 001  OK  42B  O1  deps:0  regs:0  iter:0  target:PASM");
+    puts("");
     puts("Examples:");
+    puts("  jx.exe -O1 -o app.pbc --report=verbose app.jx");
     puts("  jx.exe --print examples\\hello.jx");
     puts("  jx.exe window-server status localhost:8766");
     puts("  jx.exe xi localhost:8766 status");
@@ -164,10 +151,7 @@ int main(int argc, char **argv)
 
     if (argc <= 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
         usage();
-        free(root);
-        free(jx_run);
-        free(window_server);
-        free(xi);
+        free(root); free(jx_run); free(window_server); free(xi);
         return 0;
     }
 
@@ -182,16 +166,9 @@ int main(int argc, char **argv)
     if (strcmp(argv[1], "book") == 0 && argc >= 3 && strcmp(argv[2], "open") == 0) {
         const char *book = argc >= 4 ? argv[3] : "cover";
         const char *hostport = argc >= 5 ? argv[4] : "localhost:8766";
-        printf("jx: opening Book %s at http://%s/?book=%s\n", book, hostport, book);
+        printf("jx.exe: opening Book %s at http://%s/?book=%s\n", book, hostport, book);
         fflush(stdout);
-
-        char *args[] = {
-            "open",
-            (char *)book,
-            (char *)hostport,
-            "--native",
-            NULL
-        };
+        char *args[] = {"open", (char *)book, (char *)hostport, "--native", NULL};
         exec_php(4, args, window_server);
     }
 
