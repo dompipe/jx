@@ -1,7 +1,7 @@
 /* JX11 X11 desktop host: jx.desktop/1
  *
  * Build (Debian/Ubuntu):
- *   cc -O2 -Wall -Wextra -o jx11 jx11.c $(pkg-config --cflags --libs xcb cairo-xcb)
+ *   cc -O2 -Wall -Wextra -o jx11 jx11.c jx11-register.c jx11-shadow.c jx11-window-hot.c $(pkg-config --cflags --libs xcb cairo-xcb)
  * Run:
  *   ./jx11 --desktop desktop.jx11
  *
@@ -18,6 +18,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include "jx11-window-hot.h"
 
 #define MAX_ICONS 256
 #define MAX_WINDOWS 256
@@ -48,6 +49,8 @@ typedef struct {
     char title[MAX_TITLE + 1];
     int16_t x, y;
     uint16_t width, height;
+    jx11_window_hot hot;
+    uint8_t dirty_shadows;
     int mapped;
     int in_use;
 } jx11_window;
@@ -74,6 +77,8 @@ static uint32_t focused = XCB_NONE;
 static uint32_t background_pixel = 0x181a1f;
 static char wallpaper_path[2049] = {0};
 static char window_bag[129] = {0};
+static jx11_register_t window_register = 0;
+static int window_register_ready = 0;
 static int taskbar_enabled = 1;
 static int taskbar_height = 34;
 static jx11_icon icons[MAX_ICONS];
@@ -297,6 +302,14 @@ static int window_slot_by_xid(xcb_window_t win) { return xid_index_get(win, 2); 
 static int icon_slot_by_xid(xcb_window_t win) { return xid_index_get(win, 1); }
 static void invalidate(unsigned flags) { dirty_flags |= flags; }
 
+static void dispatch_window_event(int slot, uint8_t event_kind) {
+    if (slot < 0 || slot >= MAX_WINDOWS || !windows[slot].in_use) return;
+    jx11_window *mw = &windows[slot];
+    uint8_t mask = jx11_shadow_mask_for_event(event_kind);
+    mw->dirty_shadows |= mask;
+    if (jx11_shadow_mask_has(mask, JX11_SHADOW_TASKBAR)) invalidate(DIRTY_TASKBAR);
+}
+
 static void paint_background(void) {
     uint32_t values[] = { background_pixel };
     xcb_change_window_attributes(conn, root, XCB_CW_BACK_PIXEL, values);
@@ -326,7 +339,7 @@ static void read_title(int slot) {
         mw->title[n] = '\0';
     }
     free(rp);
-    if (strcmp(previous, mw->title) != 0) invalidate(DIRTY_TASKBAR);
+    if (strcmp(previous, mw->title) != 0) dispatch_window_event(slot, JX11_EVENT_TITLE);
 }
 
 static void read_geometry(int slot) {
@@ -334,8 +347,10 @@ static void read_geometry(int slot) {
     jx11_window *mw = &windows[slot];
     xcb_get_geometry_reply_t *g = xcb_get_geometry_reply(conn, xcb_get_geometry(conn, mw->window), NULL);
     if (!g) return;
+    int changed = mw->x != g->x || mw->y != g->y || mw->width != g->width || mw->height != g->height;
     mw->x = g->x; mw->y = g->y; mw->width = g->width; mw->height = g->height;
     free(g);
+    if (changed) dispatch_window_event(slot, JX11_EVENT_GEOMETRY);
 }
 
 static int allocate_window_slot(void) {
@@ -351,31 +366,33 @@ static void add_managed(xcb_window_t win) {
     jx11_window *mw = &windows[slot];
     memset(mw, 0, sizeof *mw);
     mw->window = win; mw->mapped = 1; mw->in_use = 1;
+    mw->hot = jx11_window_hot_make(window_register_ready ? window_register : 0u, (uint8_t)slot);
     snprintf(mw->title, sizeof mw->title, "0x%08x", win);
     xid_index_put(win, 2, (int16_t)slot);
     ++window_count;
     uint32_t ev = XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_STRUCTURE_NOTIFY | XCB_EVENT_MASK_FOCUS_CHANGE;
     xcb_change_window_attributes(conn, win, XCB_CW_EVENT_MASK, &ev);
     read_geometry(slot); read_title(slot);
-    invalidate(DIRTY_TASKBAR);
+    dispatch_window_event(slot, JX11_EVENT_STATE_OPEN);
 }
 
 static void remove_managed(xcb_window_t win) {
     int slot = window_slot_by_xid(win);
     if (slot < 0) return;
+    dispatch_window_event(slot, JX11_EVENT_STATE_CLOSE);
     memset(&windows[slot], 0, sizeof windows[slot]);
     if (window_count) --window_count;
     if (focused == win) focused = XCB_NONE;
     xid_index_rebuild();
-    invalidate(DIRTY_TASKBAR);
 }
 
 static void focus_window(xcb_window_t win) {
     if (win == XCB_NONE || win == root || win == taskbar_window) return;
-    if (window_slot_by_xid(win) < 0) return;
+    int slot = window_slot_by_xid(win);
+    if (slot < 0) return;
     if (focused != win) {
         focused = win;
-        invalidate(DIRTY_TASKBAR);
+        dispatch_window_event(slot, JX11_EVENT_FOCUS);
     }
     xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, win, XCB_CURRENT_TIME);
     uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
@@ -567,8 +584,10 @@ static void handle_event(xcb_generic_event_t *event) {
             xcb_configure_notify_event_t *e = (xcb_configure_notify_event_t *)event;
             int slot = window_slot_by_xid(e->window);
             if (slot >= 0) {
-                windows[slot].x=e->x; windows[slot].y=e->y;
-                windows[slot].width=e->width; windows[slot].height=e->height;
+                jx11_window *mw = &windows[slot];
+                int changed = mw->x != e->x || mw->y != e->y || mw->width != e->width || mw->height != e->height;
+                mw->x=e->x; mw->y=e->y; mw->width=e->width; mw->height=e->height;
+                if (changed) dispatch_window_event(slot, JX11_EVENT_GEOMETRY);
             }
             break;
         }
@@ -584,9 +603,10 @@ static void handle_event(xcb_generic_event_t *event) {
         }
         case XCB_FOCUS_IN: {
             xcb_focus_in_event_t *e = (xcb_focus_in_event_t *)event;
-            if (window_slot_by_xid(e->event) >= 0 && focused != e->event) {
+            int slot = window_slot_by_xid(e->event);
+            if (slot >= 0 && focused != e->event) {
                 focused = e->event;
-                invalidate(DIRTY_TASKBAR);
+                dispatch_window_event(slot, JX11_EVENT_FOCUS);
             }
             break;
         }
@@ -608,6 +628,12 @@ int main(int argc, char **argv) {
         }
     }
     if (desktop_path) load_desktop(desktop_path);
+
+    jx11_register_reset();
+    if (window_bag[0]) {
+        if (jx11_register_intern(window_bag, &window_register) != 0) die("cannot intern window Bag register");
+        window_register_ready = 1;
+    }
 
     int screen_no = 0;
     conn = xcb_connect(NULL, &screen_no);
@@ -651,9 +677,10 @@ int main(int argc, char **argv) {
         pid_t pid = launch_program(launch_now);
         if (pid > 0) fprintf(stderr, "jx11: launched %s pid=%ld\n", launch_now, (long)pid);
     }
-    fprintf(stderr, "jx11: desktop active %ux%u icons=%zu taskbar=%s window-bag=%s root=0x%08x\n",
+    fprintf(stderr, "jx11: desktop active %ux%u icons=%zu taskbar=%s window-bag=%s window-reg=%d root=0x%08x\n",
             screen->width_in_pixels, screen->height_in_pixels, icon_count,
-            taskbar_enabled ? "on" : "off", window_bag[0] ? window_bag : "-", root);
+            taskbar_enabled ? "on" : "off", window_bag[0] ? window_bag : "-",
+            window_register_ready ? (int)window_register : -1, root);
 
     for (;;) {
         xcb_generic_event_t *event = xcb_wait_for_event(conn);
@@ -672,6 +699,7 @@ int main(int argc, char **argv) {
     }
 
     destroy_assets();
+    jx11_register_reset();
     xcb_disconnect(conn);
     return 0;
 }
