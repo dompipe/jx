@@ -20,6 +20,7 @@ require_once __DIR__ . '/plugins/Charts.php';
 require_once __DIR__ . '/plugins/Media.php';
 require_once __DIR__ . '/plugins/AudioFx.php';
 require_once __DIR__ . '/plugins/AudioAnalysis.php';
+require_once __DIR__ . '/plugins/VideoAnalysis.php';
 
 $control = dirname(__DIR__) . '/pasl/xi/src/Control.php';
 if (is_file($control)) require_once $control;
