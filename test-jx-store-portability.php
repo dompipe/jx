@@ -47,7 +47,13 @@ if ($node !== '') {
 $cc = trim((string)shell_exec('command -v cc 2>/dev/null'));
 if ($cc !== '') {
     $exe = $build . '/jx-store-linux';
-    $compile = escapeshellarg($cc) . ' -O2 -no-pie -o ' . escapeshellarg($exe) . ' ' . escapeshellarg($build . '/store.c') . ' ' . escapeshellarg($build . '/store-linux.s') . ' 2>&1';
+    $compile = escapeshellarg($cc)
+        . ' -O2 -no-pie -I' . escapeshellarg(__DIR__ . '/host/common')
+        . ' -o ' . escapeshellarg($exe)
+        . ' ' . escapeshellarg($build . '/store.c')
+        . ' ' . escapeshellarg($build . '/store-linux.s')
+        . ' ' . escapeshellarg(__DIR__ . '/host/common/jx64-probe.c')
+        . ' 2>&1';
     $out = []; $code = 0; exec($compile, $out, $code);
     if ($code !== 0) throw new RuntimeException("Linux native store link failed: " . implode("\n", $out));
     foreach ($expected as $page => $value) {
@@ -55,6 +61,23 @@ if ($cc !== '') {
         $actual = trim(implode("\n", $out));
         $want = $page . '=' . $value;
         if ($code !== 0 || $actual !== $want) throw new RuntimeException("Linux {$page} mismatch {$actual} != {$want}");
+    }
+
+    if (class_exists(ZipArchive::class)) {
+        $package = $build . '/jx-store-test.64B';
+        $renamed = $build . '/jx-store-test.payload';
+        $pack = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($store . '/package-native.php')
+            . ' linux-elf ' . escapeshellarg($exe) . ' ' . escapeshellarg($package) . ' 2>&1';
+        $out = []; $code = 0; exec($pack, $out, $code);
+        if ($code !== 0 || !is_file($package)) throw new RuntimeException("Linux 64B package failed: " . implode("\n", $out));
+        if (!copy($package, $renamed)) throw new RuntimeException('Linux 64B rename fixture failed');
+        $out = []; $code = 0; exec(escapeshellarg($exe) . ' --probe ' . escapeshellarg($renamed) . ' 2>&1', $out, $code);
+        $actual = trim(implode("\n", $out));
+        if ($code !== 0 || !preg_match('/^JX64\/1\.0 sections=4$/', $actual)) {
+            throw new RuntimeException("Linux native renamed 64B probe failed: {$actual}");
+        }
+        @unlink($package);
+        @unlink($renamed);
     }
     @unlink($exe);
 }
@@ -68,4 +91,4 @@ foreach (array_keys($expected) as $page) {
     if (!str_contains($windowsAsm, '.globl ' . $symbol)) throw new RuntimeException("Windows symbol {$symbol} missing");
 }
 
-echo "PASS JX store 2 Books 6 pages same-source browser Linux-native Windows-COFF\n";
+echo "PASS JX store 2 Books 6 pages same-source browser Linux-native Windows-COFF native-64B\n";
