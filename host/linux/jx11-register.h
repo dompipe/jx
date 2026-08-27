@@ -43,4 +43,11 @@ static inline jx11_window_ref jx11_window_ref_make(uint8_t reg, uint8_t slot, ui
     return out;
 }
 
+/* Awake-state WindowBag register bank. Canonical names are touched only while
+ * interning/rebuilding; hot dispatch carries jx11_register_t + jx11_hotref_t. */
+void jx11_register_reset(void);
+int jx11_register_intern(const char *canonical_name, jx11_register_t *out);
+const char *jx11_register_name(jx11_register_t reg);
+uint16_t jx11_register_count(void);
+
 #endif
