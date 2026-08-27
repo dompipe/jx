@@ -1,0 +1,38 @@
+name: JX compiler CI
+
+on:
+  push:
+    branches: [bag-backed-containers]
+  pull_request:
+    branches: [main]
+
+jobs:
+  php-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: Lint compiler files
+        run: |
+          php -l pasm-loop-space.php
+          php -l pasm-lang-compiler-loop.php
+          php -l pasm-lang.php
+          php -l jx-alias.php
+          php -l pasm-bag-hotops.php
+          php -l jx-bag-containers.php
+      - name: Loop-space model
+        run: php test-pasm-loop-space.php
+      - name: Compiled loop emission
+        run: php test-pasm-loop-compiler.php
+      - name: Alias registry
+        run: php test-jx-alias.php
+      - name: JX language aliases
+        run: php test-jx-lang-alias.php
+      - name: Bag hot operations
+        run: php test-pasm-bag-hotops.php
+      - name: Bag-backed containers
+        run: php test-jx-bag-containers.php
