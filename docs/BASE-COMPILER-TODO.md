@@ -15,6 +15,36 @@ The canonical JX model must distinguish durable/observable semantic state from a
 - At required boundaries/checkpoints, dirty register state is synchronized back into canonical Bags.
 - On process exit/crash/restart, registers may disappear; canonical Bag state remains authoritative.
 
+## Native compiled-Book boundary
+
+Native JX must not require PHP source after compilation. PHP remains useful as an authoring/compiler host and as a web target, but the native distribution boundary is a deterministic compiled Book package.
+
+The default native package extension is `.64B`. The extension is descriptive only; package bytes are authoritative. A native launcher recognizes the mandatory `JX64/header.bin` entry and `JX64B001` magic even if the file is renamed.
+
+```text
+canonical JX / compiler input
+    -> semantic IR
+    -> target lowering
+    -> native code + compiled tables
+    -> deterministic .64B Book
+    -> native ELF/PE/runtime
+```
+
+The package carries enough compiled information to wake without reparsing the authoring language:
+
+```text
+JX64/header.bin
+JX64/manifest.json
+BOOK/...
+CODE/...
+HOT/registers.bin
+HOT/reactions.bin
+BAG/...
+ASSET/...
+```
+
+Every compiled section has a SHA-256. The manifest records a canonical content SHA-256, while the final deterministic archive also receives a whole-file SHA-256 for exact distribution identity. See `docs/NATIVE-64B.md`.
+
 ## Universal hot-event address
 
 The WindowBag proof generalized into the base JX reactive address:
@@ -90,6 +120,11 @@ W0:[17:3] -> 0x001103
 - [x] Define universal 24-bit `W:slot:shadow` hot addresses in PHP and native C.
 - [x] Define cross-host binary hot-event datagram framing.
 - [x] Define compile-time delivery policies and defaults for common input families.
+- [x] Define deterministic native `.64B` compiled-Book packaging with internal magic and checksums.
+- [x] Make native package recognition independent of filename extension.
+- [x] Prove Linux ELF can compile, package, rename and natively recognize a `.64B` Book.
+- [ ] Prove the same full native `.64B` path for Windows PE in CI.
+- [ ] Replace placeholder HOT tables in example `.64B` packages with compiler-emitted register/reaction tables.
 - [ ] Add register classes/namespaces so host-specific caches such as `W0` do not collide with arithmetic/value registers.
 - [ ] Add compiler-IR assignment of canonical Bag/target -> register identity.
 - [ ] Add compiler-IR assignment of object/member/window/control -> slot identity.
@@ -116,15 +151,19 @@ canonical JX
     -> dependency analysis
     -> register + slot + shadow + delivery allocation
     -> prelinked execution shadow
+    -> native target code + compiled tables
+    -> deterministic .64B compiled Book
     -> native awake-state register cache
     -> nonblocking hot datagrams / direct in-process dispatch
     -> dirty/checkpoint synchronization
     -> canonical Bag output/state
 ```
 
-## Non-negotiable invariant
+## Non-negotiable invariants
 
 > Canonical richness must not require runtime richness.
+
+> Native installation consumes compiled Books, not PHP source.
 
 Anything knowable at compile/startup time should be removed from the interactive hot path when observable behavior can remain identical.
 
