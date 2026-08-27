@@ -20,6 +20,7 @@ jobs:
         run: |
           php -l pasm-loop-space.php
           php -l pasm-lang-compiler-loop.php
+          php -l pasm-loop-fuser.php
           php -l pasm-lang.php
           php -l jx-alias.php
           php -l pasm-bag-hotops.php
@@ -40,5 +41,5 @@ jobs:
         run: php test-jx-bag-containers.php
       - name: Legacy inline loop benchmark
         run: php benchmark-loop-legacy.php 10000 9
-      - name: Active compiled loop benchmark
+      - name: Active fused loop benchmark
         run: php benchmark-loop-active.php 10000 9
