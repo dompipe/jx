@@ -33,6 +33,17 @@ do {
 $result = $sum;
 PASL;
 
+$doNe = <<<'PASL'
+$sum = 0;
+$counter = 0;
+$stop = 4;
+do {
+    $sum += 3;
+    $counter++;
+} while ($counter != $stop);
+$result = $sum;
+PASL;
+
 $nested = <<<'PASL'
 $sum = 0;
 repeat (2) {
@@ -55,11 +66,18 @@ if (substr_count(strtolower($lowered), 'for (') < 2) {
     exit(1);
 }
 
+$loweredNe = PASLSurfaceLoops::lower($doNe);
+if (!str_contains($loweredNe, '$counter)-($stop')) {
+    fwrite(STDERR, "FAIL inequality was not materialized as integer difference\n{$loweredNe}\n");
+    exit(1);
+}
+
 foreach ([false, true] as $opt) {
     $engine = new Engine($opt, false);
     $eq($engine->runSource($repeat), 10, 'repeat '.($opt?'O1':'O0'));
     $eq($engine->runSource($do), 6, 'do-while '.($opt?'O1':'O0'));
+    $eq($engine->runSource($doNe), 12, 'do-while != '.($opt?'O1':'O0'));
     $eq($engine->runSource($nested), 4, 'nested surface loops '.($opt?'O1':'O0'));
 }
 
-fwrite(STDOUT, "PASS PASL surface loops do-while repeat optimized+plain\n");
+fwrite(STDOUT, "PASS PASL surface loops do-while repeat inequality optimized+plain\n");
