@@ -1,6 +1,6 @@
 # Bag-backed containers
 
-JX now treats containers as **Bag disciplines**, not as a second memory system.
+JX treats containers as **Bag disciplines**, not as a second memory system.
 
 ```text
 Bag ownership / capacity / identity / checkpoint law
@@ -36,9 +36,7 @@ bag State {
 
 ## Hot state versus canonical state
 
-`jx-bag-containers.php` intentionally does **not** sign/commit the Bag on every push, get, pop, enqueue or dequeue. Hot operations remain in target-native state. `checkpoint()` is the explicit boundary that serializes the current canonical container image through the existing Bag handshake. `restore()` reconstructs hot state from that checkpoint.
-
-This preserves the existing engine rule:
+`jx-bag-containers.php` intentionally does **not** sign/commit the Bag on every push, get, pop, enqueue, dequeue, or emplace. Hot operations remain in target-native state. `checkpoint()` is the explicit boundary that serializes the current canonical container image through the existing Bag handshake. `restore()` reconstructs hot state from that checkpoint.
 
 > Be native while working. Become canonical at the boundary.
 
@@ -58,7 +56,7 @@ This preserves the existing engine rule:
 
 ## Bag hot-operation mnemonics
 
-PASM/JX uses a small canonical command family. Readable aliases are resolved at parse/link time and do not survive into the executable shadow.
+PASM/JX uses a small canonical command family. Readable aliases resolve through `jx-alias.php` at parse/link time and do not survive into the executable shadow.
 
 | Canonical | Meaning | Common aliases |
 |---|---|---|
@@ -68,6 +66,7 @@ PASM/JX uses a small canonical command family. Readable aliases are resolved at 
 | `BPUSHB` | push deque back | `PUSHB`, `PUSHBACK`, `DPUSHB` |
 | `BPOPF` | pop deque front | `POPF`, `POPFRONT`, `SHIFT`, `DPOPF` |
 | `BPOPB` | pop deque back | `POPB`, `POPBACK`, `DPOPB` |
+| `BEMPLACE` | calculate insertion address once and insert | `EMPLACE`, `INSERT`, `PACKIN`, `PUTIFABSENT`, `ADDIFABSENT` |
 | `BPEEK` | read current element without removal | `PEEK`, `TOP`, `FRONT` |
 | `BRESERVE` | reserve a hot operation region | `RESERVE`, `ENSURE` |
 | `BDIRTY` | mark native shadow dirty once | `DIRTY` |
@@ -76,8 +75,6 @@ PASM/JX uses a small canonical command family. Readable aliases are resolved at 
 The key rule is **one canonical opcode, many compile-time names**. Aliases exist for programmer vocabulary only; the runtime never performs an alias lookup.
 
 ### Discipline-aware meaning
-
-`BPUSH` and `BPOP` adapt to the Bag discipline:
 
 ```text
 vector: BPUSH = append      BPOP = pop-back
@@ -92,37 +89,31 @@ Record Bags do not use cursor push/pop. Their named fields resolve once to dense
 
 For fixed-width sequential Bags, the native lowering keeps cursor/head/tail registers resident across a hot region.
 
-`BPUSH` for vector/stack:
-
 ```asm
+; BPUSH vector/stack
 mov [cursor], value
 add cursor, width
 ```
 
-`BPOP` for vector/stack:
-
 ```asm
+; BPOP vector/stack
 sub cursor, width
 mov value, [cursor]
 ```
 
-`BPUSH` for queue/deque tail:
-
 ```asm
+; BPUSH queue/deque tail
 mov [tail], value
 add tail, width
 ```
 
-`BPOP` for queue/deque head:
-
 ```asm
+; BPOP queue/deque head
 mov value, [head]
 add head, width
 ```
 
-Explicit deque ends use the same two-instruction forms with the appropriate head/tail direction.
-
-Bounds and growth are deliberately hoisted. `BRESERVE` can guard a region with approximately three instructions:
+Bounds and growth are hoisted. `BRESERVE` guards a region:
 
 ```asm
 lea tmp, [cursor+bytes]
@@ -132,7 +123,51 @@ ja .bag_grow
 
 After that guard, each push/pop in the reserved region remains two instructions. Wrap, reallocation, underflow recovery, canonical synchronization and revision updates are out-of-line slow paths.
 
-A native region marks the Bag dirty once rather than incrementing canonical revision on every operation. The revision/checkpoint cost is paid when the region synchronizes through `BSYNC`.
+## BEMPLACE
+
+`BEMPLACE` exists so an insertion does not degrade into a loop of pushes/pops.
+
+### Vector / stack
+
+The insertion address is calculated once; the rest of the tail is packed over in one overlap-safe move; the new value is stored once:
+
+```asm
+lea insert, [base+index*width]
+memmove [insert+width], [insert], cursor-insert
+mov [insert], value
+```
+
+The cursor advances once after the bulk move. The PHP canonical fallback uses one `array_splice()` operation to preserve the same semantic shape.
+
+### Map
+
+Map emplace is insert-if-absent. The native backend probes once to either the existing entry or insertion address:
+
+```asm
+call map_probe_insert_address
+jc .exists
+mov [slot], key_value
+```
+
+The canonical fallback is `MapBag::emplace(key, value)`: an existing value is returned untouched; a missing key is inserted once.
+
+### Set
+
+Set emplace uses the same probe-address idea without a value payload:
+
+```asm
+call set_probe_insert_address
+jc .exists
+mov [slot], key
+```
+
+The canonical fallback is `SetBag::emplace(value)`. Duplicate insertion leaves the Set unchanged.
+
+This makes vector, stack, map, and set all share one canonical `BEMPLACE` operation while retaining discipline-specific machine strategy.
+
+## Dirty/revision rule
+
+A native region marks the Bag dirty once rather than incrementing canonical revision on every hot operation. Revision/checkpoint cost is paid when the region synchronizes through `BSYNC`.
 
 ## Checkpoint ABI
 
@@ -162,11 +197,11 @@ Queue/deque native shadows should prefer register-resident head/tail pointers in
 
 ## Tests
 
-Run:
-
 ```bash
 php test-jx-bag-containers.php
 php test-pasm-bag-hotops.php
+php test-jx-alias.php
+php test-jx-lang-alias.php
 php benchmark-jx-bag-containers.php 1000000 7
 ```
 
