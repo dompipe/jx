@@ -19,6 +19,8 @@ jobs:
           coverage: none
       - name: Full active-tree runnable gate
         run: php -d zend.assertions=1 -d assert.exception=1 test-all.php
+      - name: Shared hot-register ABI
+        run: php test-hot-register.php
 
   browser-media-smoke:
     runs-on: ubuntu-latest
@@ -42,6 +44,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libxcb1-dev libcairo2-dev pkg-config
       - name: Build jx11
         run: cc -O2 -Wall -Wextra -Werror -o /tmp/jx11 host/linux/jx11.c $(pkg-config --cflags --libs xcb cairo-xcb)
+      - name: Verify native register ABI
+        run: cc -O2 -Wall -Wextra -Werror -o /tmp/jx11-register-abi tests/jx11-register-abi.c && /tmp/jx11-register-abi
       - name: Verify jx11 CLI
         run: /tmp/jx11 --help
 
