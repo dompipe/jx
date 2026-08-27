@@ -52,6 +52,7 @@ jobs:
           host/linux/jx11-shadow.c
           host/linux/jx11-window-hot.c
           host/linux/jx11-event.c
+          host/linux/jx11-ewmh.c
           $(pkg-config --cflags --libs xcb cairo-xcb)
       - name: Verify native register ABI
         run: cc -O2 -Wall -Wextra -Werror -o /tmp/jx11-register-abi tests/jx11-register-abi.c host/linux/jx11-register.c && /tmp/jx11-register-abi
@@ -59,6 +60,8 @@ jobs:
         run: cc -O2 -Wall -Wextra -Werror -o /tmp/jx11-shadow-abi tests/jx11-shadow-abi.c host/linux/jx11-shadow.c host/linux/jx11-window-hot.c && /tmp/jx11-shadow-abi
       - name: Verify native event sender
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-event-sender tests/jx11-event-sender.c host/linux/jx11-event.c && /tmp/jx11-event-sender
+      - name: Verify EWMH client bookkeeping
+        run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-ewmh-clients tests/jx11-ewmh-clients.c host/linux/jx11-ewmh.c -lxcb && /tmp/jx11-ewmh-clients
       - name: Verify jx11 CLI
         run: /tmp/jx11 --help
 
