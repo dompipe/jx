@@ -29,7 +29,7 @@ final class ControlBinding implements JsonSerializable
         $this->toControl = self::name($this->toControl, 'target control');
         $this->action = self::name($this->action, 'action');
         $this->from = $this->from === null ? null : self::path($this->from);
-        $this->with = self::options($this->with);
+        $this->with = self::normalizeOptions($this->with);
 
         $this->id = substr(hash('sha256', implode("\0", [
             'control-bind-v1',
@@ -71,7 +71,7 @@ final class ControlBinding implements JsonSerializable
         ];
     }
 
-    private static function options(array $with): array
+    private static function normalizeOptions(array $with): array
     {
         $with = Boundary::import($with);
         self::assertNoSecrets($with);
