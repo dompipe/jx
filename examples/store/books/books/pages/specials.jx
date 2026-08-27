@@ -1,0 +1,4 @@
+$regular = 28;
+$discount = 7;
+$quantity = 4;
+$total = ($regular - $discount) * $quantity;
