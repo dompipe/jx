@@ -77,6 +77,10 @@ jobs:
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx-live-patch tests/jx-live-patch.c host/common/jx-live-patch.c && /tmp/jx-live-patch
       - name: Verify narrow SSH patch protocol
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx-patch-ssh tests/jx-patch-ssh.c host/common/jx-patch-ssh.c && /tmp/jx-patch-ssh
+      - name: Verify local patch IPC framing
+        run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx-patch-ipc tests/jx-patch-ipc.c host/common/jx-patch-ipc.c && /tmp/jx-patch-ipc
+      - name: Build OpenSSH forced-command patch receiver
+        run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx-patch-receiver host/linux/jx-patch-receiver.c host/common/jx-patch-ssh.c host/common/jx-patch-ipc.c
       - name: Verify JX11 safe-point patch generations
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-live-patch tests/jx11-live-patch.c host/linux/jx11-live-patch.c host/common/jx-live-patch.c && /tmp/jx11-live-patch
       - name: Verify native register ABI
