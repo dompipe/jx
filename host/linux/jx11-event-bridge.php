@@ -16,8 +16,14 @@ use jx\DesktopHostBridge;
 use jx\DesktopWindowRegister;
 
 $path = $argv[1] ?? '/tmp/jx11-events.sock';
+$bagName = $argv[2] ?? 'windows';
 if ($path === '' || strlen($path) > 100 || str_contains($path, "\0")) {
     fwrite(STDERR, "jx11-event-bridge: invalid socket path\n");
+    exit(2);
+}
+if ($bagName === '' || strlen($bagName) > 128 || str_contains($bagName, "\0")
+    || str_contains($bagName, '|') || str_contains($bagName, "\n") || str_contains($bagName, "\r")) {
+    fwrite(STDERR, "jx11-event-bridge: invalid WindowBag name\n");
     exit(2);
 }
 
@@ -30,9 +36,9 @@ if ($socket === false || !socket_bind($socket, $path)) {
 @chmod($path, 0600);
 
 $bag = Bag::empty(1_048_576);
-$bridge = new DesktopHostBridge($bag, 'windows');
+$bridge = new DesktopHostBridge($bag, $bagName);
 $registers = new DesktopWindowRegister();
-$registers->intern('windows'); // W0 for the first JX11 desktop bridge.
+$windowRegister = $registers->intern($bagName);
 
 function jx11e_decode_hex(string $hex, int $maxBytes): string
 {
@@ -82,7 +88,7 @@ function jx11e_parse(string $packet): array
     ];
 }
 
-fwrite(STDERR, "jx11-event-bridge: listening {$path} W0=windows\n");
+fwrite(STDERR, "jx11-event-bridge: listening {$path} W{$windowRegister}={$bagName}\n");
 register_shutdown_function(static function () use ($socket, $path): void {
     if ($socket !== false) @socket_close($socket);
     @unlink($path);
@@ -95,10 +101,13 @@ for (;;) {
     if ($n === false) continue;
     try {
         $event = jx11e_parse($packet);
+        if ($event['window_register'] !== $windowRegister) {
+            throw new RuntimeException('WindowBag register does not match this bridge');
+        }
         $bridge->apply($event);
         echo json_encode([
             'window_register' => $event['window_register'],
-            'bag' => 'windows',
+            'bag' => $bagName,
             'event' => $event['event'],
             'rows' => $bridge->rows(),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), "\n";
