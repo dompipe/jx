@@ -1,6 +1,8 @@
 name: JX compiler CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -17,6 +19,19 @@ jobs:
           coverage: none
       - name: Full active-tree runnable gate
         run: php -d zend.assertions=1 -d assert.exception=1 test-all.php
+
+  browser-media-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Media control host smoke
+        run: node tests/jx-media-host-smoke.js
+      - name: Audio signal math smoke
+        run: node tests/jx-audio-signal-host-smoke.js
 
   windows-native-store:
     runs-on: windows-latest
