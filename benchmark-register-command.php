@@ -3,6 +3,7 @@
 require_once __DIR__ . '/pasm-runtime.php';
 require_once __DIR__ . '/pasm-bytecode.php';
 require_once __DIR__ . '/pasm-register-command.php';
+require_once __DIR__ . '/pasm-register-fast-vm.php';
 
 use pasm\PASM;
 use pasm\PASMBC;
@@ -10,6 +11,7 @@ use pasm\PASMRuntime;
 use pasm\PASMBytecodeVM;
 use pasm\PASMRegisterCommand;
 use pasm\PASMRegisterCommandVM;
+use pasm\PASMRegisterFastVM;
 
 $n = max(1, (int)($argv[1] ?? 200000));
 $reps = max(3, (int)($argv[2] ?? 9));
@@ -29,9 +31,9 @@ $packedRet = PASMRegisterCommand::encode(PASMBC::RET, [0]);
 $packedCode = str_repeat($packedAdd, $n).$packedRet;
 
 $legacyTimes = [];
-$packedTimes = [];
-$legacyResult = null;
-$packedResult = null;
+$genericTimes = [];
+$fastTimes = [];
+$legacyResult = $genericResult = $fastResult = null;
 
 for ($i=0; $i<$reps; $i++) {
     PASM::$ecx = 0;
@@ -41,19 +43,25 @@ for ($i=0; $i<$reps; $i++) {
     $legacyResult = $vm->run($legacyCode);
     $legacyTimes[] = (hrtime(true)-$t)/1e6;
 
-    $pvm = new PASMRegisterCommandVM([0=>0, 1=>1]);
+    $gvm = new PASMRegisterCommandVM([0=>0, 1=>1]);
     $t = hrtime(true);
-    $packedResult = $pvm->run($packedCode);
-    $packedTimes[] = (hrtime(true)-$t)/1e6;
+    $genericResult = $gvm->run($packedCode);
+    $genericTimes[] = (hrtime(true)-$t)/1e6;
+
+    $fvm = new PASMRegisterFastVM([0=>0, 1=>1]);
+    $t = hrtime(true);
+    $fastResult = $fvm->run($packedCode);
+    $fastTimes[] = (hrtime(true)-$t)/1e6;
 }
 
-if ($legacyResult !== $n || $packedResult !== $n) {
-    fwrite(STDERR, "FAIL result mismatch legacy={$legacyResult} packed={$packedResult} expected={$n}\n");
+if ($legacyResult !== $n || $genericResult !== $n || $fastResult !== $n) {
+    fwrite(STDERR, "FAIL result mismatch legacy={$legacyResult} generic={$genericResult} fast={$fastResult} expected={$n}\n");
     exit(1);
 }
 
 $legacyMs = median($legacyTimes);
-$packedMs = median($packedTimes);
+$genericMs = median($genericTimes);
+$fastMs = median($fastTimes);
 $out = [
     'ops'=>$n,
     'reps'=>$reps,
@@ -62,13 +70,20 @@ $out = [
         'bytes_per_add'=>strlen($legacyAdd),
         'run_ms'=>$legacyMs,
     ],
-    'packed'=>[
+    'packed_generic'=>[
         'bytes'=>strlen($packedCode),
         'bytes_per_add'=>strlen($packedAdd),
-        'run_ms'=>$packedMs,
+        'run_ms'=>$genericMs,
     ],
-    'size_ratio'=>$packedCode === '' ? null : strlen($legacyCode)/strlen($packedCode),
-    'speed_ratio'=>$packedMs > 0 ? $legacyMs/$packedMs : null,
+    'packed_fast'=>[
+        'bytes'=>strlen($packedCode),
+        'bytes_per_add'=>strlen($packedAdd),
+        'run_ms'=>$fastMs,
+    ],
+    'size_ratio'=>strlen($legacyCode)/strlen($packedCode),
+    'generic_speed_ratio'=>$genericMs > 0 ? $legacyMs/$genericMs : null,
+    'fast_speed_ratio'=>$fastMs > 0 ? $legacyMs/$fastMs : null,
+    'fast_vs_generic'=>$fastMs > 0 ? $genericMs/$fastMs : null,
 ];
 
 echo json_encode($out, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES), "\n";
