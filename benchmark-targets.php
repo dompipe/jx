@@ -18,7 +18,7 @@ const REPS = 9;
 $source = <<<'PASL'
 $i = 0;
 $sum = 0;
-while ($i != 10000) {
+while ($i < 10000) {
     $sum += $i;
     $i++;
 }
@@ -122,7 +122,7 @@ foreach($rows as &$row){
 unset($row);
 
 $out=[
-    'workload'=>'sum 0..9999 using PASL while loop; expected 49,995,000',
+    'workload'=>'sum 0..9999 using PASL while ($i < 10000); expected 49,995,000',
     'note'=>'server, CLI, and test hosts currently share packed-pasm-page execution; browser uses JS PASM VM; native uses x86-64 backend',
     'results'=>$rows,
 ];
