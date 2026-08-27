@@ -5,7 +5,13 @@ on:
     branches: [main]
     paths:
       - 'host/linux/jx11.c'
+      - 'host/linux/jx11-register.h'
+      - 'host/linux/jx11-register.c'
+      - 'host/linux/jx11-shadow.h'
+      - 'host/linux/jx11-window-hot.h'
+      - 'host/linux/jx11-window-hot.c'
       - 'benchmarks/jx11-hotpath-bench.c'
+      - 'benchmarks/jx11-shadow-dispatch-bench.c'
       - 'docs/JX11-HOT-PATH.md'
       - '.github/workflows/jx11-benchmark.yml'
   workflow_dispatch:
@@ -17,11 +23,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build benchmark
+      - name: Build hot-path benchmark
         run: cc -O3 -std=c11 -Wall -Wextra -Werror -o jx11-hotpath-bench benchmarks/jx11-hotpath-bench.c
 
-      - name: Run million-event benchmark
+      - name: Run million-event hot-path benchmark
         run: ./jx11-hotpath-bench 1000000 256 16 | tee jx11-hotpath-benchmark.txt
+
+      - name: Build shadow-dispatch benchmark
+        run: cc -O3 -std=c11 -Wall -Wextra -Werror -o jx11-shadow-dispatch-bench benchmarks/jx11-shadow-dispatch-bench.c
+
+      - name: Run million-event shadow-dispatch benchmark
+        run: ./jx11-shadow-dispatch-bench 1000000 256 | tee jx11-shadow-dispatch-benchmark.txt
 
       - name: Upload benchmark output
         uses: actions/upload-artifact@v4
@@ -30,3 +42,5 @@ jobs:
           path: |
             jx11-hotpath-benchmark.txt
             jx11-hotpath-benchmark.json
+            jx11-shadow-dispatch-benchmark.txt
+            jx11-shadow-dispatch-benchmark.json
