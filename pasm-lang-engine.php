@@ -10,12 +10,12 @@ final class Engine
 
     public function compile(string $source): string
     {
-        return (new Compiler($this->optimize, $this->verbose))->compileToBytecode($source);
+        return (new PASMFusedCompiler($this->optimize, $this->verbose))->compileToBytecode($source);
     }
 
     public function compileFile(string $source, string $outPath): void
     {
-        (new Compiler($this->optimize, $this->verbose))->compileToFile($source, $outPath);
+        (new PASMFusedCompiler($this->optimize, $this->verbose))->compileToFile($source, $outPath);
     }
 
     public function runSource(string $source): mixed
