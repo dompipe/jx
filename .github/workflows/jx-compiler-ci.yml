@@ -63,6 +63,7 @@ jobs:
           host/linux/jx11-window-hot.c
           host/linux/jx11-event.c
           host/linux/jx11-ewmh.c
+          host/linux/jx11-workspace.c
           $(pkg-config --cflags --libs xcb cairo-xcb)
       - name: Verify native generic hot-event ABI
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx-hot-event-abi tests/jx-hot-event-abi.c && /tmp/jx-hot-event-abi
@@ -74,6 +75,8 @@ jobs:
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-event-sender tests/jx11-event-sender.c host/linux/jx11-event.c && /tmp/jx11-event-sender
       - name: Verify EWMH client bookkeeping
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-ewmh-clients tests/jx11-ewmh-clients.c host/linux/jx11-ewmh.c -lxcb && /tmp/jx11-ewmh-clients
+      - name: Verify workspace visibility semantics
+        run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-workspace tests/jx11-workspace.c host/linux/jx11-workspace.c && /tmp/jx11-workspace
       - name: Verify jx11 CLI
         run: /tmp/jx11 --help
 
