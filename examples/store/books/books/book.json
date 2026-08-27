@@ -1,0 +1,11 @@
+{
+  "id": "books",
+  "title": "The Reading Room",
+  "window": { "id": "store-books", "title": "The Reading Room", "width": 1180, "height": 820 },
+  "spine": ["home", "catalog", "specials"],
+  "leaves": {
+    "home": { "mode": "state-ready", "pasl": "pages/home.jx", "channels": ["store", "books"] },
+    "catalog": { "mode": "state-ready", "pasl": "pages/catalog.jx", "channels": ["store", "books"] },
+    "specials": { "mode": "state-ready", "pasl": "pages/specials.jx", "channels": ["store", "books"] }
+  }
+}
