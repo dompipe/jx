@@ -14,6 +14,13 @@ static int event_name_ok(const char *event) {
                      !strcmp(event, "window-unmap"));
 }
 
+static size_t bounded_strlen(const char *s, size_t limit) {
+    size_t n = 0u;
+    if (!s) return 0u;
+    while (n < limit && s[n] != '\0') ++n;
+    return n;
+}
+
 static int append_char(char *out, size_t cap, size_t *at, char c) {
     if (*at + 1u >= cap) return -1;
     out[(*at)++] = c;
@@ -48,7 +55,7 @@ static int append_i32(char *out, size_t cap, size_t *at, int32_t value) {
 static int append_hex(char *out, size_t cap, size_t *at, const char *s, size_t max_bytes) {
     static const char hex[] = "0123456789abcdef";
     if (!s) s = "";
-    size_t n = strnlen(s, max_bytes + 1u);
+    size_t n = bounded_strlen(s, max_bytes + 1u);
     if (n > max_bytes) n = max_bytes;
     if (*at + n * 2u >= cap) return -1;
     for (size_t i = 0; i < n; ++i) {
