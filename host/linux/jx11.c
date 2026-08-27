@@ -52,6 +52,7 @@ typedef struct {
     uint16_t width, height;
     jx11_window_hot hot;
     uint8_t dirty_shadows;
+    uint8_t supports_delete;
     int mapped;
     int in_use;
 } jx11_window;
@@ -352,6 +353,11 @@ static void read_title(int slot) {
     if (strcmp(previous, mw->title) != 0) dispatch_window_event(slot, JX11_EVENT_TITLE);
 }
 
+static void read_protocols(int slot) {
+    if (slot < 0 || slot >= MAX_WINDOWS || !windows[slot].in_use || !ewmh_ready) return;
+    windows[slot].supports_delete = (uint8_t)(jx11_ewmh_supports_delete(conn, windows[slot].window, &ewmh_atoms) ? 1u : 0u);
+}
+
 static void read_geometry(int slot) {
     if (slot < 0 || slot >= MAX_WINDOWS || !windows[slot].in_use) return;
     jx11_window *mw = &windows[slot];
@@ -382,7 +388,7 @@ static void add_managed(xcb_window_t win) {
     ++window_count;
     uint32_t ev = XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_STRUCTURE_NOTIFY | XCB_EVENT_MASK_FOCUS_CHANGE;
     xcb_change_window_attributes(conn, win, XCB_CW_EVENT_MASK, &ev);
-    read_geometry(slot); read_title(slot);
+    read_geometry(slot); read_title(slot); read_protocols(slot);
     dispatch_window_event(slot, JX11_EVENT_STATE_OPEN);
     if (ewmh_ready) {
         if (jx11_ewmh_clients_add(&ewmh_clients, win) < 0) fprintf(stderr, "jx11: EWMH client list full for 0x%08x\n", win);
@@ -419,6 +425,12 @@ static void focus_window(xcb_window_t win) {
     xcb_set_input_focus(conn, XCB_INPUT_FOCUS_POINTER_ROOT, win, XCB_CURRENT_TIME);
     uint32_t stack[] = { XCB_STACK_MODE_ABOVE };
     xcb_configure_window(conn, win, XCB_CONFIG_WINDOW_STACK_MODE, stack);
+}
+
+static void request_close_window(xcb_window_t win) {
+    int slot = window_slot_by_xid(win);
+    if (slot < 0 || !ewmh_ready) return;
+    jx11_ewmh_request_close(conn, win, &ewmh_atoms, windows[slot].supports_delete != 0);
 }
 
 static void manage_map(xcb_map_request_event_t *e) {
@@ -568,12 +580,15 @@ static void create_taskbar(void) {
     xcb_map_window(conn, taskbar_window);
 }
 
-static void taskbar_click(int x) {
+static void taskbar_click(int x, uint8_t button) {
     for (size_t i = 0; i < task_button_count; ++i) {
         task_button *b = &task_buttons[i];
         if (x < b->x || x >= b->x + b->width) continue;
         int slot = b->window_slot;
-        if (slot >= 0 && slot < MAX_WINDOWS && windows[slot].in_use) focus_window(windows[slot].window);
+        if (slot >= 0 && slot < MAX_WINDOWS && windows[slot].in_use) {
+            if (button == 2) request_close_window(windows[slot].window);
+            else focus_window(windows[slot].window);
+        }
         return;
     }
 }
@@ -611,8 +626,8 @@ static void handle_event(xcb_generic_event_t *event) {
                 jx11_icon *ic = &icons[icon_slot];
                 pid_t pid = launch_program(ic->program);
                 if (pid > 0) fprintf(stderr, "jx11: icon %s launched %s pid=%ld\n", ic->id, ic->program, (long)pid);
-            } else if (e->event == taskbar_window && e->detail == 1) {
-                taskbar_click(e->event_x);
+            } else if (e->event == taskbar_window && (e->detail == 1 || e->detail == 2)) {
+                taskbar_click(e->event_x, e->detail);
             } else if (e->child != XCB_NONE) {
                 focus_window(e->child);
             }
@@ -621,7 +636,17 @@ static void handle_event(xcb_generic_event_t *event) {
         case XCB_PROPERTY_NOTIFY: {
             xcb_property_notify_event_t *e = (xcb_property_notify_event_t *)event;
             int slot = window_slot_by_xid(e->window);
-            if (slot >= 0) read_title(slot);
+            if (slot >= 0) {
+                if (ewmh_ready && e->atom == ewmh_atoms.wm_protocols) read_protocols(slot);
+                else read_title(slot);
+            }
+            break;
+        }
+        case XCB_CLIENT_MESSAGE: {
+            xcb_client_message_event_t *e = (xcb_client_message_event_t *)event;
+            if (ewmh_ready && e->type == ewmh_atoms.net_close_window && window_slot_by_xid(e->window) >= 0) {
+                request_close_window(e->window);
+            }
             break;
         }
         case XCB_CONFIGURE_NOTIFY: {
