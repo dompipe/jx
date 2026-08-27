@@ -21,6 +21,8 @@ jobs:
         run: php -d zend.assertions=1 -d assert.exception=1 test-all.php
       - name: Shared hot-register ABI
         run: php test-hot-register.php
+      - name: Shared hot-shadow ABI
+        run: php test-hot-shadow.php
 
   browser-media-smoke:
     runs-on: ubuntu-latest
@@ -46,6 +48,8 @@ jobs:
         run: cc -O2 -Wall -Wextra -Werror -o /tmp/jx11 host/linux/jx11.c $(pkg-config --cflags --libs xcb cairo-xcb)
       - name: Verify native register ABI
         run: cc -O2 -Wall -Wextra -Werror -o /tmp/jx11-register-abi tests/jx11-register-abi.c host/linux/jx11-register.c && /tmp/jx11-register-abi
+      - name: Verify native shadow ABI
+        run: cc -O2 -Wall -Wextra -Werror -o /tmp/jx11-shadow-abi tests/jx11-shadow-abi.c host/linux/jx11-shadow.c host/linux/jx11-window-hot.c && /tmp/jx11-shadow-abi
       - name: Verify jx11 CLI
         run: /tmp/jx11 --help
 
