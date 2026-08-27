@@ -26,6 +26,7 @@ php examples/jx-smoke.php
 | `jx-bag-containers.php` | Bag-backed record/vector/stack/queue/deque/map/set disciplines |
 | `pasm-bag-hotops.php` | Canonical Bag hot ops (`BPUSH`, `BPOP`, `BEMPLACE`, etc.) + native lowering recipes |
 | `pasm-loop-space.php` | Single-op variable mutation + bounded compiled loop-space descriptors |
+| `pasm-lang-compiler-loop.php` | Active PASL compiler with out-of-line compiled `for`/`while` blocks |
 | `jx-lang.php` / `jx-run.php` | Language engine + executable compiler |
 | `plugins/` | **Single source directory** for all module plugins |
 | `host/modules/` | Per-plugin links to shared active packages |
@@ -36,6 +37,7 @@ php examples/jx-smoke.php
 | `jx/COMPILER.md` | Compiler pipeline |
 | `docs/BAG-CONTAINERS.md` | Containers as Bag disciplines + native-shadow strategy |
 | `docs/JX-ALIASES.md` | Language-wide alias rules and canonicalization |
+| `docs/LOOP-SPACE.md` | Single-op mutations + bounded out-of-line loop compilation |
 | `docs/history/` | Original-to-latest Markdown and blame conveyance |
 | `history/jx-lang/` | History-preserving snapshot of the earlier `jx-lang` tree |
 
@@ -81,9 +83,9 @@ Where the target permits it, increment/decrement and simple compound assignments
 
 ## Compiled loop space
 
-Loops are moving toward **compiled callable bodies** instead of repeated inline interpretation. `pasm-loop-space.php` defines a bounded loop-space allocator and immutable loop block descriptors.
+`pasm-lang.php` now loads `pasm-lang-compiler-loop.php` as the active PASL compiler. `for` and `while` bodies are compiled once into out-of-line blocks rather than emitted inline in the loop controller.
 
-A loop iteration is modeled as:
+Canonical loop control is:
 
 ```text
 LCHECK condition
@@ -92,9 +94,15 @@ LCALL  compiled_body
 LREPEAT loop_slot
 ```
 
-The body and step are compiled blocks. The controller keeps only condition state, iteration state, direct block targets, and a bounded nesting slot. Default nesting depth is 8; exceeding the configured depth is a compile-time error. Sequential loops reuse slots after scope exit, while nested loops occupy ordered slots `0..depth-1`.
+On the current PASM ISA, `LCALL` lowers to a direct branch because each loop block has a fixed continuation. This avoids adding a runtime call-stack mechanism just to obtain the desired shape. Native ELF/EXE emitters remain free to turn that same canonical operation into a machine `call`, tail branch, or inline body.
 
-This applies to `for`, `while`, `do-while`, `foreach`, and `repeat` lowering. The existing PASL compiler still provides legacy inline loop lowering while this compiled-block loop-space pass is integrated into its final emission path; the new loop-space module is already loaded by `pasm-lang.php` and regression-tested independently.
+For a `for` loop, init executes once, the controller performs the condition check, the compiled body branches to a compiled step block, and the step returns to the condition check. `continue` targets the step block and `break` targets the loop exit. A `while` loop uses the same structure without a step block.
+
+Loop state is allocated in bounded slots. Default nesting depth is 8; exceeding the configured limit is a compile-time error. Nested bodies are compiled while the parent still occupies its slot, so the limit is enforced in the active compiler. Sequential loops reuse slots after leaving scope.
+
+The semantic loop-space model also defines `do-while`, `foreach`, and `repeat`. Their surface-specific entry/collection semantics are not yet accepted by the PASL front end; `for` and `while` are the active out-of-line compiled forms now.
+
+See `docs/LOOP-SPACE.md`.
 
 ## Bags and containers
 
@@ -161,8 +169,11 @@ php test-pasm-bag-hotops.php
 php test-jx-alias.php
 php test-jx-lang-alias.php
 php test-pasm-loop-space.php
+php test-pasm-loop-compiler.php
 php benchmark-jx-bag-containers.php 1000000 7
 ```
+
+The branch also contains `.github/workflows/jx-compiler-ci.yml` to lint the active compiler and run these regressions on GitHub Actions.
 
 ## Books and OS hosts
 
@@ -193,7 +204,7 @@ php jx-install.php restore-full <timestamp>
 
 ## Includes
 
-- Decimals (`plugins/decimals` → `jx\\Decimal`)
+- Decimals (`plugins/decimals` → `jx\Decimal`)
 - Complex, Delivery, const, smart compiler, lang bridge
 - Memory law, Books/Bags/Pages, Resistant path
 - Bag-backed record/vector/stack/queue/deque/map/set disciplines
@@ -208,7 +219,7 @@ See `jx/INTRO.md` for the guided introduction.
 |----------|----------|-----------------------|
 | Linux | `/etc/bin/jx`, `/etc/bin/jx-install` | `/etc/jx/plugins` |
 | macOS | `/usr/local/bin/jx`, `/usr/local/bin/jx-install` | `/usr/local/share/jx/plugins` |
-| Windows | `%LOCALAPPDATA%\\jx\\bin` (User PATH) | `%ProgramData%\\jx\\plugins` |
+| Windows | `%LOCALAPPDATA%\jx\bin` (User PATH) | `%ProgramData%\jx\plugins` |
 
 Plugins are independent packages. A Book or library links only the packages it
 uses:
