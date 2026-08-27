@@ -18,6 +18,17 @@
 #define JX_API_CONTENT_JSON   1u
 #define JX_API_CONTENT_UTF8   2u
 
+typedef enum {
+    JX_API_TRANSPORT_DIRECT = 0,
+    JX_API_TRANSPORT_NATIVE = 1,
+    JX_API_TRANSPORT_UNIX = 2,
+    JX_API_TRANSPORT_UDP = 3,
+    JX_API_TRANSPORT_HTTP = 4,
+    JX_API_TRANSPORT_HTTPS = 5,
+    JX_API_TRANSPORT_SSH = 6,
+    JX_API_TRANSPORT_DEVICE = 7
+} jx_api_transport;
+
 typedef struct {
     uint32_t call_id;
     uint16_t status;
@@ -27,6 +38,15 @@ typedef struct {
 
 static inline int jx_api_shadow_valid(uint8_t shadow) {
     return shadow <= JX_API_SHADOW_CANCEL;
+}
+
+static inline int jx_api_transport_valid(uint8_t transport) {
+    return transport <= (uint8_t)JX_API_TRANSPORT_DEVICE;
+}
+
+static inline int jx_api_transport_secure_remote(uint8_t transport) {
+    return transport == (uint8_t)JX_API_TRANSPORT_HTTPS ||
+           transport == (uint8_t)JX_API_TRANSPORT_SSH;
 }
 
 static inline uint32_t jx_api_address(uint8_t reg, uint8_t slot, uint8_t shadow) {
