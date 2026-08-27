@@ -70,13 +70,26 @@ foreach (array_keys($pages) as $id) {
 $c = '#include <inttypes.h>' . "\n"
    . '#include <stdint.h>' . "\n"
    . '#include <stdio.h>' . "\n"
-   . '#include <string.h>' . "\n\n"
+   . '#include <string.h>' . "\n"
+   . '#include "jx64-probe.h"' . "\n\n"
    . implode("\n", $externs) . "\n\n"
    . "static int print_result(const char *page, int64_t value) {\n"
    . "    printf(\"%s=%\" PRId64 \"\\n\", page, value);\n"
    . "    return 0;\n"
    . "}\n\n"
+   . "static int probe_book(const char *path) {\n"
+   . "    jx64_identity id;\n"
+   . "    memset(&id, 0, sizeof id);\n"
+   . "    int rc = jx64_probe_file(path, &id);\n"
+   . "    if (rc != 1) {\n"
+   . "        fprintf(stderr, \"not a compiled JX Book: %s (rc=%d)\\n\", path, rc);\n"
+   . "        return 3;\n"
+   . "    }\n"
+   . "    printf(\"JX64/%u.%u sections=%u\\n\", (unsigned)id.major, (unsigned)id.minor, (unsigned)id.sections);\n"
+   . "    return 0;\n"
+   . "}\n\n"
    . "int main(int argc, char **argv) {\n"
+   . "    if (argc == 3 && strcmp(argv[1], \"--probe\") == 0) return probe_book(argv[2]);\n"
    . "    const char *page = argc > 1 ? argv[1] : \"books/home\";\n"
    . implode("\n", $routes) . "\n"
    . "    fprintf(stderr, \"unknown JX store page: %s\\n\", page);\n"
@@ -84,4 +97,4 @@ $c = '#include <inttypes.h>' . "\n"
    . "}\n";
 file_put_contents($build . '/store.c', $c);
 
-echo "jx-store: built 6 canonical JX pages for browser, Linux ELF, and Windows PE/COFF\n";
+echo "jx-store: built 6 canonical JX pages for browser, Linux ELF, and Windows PE/COFF; native builds can probe JX64 Books\n";
