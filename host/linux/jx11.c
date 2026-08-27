@@ -286,7 +286,6 @@ static void xid_index_rebuild(void) {
 
 static int window_slot_by_xid(xcb_window_t win) { return xid_index_get(win, 2); }
 static int icon_slot_by_xid(xcb_window_t win) { return xid_index_get(win, 1); }
-
 static void invalidate(unsigned flags) { dirty_flags |= flags; }
 
 static void paint_background(void) {
@@ -523,6 +522,69 @@ static void destroy_assets(void) {
     }
 }
 
+static void handle_event(xcb_generic_event_t *event) {
+    uint8_t type = event->response_type & ~0x80;
+    switch (type) {
+        case XCB_MAP_REQUEST: manage_map((xcb_map_request_event_t *)event); break;
+        case XCB_CONFIGURE_REQUEST: manage_configure((xcb_configure_request_event_t *)event); break;
+        case XCB_EXPOSE: {
+            xcb_expose_event_t *e = (xcb_expose_event_t *)event;
+            int icon_slot = icon_slot_by_xid(e->window);
+            if (icon_slot >= 0 && e->count == 0) draw_icon(icon_slot);
+            else if (e->window == taskbar_window && e->count == 0) invalidate(DIRTY_TASKBAR);
+            break;
+        }
+        case XCB_BUTTON_PRESS: {
+            xcb_button_press_event_t *e = (xcb_button_press_event_t *)event;
+            int icon_slot = icon_slot_by_xid(e->event);
+            if (icon_slot >= 0 && e->detail == 1) {
+                jx11_icon *ic = &icons[icon_slot];
+                pid_t pid = launch_program(ic->program);
+                if (pid > 0) fprintf(stderr, "jx11: icon %s launched %s pid=%ld\n", ic->id, ic->program, (long)pid);
+            } else if (e->event == taskbar_window && e->detail == 1) {
+                taskbar_click(e->event_x);
+            } else if (e->child != XCB_NONE) {
+                focus_window(e->child);
+            }
+            break;
+        }
+        case XCB_PROPERTY_NOTIFY: {
+            xcb_property_notify_event_t *e = (xcb_property_notify_event_t *)event;
+            int slot = window_slot_by_xid(e->window);
+            if (slot >= 0) read_title(slot);
+            break;
+        }
+        case XCB_CONFIGURE_NOTIFY: {
+            xcb_configure_notify_event_t *e = (xcb_configure_notify_event_t *)event;
+            int slot = window_slot_by_xid(e->window);
+            if (slot >= 0) {
+                windows[slot].x=e->x; windows[slot].y=e->y;
+                windows[slot].width=e->width; windows[slot].height=e->height;
+            }
+            break;
+        }
+        case XCB_UNMAP_NOTIFY: {
+            xcb_unmap_notify_event_t *e = (xcb_unmap_notify_event_t *)event;
+            if (e->window != root && e->window != taskbar_window) remove_managed(e->window);
+            break;
+        }
+        case XCB_DESTROY_NOTIFY: {
+            xcb_destroy_notify_event_t *e = (xcb_destroy_notify_event_t *)event;
+            remove_managed(e->window);
+            break;
+        }
+        case XCB_FOCUS_IN: {
+            xcb_focus_in_event_t *e = (xcb_focus_in_event_t *)event;
+            if (window_slot_by_xid(e->event) >= 0 && focused != e->event) {
+                focused = e->event;
+                invalidate(DIRTY_TASKBAR);
+            }
+            break;
+        }
+        default: break;
+    }
+}
+
 int main(int argc, char **argv) {
     const char *launch_now = NULL;
     const char *desktop_path = NULL;
@@ -587,69 +649,17 @@ int main(int argc, char **argv) {
     for (;;) {
         xcb_generic_event_t *event = xcb_wait_for_event(conn);
         if (!event) break;
-        uint8_t type = event->response_type & ~0x80;
-        switch (type) {
-            case XCB_MAP_REQUEST: manage_map((xcb_map_request_event_t *)event); break;
-            case XCB_CONFIGURE_REQUEST: manage_configure((xcb_configure_request_event_t *)event); break;
-            case XCB_EXPOSE: {
-                xcb_expose_event_t *e = (xcb_expose_event_t *)event;
-                int icon_slot = icon_slot_by_xid(e->window);
-                if (icon_slot >= 0 && e->count == 0) draw_icon(icon_slot);
-                else if (e->window == taskbar_window && e->count == 0) invalidate(DIRTY_TASKBAR);
-                break;
-            }
-            case XCB_BUTTON_PRESS: {
-                xcb_button_press_event_t *e = (xcb_button_press_event_t *)event;
-                int icon_slot = icon_slot_by_xid(e->event);
-                if (icon_slot >= 0 && e->detail == 1) {
-                    jx11_icon *ic = &icons[icon_slot];
-                    pid_t pid = launch_program(ic->program);
-                    if (pid > 0) fprintf(stderr, "jx11: icon %s launched %s pid=%ld\n", ic->id, ic->program, (long)pid);
-                } else if (e->event == taskbar_window && e->detail == 1) {
-                    taskbar_click(e->event_x);
-                } else if (e->child != XCB_NONE) {
-                    focus_window(e->child);
-                }
-                break;
-            }
-            case XCB_PROPERTY_NOTIFY: {
-                xcb_property_notify_event_t *e = (xcb_property_notify_event_t *)event;
-                int slot = window_slot_by_xid(e->window);
-                if (slot >= 0) read_title(slot);
-                break;
-            }
-            case XCB_CONFIGURE_NOTIFY: {
-                xcb_configure_notify_event_t *e = (xcb_configure_notify_event_t *)event;
-                int slot = window_slot_by_xid(e->window);
-                if (slot >= 0) {
-                    windows[slot].x=e->x; windows[slot].y=e->y;
-                    windows[slot].width=e->width; windows[slot].height=e->height;
-                }
-                break;
-            }
-            case XCB_UNMAP_NOTIFY: {
-                xcb_unmap_notify_event_t *e = (xcb_unmap_notify_event_t *)event;
-                if (e->window != root && e->window != taskbar_window) remove_managed(e->window);
-                break;
-            }
-            case XCB_DESTROY_NOTIFY: {
-                xcb_destroy_notify_event_t *e = (xcb_destroy_notify_event_t *)event;
-                remove_managed(e->window);
-                break;
-            }
-            case XCB_FOCUS_IN: {
-                xcb_focus_in_event_t *e = (xcb_focus_in_event_t *)event;
-                if (window_slot_by_xid(e->event) >= 0 && focused != e->event) {
-                    focused = e->event;
-                    invalidate(DIRTY_TASKBAR);
-                }
-                break;
-            }
-            default: break;
-        }
+
+        /* Process the blocking event, then drain everything already queued.
+         * One logical X11 burst therefore produces one dirty render + flush. */
+        handle_event(event);
         free(event);
+        while ((event = xcb_poll_for_queued_event(conn)) != NULL) {
+            handle_event(event);
+            free(event);
+        }
         render_dirty();
-        flush_or_die("event");
+        flush_or_die("event batch");
     }
 
     destroy_assets();
