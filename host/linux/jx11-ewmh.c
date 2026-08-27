@@ -1,5 +1,6 @@
 #include "jx11-ewmh.h"
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 
 static xcb_atom_t intern_atom(xcb_connection_t *conn, const char *name) {
