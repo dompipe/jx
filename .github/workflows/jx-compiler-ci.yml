@@ -21,6 +21,7 @@ jobs:
           php -l pasm-loop-space.php
           php -l pasm-lang-compiler-loop.php
           php -l pasm-loop-fuser.php
+          php -l pasm-iterator-abi.php
           php -l pasm-lang.php
           php -l jx-alias.php
           php -l pasm-bag-hotops.php
@@ -31,6 +32,8 @@ jobs:
         run: php test-pasm-loop-space.php
       - name: Compiled loop emission
         run: php test-pasm-loop-compiler.php
+      - name: Compact foreach iterator ABI
+        run: php test-pasm-iterator-abi.php
       - name: Alias registry
         run: php test-jx-alias.php
       - name: JX language aliases
