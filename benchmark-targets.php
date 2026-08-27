@@ -13,6 +13,8 @@ use pasm\PASMRuntime;
 const EXPECTED = 49995000;
 const REPS = 9;
 
+// $sum is deliberately the last persistent scalar allocated. The PASL compiler
+// owns RET emission and returns the last allocated scalar register.
 $source = <<<'PASL'
 $i = 0;
 $sum = 0;
@@ -20,7 +22,6 @@ while ($i != 10000) {
     $sum += $i;
     $i++;
 }
-return $sum;
 PASL;
 
 function median(array $values): float {
