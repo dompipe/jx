@@ -1,8 +1,5 @@
 <?php declare(strict_types=1);
 
-require_once __DIR__ . '/pasm-runtime.php';
-require_once __DIR__ . '/pasm-bytecode.php';
-require_once __DIR__ . '/pasm-optimizer.php';
 require_once __DIR__ . '/pasm-lang.php';
 
 use pasm\lang\Compiler;
@@ -50,7 +47,6 @@ if (($stats['compiled_blocks'] ?? 0) !== 2) {
     exit(1);
 }
 
-// Nested loops are compiled while the parent still owns its loop-space slot.
 $nested = (new Compiler(true, false, 2))->compile(<<<'PASL'
 $i = 0;
 $j = 0;
