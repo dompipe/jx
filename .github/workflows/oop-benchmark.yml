@@ -3,7 +3,7 @@ name: OOP benchmark
 on:
   push:
     branches:
-      - jx-coherent-book-native
+      - main
   workflow_dispatch:
 
 jobs:
