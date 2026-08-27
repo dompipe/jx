@@ -1,8 +1,6 @@
 name: JX compiler CI
 
 on:
-  push:
-    branches: [bag-backed-containers]
   pull_request:
     branches: [main]
 
@@ -19,3 +17,33 @@ jobs:
           coverage: none
       - name: Full active-tree runnable gate
         run: php -d zend.assertions=1 -d assert.exception=1 test-all.php
+
+  windows-native-store:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: Build shared JX store sources
+        run: php examples/store/build-store.php
+      - name: Build native Windows PE executable
+        shell: pwsh
+        run: |
+          clang -O2 -o examples/store/build/jx-store.exe examples/store/build/store.c examples/store/build/store-windows.s
+          $cases = @{
+            'books/home' = '96'
+            'books/catalog' = '60'
+            'books/specials' = '84'
+            'turtles/home' = '16'
+            'turtles/habitats' = '387'
+            'turtles/care' = '113'
+          }
+          foreach ($page in $cases.Keys) {
+            $actual = (& examples/store/build/jx-store.exe $page).Trim()
+            $expected = "$page=$($cases[$page])"
+            if ($actual -ne $expected) { throw "Windows JX page mismatch: $actual != $expected" }
+          }
