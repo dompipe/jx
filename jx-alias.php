@@ -133,28 +133,29 @@ final class JxAlias
     }
 
     /**
-     * Canonicalizes the static/class/global spellings currently understood by
-     * the small JX front-end. Dynamic member aliases require an inferred type
-     * and should call resolve() with that object's domain/context.
+     * Canonicalizes static/class/global spellings. Static class forms are
+     * case-sensitive so a runtime variable such as `bag` is never mistaken for
+     * the class token `Bag`. Dynamic members are canonicalized separately after
+     * runtime type inference.
      */
     public static function canonicalizeSurface(string $statement): string
     {
         self::boot();
         $s = $statement;
 
-        $s = preg_replace_callback('/\bBook\.(\w+)\s*\(/i', static function(array $m): string {
+        $s = preg_replace_callback('/\bBook\.(\w+)\s*\(/', static function(array $m): string {
             $op = self::canonical(AliasDomain::BOOK, $m[1], null, false);
             return 'Book.' . strtolower($op) . '(';
         }, $s) ?? $s;
-        $s = preg_replace_callback('/\bBag\.(\w+)\s*\(/i', static function(array $m): string {
+        $s = preg_replace_callback('/\bBag\.(\w+)\s*\(/', static function(array $m): string {
             $op = self::canonical(AliasDomain::BAG, $m[1], null, false);
             return 'Bag.' . strtolower($op) . '(';
         }, $s) ?? $s;
-        $s = preg_replace_callback('/\bTask\.(\w+)\s*\(/i', static function(array $m): string {
+        $s = preg_replace_callback('/\bTask\.(\w+)\s*\(/', static function(array $m): string {
             $op = self::canonical(AliasDomain::TASK, $m[1], null, false);
             return 'Task.' . strtolower($op) . '(';
         }, $s) ?? $s;
-        $s = preg_replace_callback('/\bPage\.(\w+)\s*\(/i', static function(array $m): string {
+        $s = preg_replace_callback('/\bPage\.(\w+)\s*\(/', static function(array $m): string {
             $op = self::canonical(AliasDomain::PAGE, $m[1], null, false);
             return 'Page.' . strtolower($op) . '(';
         }, $s) ?? $s;
@@ -186,7 +187,6 @@ final class JxAlias
         if (self::$booted || !$seed) return;
         self::$booted = true;
 
-        // Core memory/runtime.
         self::register(AliasDomain::BAG, 'UNDERWRITE', ['ALLOC','ALLOCATE','CREATE','NEW','RESERVE']);
         self::register(AliasDomain::BAG, 'SIGN', ['AUTHORIZE','REF','REFERENCE']);
         self::register(AliasDomain::BAG, 'UNSIGN', ['RELEASE','UNREF']);
@@ -199,7 +199,6 @@ final class JxAlias
         self::register(AliasDomain::BAG, 'USED', ['USAGE']);
         self::register(AliasDomain::BAG, 'ID', ['IDENTITY']);
 
-        // Bag hot ops. Context decides physical lowering.
         self::register(AliasDomain::BAG_HOT, 'BPUSH', ['PUSH','APPEND','ADD','ENQUEUE','ENQ','QPUSH','SPUSH','VAPPEND']);
         self::register(AliasDomain::BAG_HOT, 'BPOP', ['POP','TAKE','DEQUEUE','DEQ','QPOP','SPOP','VPOP']);
         self::register(AliasDomain::BAG_HOT, 'BPUSHF', ['PUSHF','PUSHFRONT','UNSHIFT','DPUSHF']);
@@ -227,7 +226,6 @@ final class JxAlias
         self::register(AliasDomain::DELIVERY, 'EXTRACT', ['DELIVERY','DELIVER','PULLPATH','FETCHPATH']);
         self::register(AliasDomain::DELIVERY, 'REBIND', ['WRITEPATH','SETPATH','BINDPATH']);
 
-        // Calls and reusable program material.
         self::register(AliasDomain::FUNCTION_, 'CALL', ['INVOKE','RUN','EXECUTE']);
         self::register(AliasDomain::FUNCTION_, 'RETURN', ['RET','YIELDVALUE']);
         self::register(AliasDomain::METHOD, 'CALL', ['INVOKE','SEND']);
@@ -237,7 +235,6 @@ final class JxAlias
         self::register(AliasDomain::PLUGIN, 'LINK', ['USE','ENABLE','INSTALL']);
         self::register(AliasDomain::PLUGIN, 'UNLINK', ['DISABLE','REMOVE','UNINSTALL']);
 
-        // UI/host/chart vocabulary.
         self::register(AliasDomain::CONTROL, 'SET', ['PUT','WRITE','CHANGE']);
         self::register(AliasDomain::CONTROL, 'GET', ['READ','VALUE']);
         self::register(AliasDomain::CONTROL, 'SHOW', ['OPEN','DISPLAY']);
@@ -268,7 +265,6 @@ final class JxAlias
         self::register(AliasDomain::WINDOW, 'MOVE', ['POSITION']);
         self::register(AliasDomain::WINDOW, 'RESIZE', ['SIZE']);
 
-        // SQL canonical verbs.
         self::register(AliasDomain::SQL, 'PREPARE', ['COMPILE']);
         self::register(AliasDomain::SQL, 'QUERY', ['SELECT','READ','FETCH']);
         self::register(AliasDomain::SQL, 'EXECUTE', ['EXEC','RUN']);
@@ -277,8 +273,6 @@ final class JxAlias
         self::register(AliasDomain::SQL, 'ROLLBACK', ['UNDO','ABORT']);
         self::register(AliasDomain::SQL, 'SAVEPOINT', ['MARK']);
 
-        // PASL/PASM aliases are intentionally conservative: aliases erase to the
-        // existing small machine vocabulary rather than creating new runtime ops.
         self::register(AliasDomain::PASL, 'RETURN', ['RET']);
         self::register(AliasDomain::PASL, 'JUMP', ['JMP','GOTO']);
         self::register(AliasDomain::PASM, 'JMP', ['JUMP','GOTO']);
