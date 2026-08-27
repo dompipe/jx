@@ -2,7 +2,6 @@
 
 require_once __DIR__ . '/pasm-runtime.php';
 require_once __DIR__ . '/pasm-bytecode.php';
-require_once __DIR__ . '/pasm-optimizer.php';
 require_once __DIR__ . '/pasm-loop-space.php';
 require_once __DIR__ . '/pasm-lang-core.php';
 require_once __DIR__ . '/pasm-lang-compiler-loop.php';
