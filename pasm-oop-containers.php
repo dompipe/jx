@@ -117,7 +117,6 @@ final class PASMCellCodec
         if ($cell !== 0 && ($cell & self::TAG_MASK) === self::TAG_POOL) $this->pool->release($cell >> 2);
     }
 }
-
 final class PASMContainerContext
 {
     private static ?PASMFramePool $frames = null;
@@ -282,7 +281,7 @@ abstract class PASMContainer implements PASMContainerContract
     abstract protected function import(mixed $key,mixed $value): void;
     abstract protected function snapshotData(): array;
 
-    public static function forFrame(PASMRegisterFrame $frame,PASMSegmentRegistry $segments,iterable $items=[],?PASMFrameValuePool $pool=null): static
+    public static function forFrame(PASMRegisterFrame $frame,?PASMSegmentRegistry $segments=null,iterable $items=[],?PASMFrameValuePool $pool=null): static
     { return new static($items,$frame,$segments,$pool); }
     public function frame(): PASMRegisterFrame{return $this->frameRef;}
     public function containerId(): int{return $this->id;}
