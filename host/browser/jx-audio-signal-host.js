@@ -77,9 +77,12 @@
     for (const v of data) rms += v * v;
     rms = Math.sqrt(rms / data.length);
     if (rms < 0.01) return { hz: 0, confidence: 0 };
+
     const minLag = Math.max(2, Math.floor(sampleRate / 2000));
     const maxLag = Math.min(data.length - 2, Math.floor(sampleRate / 40));
+    const corrByLag = new Float64Array(maxLag + 1);
     let bestLag = 0, best = -Infinity;
+
     for (let lag = minLag; lag <= maxLag; lag++) {
       let corr = 0, normA = 0, normB = 0;
       for (let i = 0; i < data.length - lag; i++) {
@@ -87,9 +90,26 @@
         corr += a * b; normA += a * a; normB += b * b;
       }
       const n = corr / Math.sqrt(Math.max(1e-20, normA * normB));
+      corrByLag[lag] = n;
       if (n > best) { best = n; bestLag = lag; }
     }
-    return bestLag ? { hz: sampleRate / bestLag, confidence: Math.max(0, Math.min(1, best)) } : { hz: 0, confidence: 0 };
+
+    if (!bestLag) return { hz: 0, confidence: 0 };
+
+    // Periodic signals often create nearly identical correlation peaks at
+    // 1x, 2x, 3x... the true period. Prefer the earliest peak that is within
+    // 0.5% of the global best, which selects the fundamental instead of a
+    // later subharmonic while preserving the best correlation as confidence.
+    const threshold = Math.max(0.8, best * 0.995);
+    for (let lag = minLag + 1; lag < bestLag; lag++) {
+      const n = corrByLag[lag];
+      if (n >= threshold && n >= corrByLag[lag - 1] && n >= corrByLag[lag + 1]) {
+        bestLag = lag;
+        break;
+      }
+    }
+
+    return { hz: sampleRate / bestLag, confidence: Math.max(0, Math.min(1, best)) };
   }
 
   function noteName(hz) {
