@@ -25,7 +25,21 @@ static inline int jx11_shadow_is_reserved(uint8_t shadow) {
     return shadow < JX11_SHADOW_FIRST_DYNAMIC;
 }
 
-uint8_t jx11_shadow_mask_for_event(uint8_t event_kind);
-int jx11_shadow_mask_has(uint8_t mask, uint8_t shadow);
+/* Hot event dispatch is table indexed rather than semantic branching. */
+static inline uint8_t jx11_shadow_mask_for_event(uint8_t event_kind) {
+    static const uint8_t masks[6] = {
+        0u,
+        (uint8_t)((1u << JX11_SHADOW_STATE) | (1u << JX11_SHADOW_TASKBAR)),
+        (uint8_t)((1u << JX11_SHADOW_TITLE) | (1u << JX11_SHADOW_TASKBAR)),
+        (uint8_t)((1u << JX11_SHADOW_FOCUS) | (1u << JX11_SHADOW_TASKBAR)),
+        (uint8_t)(1u << JX11_SHADOW_GEOMETRY),
+        (uint8_t)((1u << JX11_SHADOW_STATE) | (1u << JX11_SHADOW_TASKBAR))
+    };
+    return event_kind < 6u ? masks[event_kind] : 0u;
+}
+
+static inline int jx11_shadow_mask_has(uint8_t mask, uint8_t shadow) {
+    return shadow < 8u && (mask & (uint8_t)(1u << shadow)) != 0;
+}
 
 #endif
