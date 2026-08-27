@@ -25,7 +25,7 @@ Canonical variable operations are:
 
 ## Active loop body extraction
 
-`pasm-lang.php` now loads `pasm-lang-compiler-loop.php` as the active PASL compiler. `for` and `while` bodies are compiled once into out-of-line blocks instead of being emitted inline in the controller.
+`pasm-lang.php` loads `pasm-lang-compiler-loop.php` as the active PASL compiler. `for` and `while` bodies are compiled once into out-of-line blocks instead of being emitted inline in the controller. `do ... while` and `repeat(n)` are surface forms lowered into that same bounded machinery before register allocation.
 
 Conceptually:
 
@@ -42,7 +42,7 @@ LCALL  step      # for loops where needed
 LREPEAT slot
 ```
 
-The current PASM ISA does not need a new runtime `CALL` instruction for this shape. Because each loop block has a fixed continuation, canonical `LCALL` lowers to a direct branch to the out-of-line block, and that block branches to its known continuation. Native ELF/EXE targets may later emit a machine `call` or inline the block when profitable.
+The current PASM ISA does not need a new runtime `CALL` instruction for this shape. Because each loop block has a fixed continuation, canonical `LCALL` lowers to a direct branch to the out-of-line block, and that block branches to its known continuation. Native ELF/EXE targets may emit a machine `call` or inline the block when profitable.
 
 The main program jumps over all deferred loop blocks before its final `RET`, so blocks cannot execute by fall-through.
 
@@ -58,14 +58,14 @@ check_label:
 
 body_block:
   compiled body
-  branch step_block (or check_label)
+  branch fused_step/check
 
-step_block:
+fused_step:
   compiled step mutation
   branch check_label
 ```
 
-`continue` targets the compiled step block. `break` targets the controller exit label.
+`continue` targets the fused step. `break` targets the controller exit label.
 
 ## While loop lowering
 
@@ -83,17 +83,45 @@ body_block:
 
 `continue` targets the condition check and `break` targets the exit label.
 
+## Collection loops: foreach and reveach
+
+The canonical source vocabulary is intentionally small:
+
+```jx
+foreach ($players as $player) {
+    // forward traversal
+}
+
+reveach ($players as $player) {
+    // reverse traversal
+}
+```
+
+`reveach` is the one reverse-iteration keyword. JX does not use `rforeach` or `foreach reverse` as competing spellings.
+
+Their PASM execution targets are:
+
+```text
+foreach -> ITERF <slot>
+reveach -> ITERR <slot>
+```
+
+Both iterator commands are exactly two bytes in active PASM bytecode: one opcode byte plus one unsigned iterator-slot byte. The collection descriptor, cursor state, destination register and optional key destination are prelinked outside the repeated hot path, so each repeated iterator call carries one integer only.
+
+The active iterator ABI and Bag-container binding layer are already runnable. High-level collection-source lowering into those prelinked descriptors is the remaining front-end connection.
+
 ## Loop kinds
 
 The bounded loop-space semantic model covers:
 
 - `for`
 - `while`
-- `do-while`
-- `foreach`
+- `do ... while`
 - `repeat`
+- `foreach`
+- `reveach`
 
-The active compiler currently connects `for` and `while` to out-of-line block emission. `do-while`, `foreach`, and `repeat` share the same loop-space descriptors but still need their surface-specific collection/entry semantics connected before they are accepted by the PASL front end.
+`for`, `while`, `do ... while`, and `repeat(n)` are active PASL surface forms. `foreach` and `reveach` are the canonical collection-loop vocabulary and map to the active `ITERF` / `ITERR` execution ABI while their final collection-source compiler bridge is completed.
 
 ## Bounded nesting
 
@@ -127,6 +155,9 @@ Run:
 ```bash
 php test-pasm-loop-space.php
 php test-pasm-loop-compiler.php
+php test-pasm-surface-loops.php
+php test-pasm-iterator-abi.php
+php test-pasm-foreach-surface.php
 ```
 
-The second test checks out-of-line body/step labels, canonical variable-op annotations, nested slot allocation, and hard nesting-limit failure.
+The regression set checks out-of-line body/step labels, canonical variable-op annotations, nested slot allocation, hard nesting-limit failure, runnable `do ... while` / `repeat`, exact two-byte iterator encoding, and the canonical `foreach` / `reveach` direction mapping.
