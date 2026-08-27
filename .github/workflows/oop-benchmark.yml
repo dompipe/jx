@@ -1,0 +1,39 @@
+name: OOP benchmark
+
+on:
+  push:
+    branches:
+      - jx-coherent-book-native
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+
+      - name: Show PHP runtime
+        run: php -v
+
+      - name: Run OOP benchmark
+        run: |
+          php benchmark-pasm-oop-fast.php | tee benchmark-oop-output.txt
+
+      - name: Run canonical sync benchmark
+        run: |
+          php benchmark-pasm-oop-fast-sync.php | tee benchmark-oop-sync-output.txt
+
+      - name: Run opposite-end deque benchmark
+        run: |
+          php benchmark-pasm-oop-fast-deque.php | tee benchmark-oop-deque-output.txt
+
+      - name: Upload benchmark output
+        uses: actions/upload-artifact@v4
+        with:
+          name: oop-benchmark-output
+          path: |
+            benchmark-pasm-oop-fast-results.json
+            benchmark-oop-output.txt
+            benchmark-oop-sync-output.txt
+            benchmark-oop-deque-output.txt
