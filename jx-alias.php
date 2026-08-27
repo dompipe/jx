@@ -221,7 +221,7 @@ final class JxAlias
         self::register(AliasDomain::TASK, 'UNDERWRITE', ['CREATE','NEW','ALLOC']);
         self::register(AliasDomain::TASK, 'STATE', ['STATUS']);
         self::register(AliasDomain::TASK, 'SETSTATE', ['STATESET','STATUSSET']);
-        self::register(AliasDomain::PAGE, 'SPAWN', ['OPEN','CREATE','START','NEW']);
+        self::register(AliasDomain::PAGE, 'SPAWN', ['OPEN','CREATE','NEW']);
         self::register(AliasDomain::PAGE, 'RUN', ['EXECUTE','EXEC','START']);
 
         self::register(AliasDomain::DELIVERY, 'EXTRACT', ['DELIVERY','DELIVER','PULLPATH','FETCHPATH']);
