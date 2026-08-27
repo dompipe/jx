@@ -56,7 +56,7 @@ final class MediaControl implements JsonSerializable
         if (!in_array($this->type, self::TYPES, true)) {
             throw new JxException('Unsupported media type', 'plugin.media', true, ['type' => $this->type]);
         }
-        $this->mime = self::mime($this->mime, $this->type);
+        $this->mime = self::normalizeMime($this->mime, $this->type);
         $this->source = self::normalizeSource($this->source);
         $this->with = self::normalizeOptions($this->with, $this->type);
     }
@@ -216,7 +216,7 @@ final class MediaControl implements JsonSerializable
         }
     }
 
-    private static function mime(string $mime, string $type): string
+    private static function normalizeMime(string $mime, string $type): string
     {
         $mime = strtolower(trim($mime));
         if ($mime === 'audio/mp3') $mime = 'audio/mpeg';
