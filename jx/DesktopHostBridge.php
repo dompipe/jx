@@ -43,12 +43,16 @@ final class DesktopHostBridge
         }
 
         $previous = $this->windows[$hostId] ?? [];
-        $clean = array_merge($previous, self::normalizeRow($row, $hostId));
+        $clean = $kind === 'window-open'
+            ? self::normalizeOpenRow($row, $hostId)
+            : array_merge($previous, self::normalizePatchRow($row, $hostId));
+
         if ($kind === 'window-focus') {
             foreach ($this->windows as &$other) $other['focused'] = false;
             unset($other);
             $clean['focused'] = true;
         }
+
         $this->windows[$hostId] = $clean;
         $this->publish();
     }
@@ -62,36 +66,51 @@ final class DesktopHostBridge
     }
 
     /** @param array<string,mixed> $row @return array<string,mixed> */
-    private static function normalizeRow(array $row, string $hostId): array
+    private static function normalizeOpenRow(array $row, string $hostId): array
     {
-        $title = substr((string)($row['title'] ?? ''), 0, 1024);
-        $class = substr((string)($row['class'] ?? ''), 0, 256);
+        return array_merge([
+            'host_id' => $hostId,
+            'window_ref' => null,
+            'slot' => null,
+            'shadow' => null,
+            'pid' => null,
+            'title' => '',
+            'class' => '',
+            'x' => 0,
+            'y' => 0,
+            'width' => 0,
+            'height' => 0,
+            'focused' => false,
+            'mapped' => true,
+            'workspace' => 0,
+        ], self::normalizePatchRow($row, $hostId));
+    }
 
-        $packed = null;
-        if (isset($row['window_ref'])) {
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private static function normalizePatchRow(array $row, string $hostId): array
+    {
+        $out = ['host_id' => $hostId];
+
+        if (array_key_exists('window_ref', $row)) {
             $packed = is_string($row['window_ref'])
                 ? DesktopWindowRegister::parse($row['window_ref'])
                 : (int)$row['window_ref'];
             $parts = DesktopWindowRegister::unpack($packed);
-        } else {
-            $parts = ['slot'=>null, 'shadow'=>null];
+            $out['window_ref'] = $packed;
+            $out['slot'] = $parts['slot'];
+            $out['shadow'] = $parts['shadow'];
         }
+        if (array_key_exists('pid', $row)) $out['pid'] = $row['pid'] === null ? null : (int)$row['pid'];
+        if (array_key_exists('title', $row)) $out['title'] = substr((string)$row['title'], 0, 1024);
+        if (array_key_exists('class', $row)) $out['class'] = substr((string)$row['class'], 0, 256);
+        if (array_key_exists('x', $row)) $out['x'] = (int)$row['x'];
+        if (array_key_exists('y', $row)) $out['y'] = (int)$row['y'];
+        if (array_key_exists('width', $row)) $out['width'] = max(0, (int)$row['width']);
+        if (array_key_exists('height', $row)) $out['height'] = max(0, (int)$row['height']);
+        if (array_key_exists('focused', $row)) $out['focused'] = (bool)$row['focused'];
+        if (array_key_exists('mapped', $row)) $out['mapped'] = (bool)$row['mapped'];
+        if (array_key_exists('workspace', $row)) $out['workspace'] = max(0, (int)$row['workspace']);
 
-        return [
-            'host_id' => $hostId,
-            'window_ref' => $packed,
-            'slot' => $parts['slot'],
-            'shadow' => $parts['shadow'],
-            'pid' => isset($row['pid']) ? (int)$row['pid'] : null,
-            'title' => $title,
-            'class' => $class,
-            'x' => (int)($row['x'] ?? 0),
-            'y' => (int)($row['y'] ?? 0),
-            'width' => max(0, (int)($row['width'] ?? 0)),
-            'height' => max(0, (int)($row['height'] ?? 0)),
-            'focused' => (bool)($row['focused'] ?? false),
-            'mapped' => (bool)($row['mapped'] ?? true),
-            'workspace' => max(0, (int)($row['workspace'] ?? 0)),
-        ];
+        return $out;
     }
 }
