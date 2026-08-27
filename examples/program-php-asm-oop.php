@@ -30,20 +30,25 @@ try {
     $s->push(100);
     $s->push(200);
 
-    // Optional user ASM; if omitted, a default sum-over-prelude body is used
+    // Sum the first container's integer prelude. PASM ALU/CMP operations are
+    // register-only, so constants are loaded once into registers before loop.
     $prog->asm(<<<'ASM'
-; sum prelude buffer at ecx (count ah)
+; ecx = prelude base, ah = count
         MOVI  rdx  0
         MOVI  bdx  0
-        CMP   ah   0
+        MOVI  edx  0
+        MOVI  ddx  4
+        CMP   ah   edx
         JZ    done
-loop:   LOAD32 cdx ecx bdx
+loop:
+        LOAD32 cdx ecx bdx
         ADD    rdx rdx cdx
-        ADD    bdx bdx 4
+        ADD    bdx bdx ddx
         DEC    ah
-        CMP    ah  0
+        CMP    ah  edx
         JNZ    loop
-done:   RET    rdx
+done:
+        RET    rdx
 ASM);
 
     $prog->php('report', function ($pkg): void {
