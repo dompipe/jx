@@ -72,7 +72,7 @@ final class SpectrumBinding implements JsonSerializable
         }
         $this->fromHz = $fromHz;
         $this->toHz = $toHz;
-        $this->with = self::options($with);
+        $this->with = self::normalizeOptions($with);
 
         $shape = [
             'media' => $this->media,
@@ -139,7 +139,7 @@ final class SpectrumBinding implements JsonSerializable
     /** @param array<string,mixed> $with
      *  @return array<string,mixed>
      */
-    private static function options(array $with): array
+    private static function normalizeOptions(array $with): array
     {
         $with = Boundary::import($with);
         foreach (array_keys($with) as $key) {
