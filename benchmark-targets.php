@@ -16,7 +16,7 @@ const REPS = 9;
 $source = <<<'PASL'
 $i = 0;
 $sum = 0;
-while ($i < 10000) {
+while ($i != 10000) {
     $sum += $i;
     $i++;
 }
@@ -42,7 +42,6 @@ function bench(string $name, callable $fn, int $reps = REPS): array {
     return ['target'=>$name,'median_ms'=>median($samples),'result'=>(int)$last,'reps'=>$reps];
 }
 
-$engine = new Engine(true, false);
 $sourceResult = bench('jx-source-compile-run', fn() => (new Engine(true,false))->runSource($source));
 
 $compileSamples=[];$bytecode=null;
@@ -64,7 +63,6 @@ $tmpBase = sys_get_temp_dir() . '/jx-target-bench-' . getmypid();
 $tmpAsm = $tmpBase . '.pasm';
 file_put_contents($tmpAsm, $assembly);
 
-$browserResult = null;
 $node = trim((string)shell_exec('command -v node 2>/dev/null'));
 if ($node !== '') {
     $cmd = escapeshellarg($node).' '.escapeshellarg(__DIR__.'/benchmark-target-browser.js').' '.escapeshellarg($tmpAsm).' '.REPS.' '.EXPECTED;
@@ -75,7 +73,6 @@ if ($node !== '') {
     $browserResult=['target'=>'browser-js-pasm','skipped'=>true,'reason'=>'node unavailable'];
 }
 
-$nativeResult = null;
 $cc = trim((string)shell_exec('command -v cc 2>/dev/null'));
 if ($cc !== '') {
     $x86=(new X86Compiler(true))->compile($source);
