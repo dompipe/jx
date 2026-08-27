@@ -66,11 +66,17 @@ jobs:
           host/linux/jx11-event.c
           host/linux/jx11-ewmh.c
           host/linux/jx11-workspace.c
+          host/linux/jx11-live-patch.c
+          host/common/jx-live-patch.c
           $(pkg-config --cflags --libs xcb cairo-xcb)
       - name: Verify native generic hot-event ABI
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx-hot-event-abi tests/jx-hot-event-abi.c && /tmp/jx-hot-event-abi
       - name: Verify native API dispatch ABI
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common -o /tmp/jx-api-dispatch-abi tests/jx-api-dispatch-abi.c && /tmp/jx-api-dispatch-abi
+      - name: Verify secure live-patch validation
+        run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx-live-patch tests/jx-live-patch.c host/common/jx-live-patch.c && /tmp/jx-live-patch
+      - name: Verify JX11 safe-point patch generations
+        run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-live-patch tests/jx11-live-patch.c host/linux/jx11-live-patch.c host/common/jx-live-patch.c && /tmp/jx11-live-patch
       - name: Verify native register ABI
         run: cc -O2 -Wall -Wextra -Werror -o /tmp/jx11-register-abi tests/jx11-register-abi.c host/linux/jx11-register.c && /tmp/jx11-register-abi
       - name: Verify native shadow ABI
