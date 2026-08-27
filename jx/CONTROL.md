@@ -13,6 +13,69 @@ contract:
 The HTML renderer is only the current transport. Native hosts should render the
 same contract as Win32 controls, X11 controls, or another host-specific surface.
 
+## Hot input routing
+
+Canonical Control descriptors remain readable and host-neutral. When a program
+wakes, the compiler/host prelinks each reactive control event to a universal JX
+hot address:
+
+```text
+W:slot:shadow
+W3:[12:1]
+```
+
+The routing identity is exactly three bytes:
+
+```text
+register | slot | shadow
+   03       0c      01
+```
+
+Canonical source may still say:
+
+```text
+Button submit {
+    click -> save()
+}
+```
+
+while the awake execution shadow may be:
+
+```text
+W3 = controls
+W3:[12:1] -> prelinked save reaction
+```
+
+The host does not need to send the strings `submit`, `click`, or `save` in the
+interactive path. It sends the hot address plus the smallest payload required by
+the event. The canonical mapping remains available in compiler/debug provenance.
+
+Hot input uses `jx.hot-event/1`, whose fixed binary header is:
+
+```text
+version | register | slot | shadow | delivery | flags | payload-length | payload...
+```
+
+Local native hosts should normally use a nonblocking local datagram transport.
+The same packet can use UDP when the producer/consumer boundary is genuinely
+networked. A transport stall must never stall the UI hot path.
+
+Delivery/coalescing is assigned when the program wakes, not improvised by the
+host:
+
+- pointer/drag/resize/slider/orientation movement -> `LATEST`
+- key/button down/up, submit, toggle, selection, close, commit -> `QUEUE`
+- enter/leave transitions -> `ONCE`
+- click/double-click -> `COUNT`
+- wheel/scroll deltas -> `ACCUMULATE`
+
+Canonical JX may explicitly override these defaults. A host must not silently
+change a `QUEUE` event into a lossy `LATEST` event.
+
+This follows the base runtime law:
+
+> **Bags remember. Registers react. Reactions are prepared while waking.**
+
 Current control types:
 
 - `text`: normal form input
@@ -131,15 +194,15 @@ Control::image('image.any', 'Any image type', $src, 'image/*', [
         ),
     ],
     'display' => Control::imageDisplay(
-        true,  // visible
-        0,     // blur pixels
-        false, // covered
+        true,
+        0,
+        false,
     ),
     'pin' => Control::imagePin(
-        Control::XY_CENTER, // turning point
-        Control::XY_LB,     // stuck-to-path point
+        Control::XY_CENTER,
+        Control::XY_LB,
         Control::paintPoint(
-            Control::XY_RT, // painting point
+            Control::XY_RT,
             Control::line(
                 'image-trail',
                 ['x' => 16, 'y' => 42],
