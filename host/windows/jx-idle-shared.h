@@ -5,7 +5,7 @@
 #include <windows.h>
 #include <stdint.h>
 
-#define JX_WIN32_IDLE_SHARED_VERSION 1u
+#define JX_WIN32_IDLE_SHARED_VERSION 2u
 #define JX_WIN32_IDLE_SHARED_MAGIC 0x4a584944u
 #define JX_WIN32_IDLE_SHARED_ENV L"JX_IDLE_SHM"
 #define JX_WIN32_IDLE_SHARED_NAME_MAX 96u
@@ -22,6 +22,7 @@ typedef struct {
 
 typedef struct {
     HANDLE mapping;
+    HANDLE wake_events[2];
     jx_win32_idle_shared_page *page;
     wchar_t name[JX_WIN32_IDLE_SHARED_NAME_MAX + 1u];
 } jx_win32_idle_shared;
