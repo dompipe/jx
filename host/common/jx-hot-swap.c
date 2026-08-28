@@ -29,22 +29,42 @@ int jx_hot_swap_prepare(jx_hot_swap_gate *gate,
     if (candidate->generation <= gate->active.generation)
         return JX_HOT_SWAP_ERR_GENERATION;
     gate->candidate = *candidate;
-    if (gate->candidate.start && gate->candidate.start(gate->shared_state, gate->candidate.context) != 0) {
-        memset(&gate->candidate, 0, sizeof gate->candidate);
-        return JX_HOT_SWAP_ERR_START;
-    }
     gate->candidate_ready = 1u;
+    gate->cutover_requested = 0u;
     return JX_HOT_SWAP_OK;
 }
 
-int jx_hot_swap_commit(jx_hot_swap_gate *gate) {
-    if (!gate) return JX_HOT_SWAP_ERR_ARGUMENT;
+int jx_hot_swap_button_cutover(jx_hot_swap_gate *gate,
+                               jx_channel_bus *bus,
+                               uint32_t old_program_endpoint,
+                               uint32_t new_program_endpoint) {
+    if (!gate || !bus) return JX_HOT_SWAP_ERR_ARGUMENT;
     if (!gate->candidate_ready) return JX_HOT_SWAP_ERR_NOT_READY;
+
+    gate->cutover_requested = 1u;
+    jx_channel_bus_pause(bus);
+
+    if (gate->candidate.start && gate->candidate.start(gate->shared_state, gate->candidate.context) != 0) {
+        gate->cutover_requested = 0u;
+        (void)jx_channel_bus_resume(bus);
+        return JX_HOT_SWAP_ERR_START;
+    }
+
+    if (jx_channel_bus_switch_program(bus, old_program_endpoint, new_program_endpoint) != 0) {
+        if (gate->candidate.stop) gate->candidate.stop(gate->shared_state, gate->candidate.context);
+        gate->cutover_requested = 0u;
+        (void)jx_channel_bus_resume(bus);
+        return JX_HOT_SWAP_ERR_CHANNEL;
+    }
+
     jx_hot_swap_program old = gate->active;
     gate->active = gate->candidate;
     memset(&gate->candidate, 0, sizeof gate->candidate);
     gate->candidate_ready = 0u;
+    gate->cutover_requested = 0u;
+
     if (old.stop) old.stop(gate->shared_state, old.context);
+    if (jx_channel_bus_resume(bus) < 0) return JX_HOT_SWAP_ERR_CHANNEL;
     return JX_HOT_SWAP_OK;
 }
 
