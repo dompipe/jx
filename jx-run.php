@@ -5,6 +5,7 @@
  *
  *   jx.exe [--print|-v] [--report[=compact|verbose|json]|--quiet]
  *          [-O0|-O1] [-o out.pbc] [-c 'src'] [file.jx|file.pasl|file.pbc]
+ *   jx.exe --applied-runtime -o CODE/applied-bus.bin
  *
  * The Windows jx.exe launcher delegates here, so compiler messages emitted by
  * this file are the authoritative jx.exe CLI contract on every host.
@@ -14,6 +15,7 @@ namespace jx;
 $root = __DIR__;
 require_once $root . '/jx-lang.php';
 require_once $root . '/jx-bytecode-page-report.php';
+require_once $root . '/jx/AppliedBytecode.php';
 
 use pasm\lang\Engine as PaslEngine;
 use pasm\lang\LangException;
@@ -27,6 +29,7 @@ $outFile = null;
 $sourceArg = null;
 $pbcArg = null;
 $inline = null;
+$appliedRuntime = false;
 $reportMode = JxCompilerOutput::COMPACT;
 $reportEnabled = true;
 
@@ -41,6 +44,8 @@ while ($argv !== []) {
         $reportMode = JxCompilerOutput::VERBOSE;
     } elseif ($a === '--print') {
         $print = true;
+    } elseif ($a === '--applied-runtime') {
+        $appliedRuntime = true;
     } elseif ($a === '--quiet' || $a === '-q') {
         $reportEnabled = false;
     } elseif ($a === '--report') {
@@ -63,6 +68,7 @@ while ($argv !== []) {
         $inline = array_shift($argv);
     } elseif ($a === '-h' || $a === '--help') {
         fwrite(STDOUT, "Usage: jx.exe [--print|-v] [--report[=compact|verbose|json]|--quiet] [-O0|-O1] [-o out.pbc] [-c 'src'] [file.jx|file.pasl|file.pbc]\n");
+        fwrite(STDOUT, "       jx.exe --applied-runtime -o CODE/applied-bus.bin\n");
         exit(0);
     } elseif (is_string($a) && str_ends_with($a, '.pbc')) {
         $pbcArg = $a;
@@ -113,6 +119,30 @@ $compilePage = static function(
 };
 
 try {
+    if ($appliedRuntime) {
+        if (!is_string($outFile) || trim($outFile) === '') {
+            throw new JxException('--applied-runtime requires -o output', 'compile');
+        }
+        if ($inline !== null || $sourceArg !== null || $pbcArg !== null) {
+            throw new JxException('--applied-runtime is a compiler build page, not source execution', 'compile');
+        }
+        $compiler = new AppliedBytecodeCompiler();
+        $bytes = AppliedBytecode::runtimeBusPage();
+        $dir = dirname($outFile);
+        if ($dir !== '.' && !is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new JxException('Cannot create applied bytecode output directory', 'compile');
+        }
+        if (file_put_contents($outFile, $bytes) !== strlen($bytes)) {
+            throw new JxException('Cannot write applied runtime bytecode page', 'compile');
+        }
+        if ($reportEnabled) {
+            $page = $compiler->page(1, ['idle.tick', 'idle.collect'], '<jx.exe-runtime>', $outFile);
+            fwrite(STDERR, JxCompilerOutput::render($page, $reportMode) . "\n");
+        }
+        if ($print) fwrite(STDOUT, bin2hex($bytes) . "\n");
+        exit(0);
+    }
+
     $jx = new JxEngine($optimize, $verbose);
     $pasl = new PaslEngine($optimize, $verbose);
 
