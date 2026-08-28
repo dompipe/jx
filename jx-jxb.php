@@ -3,6 +3,7 @@
 namespace jx\semantic;
 
 require_once __DIR__ . '/jx-jxl-book64.php';
+require_once __DIR__ . '/jx-book-trust.php';
 
 /**
  * Public compiled-Book contract.
@@ -88,21 +89,7 @@ final class JxbBook
         if (!is_array($prepared) || ($prepared['format'] ?? null) !== self::PREPARED_FORMAT) {
             throw new SemanticException('JXB prepared metadata format mismatch', 'jxb-admission');
         }
-        $typeIds = $prepared['type_ids'] ?? null;
-        if (!is_array($typeIds)) {
-            throw new SemanticException('JXB prepared type table is missing', 'jxb-admission');
-        }
-        foreach (PreparedType::table() as $name => $id) {
-            if (($typeIds[$name] ?? null) !== $id) {
-                throw new SemanticException("JXB prepared type mismatch for {$name}", 'jxb-admission');
-            }
-        }
-        if (($typeIds['<user-type>'] ?? null) !== PreparedType::USER) {
-            throw new SemanticException('JXB prepared user-type ID mismatch', 'jxb-admission');
-        }
-        if (!is_array($prepared['functions'] ?? null) || !is_array($prepared['classes'] ?? null) || !is_array($prepared['source_map'] ?? null)) {
-            throw new SemanticException('JXB prepared metadata tables are malformed', 'jxb-admission');
-        }
+        self::verifyPreparedTypes($prepared);
 
         $code = $book['entries'][self::CODE_PATH] ?? null;
         if (!is_string($code)) throw new SemanticException('JXB is missing prepared JXL code', 'jxb-admission');
@@ -123,10 +110,86 @@ final class JxbBook
         return self::run($bytes);
     }
 
+    /**
+     * Verify detached Book identity/capabilities before prepared admission.
+     * This is the production security path for hosts that require signed Books.
+     *
+     * @param array<string,mixed> $envelope
+     * @param list<string> $requiredCapabilities
+     */
+    public static function runTrusted(string $bytes, array $envelope, string $publicKey, array $requiredCapabilities = []): int
+    {
+        if (!BookTrust::verify($bytes, $envelope, $publicKey, $requiredCapabilities)) {
+            throw new SemanticException('JXB trust signature verification failed', 'jxb-admission');
+        }
+        return self::run($bytes);
+    }
+
+    /** @param list<string> $requiredCapabilities */
+    public static function runTrustedFile(string $path, string $trustPath, string $publicKey, array $requiredCapabilities = []): int
+    {
+        $bytes = file_get_contents($path);
+        if ($bytes === false) throw new SemanticException("Cannot read {$path}", 'io');
+        $json = file_get_contents($trustPath);
+        if ($json === false) throw new SemanticException("Cannot read {$trustPath}", 'io');
+        try {
+            $envelope = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new SemanticException('JXB trust envelope is not valid JSON', 'jxb-admission');
+        }
+        if (!is_array($envelope)) throw new SemanticException('JXB trust envelope is malformed', 'jxb-admission');
+        return self::runTrusted($bytes, $envelope, $publicKey, $requiredCapabilities);
+    }
+
     public static function defaultOutputPath(string $sourcePath): string
     {
         $dir = dirname($sourcePath);
         $base = pathinfo($sourcePath, PATHINFO_FILENAME) . self::EXTENSION;
         return $dir === '.' ? $base : $dir . DIRECTORY_SEPARATOR . $base;
+    }
+
+    /** @param array<string,mixed> $prepared */
+    private static function verifyPreparedTypes(array $prepared): void
+    {
+        $typeIds = $prepared['type_ids'] ?? null;
+        if (!is_array($typeIds)) throw new SemanticException('JXB prepared type table is missing', 'jxb-admission');
+        foreach (PreparedType::table() as $name => $id) {
+            if (($typeIds[$name] ?? null) !== $id) {
+                throw new SemanticException("JXB prepared type mismatch for {$name}", 'jxb-admission');
+            }
+        }
+        if (($typeIds['<user-type>'] ?? null) !== PreparedType::USER) {
+            throw new SemanticException('JXB prepared user-type ID mismatch', 'jxb-admission');
+        }
+
+        $functions = $prepared['functions'] ?? null;
+        $classes = $prepared['classes'] ?? null;
+        $sourceMap = $prepared['source_map'] ?? null;
+        if (!is_array($functions) || !is_array($classes) || !is_array($sourceMap)) {
+            throw new SemanticException('JXB prepared metadata tables are malformed', 'jxb-admission');
+        }
+
+        foreach ($functions as $fn) {
+            if (!is_array($fn)) throw new SemanticException('JXB prepared function row is malformed', 'jxb-admission');
+            $return = Type::canonical((string)($fn['return'] ?? Type::ANY));
+            if (($fn['return_type_id'] ?? null) !== PreparedType::id($return)) {
+                throw new SemanticException('JXB prepared function return type mismatch', 'jxb-admission');
+            }
+            foreach (($fn['params'] ?? []) as $param) {
+                if (!is_array($param)) throw new SemanticException('JXB prepared parameter row is malformed', 'jxb-admission');
+                $type = Type::canonical((string)($param['type'] ?? Type::ANY));
+                if (($param['type_id'] ?? null) !== PreparedType::id($type)) {
+                    throw new SemanticException('JXB prepared parameter type mismatch', 'jxb-admission');
+                }
+            }
+        }
+
+        foreach ($sourceMap as $row) {
+            if (!is_array($row)) throw new SemanticException('JXB prepared source-map row is malformed', 'jxb-admission');
+            $type = Type::canonical((string)($row['type'] ?? Type::ANY));
+            if (($row['type_id'] ?? null) !== PreparedType::id($type)) {
+                throw new SemanticException('JXB prepared source-map type mismatch', 'jxb-admission');
+            }
+        }
     }
 }
