@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stdatomic.h>
 
-#define JX_IDLE_BITMAP_VERSION 2u
+#define JX_IDLE_BITMAP_VERSION 3u
 #define JX_IDLE_BITMAP_MAX_PROGRAMS 256u
 #define JX_IDLE_BITMAP_WORD_BITS 64u
 #define JX_IDLE_BITMAP_WORDS (JX_IDLE_BITMAP_MAX_PROGRAMS / JX_IDLE_BITMAP_WORD_BITS)
@@ -20,16 +20,17 @@
  *   ANSWERED bit = the complete 0/1 reply has been published
  *   DATA bit     = the published reply was 1 / prepared data exists
  *
- * A 1 reply is committed in this order:
- *   CLAIMED -> DATA -> ANSWERED
- * A 0 reply is committed:
- *   CLAIMED -> ANSWERED
+ * A producer that has a separate payload may reserve its reply with
+ * jx_idle_bitmap_claim(), publish that payload, then finish with
+ * jx_idle_bitmap_commit_claimed(). This preserves the publication order:
  *
- * ANSWERED is therefore the completion fence: when the expected ANSWERED
- * bitmap is full, every DATA bit for that epoch is already visible. DATA is
- * the ordered 0/1 bitstring carried by bus #1. The first DATA=1 atomically
- * arms bus #2, but bus #2 cannot collect until all expected ANSWERED bits are
- * committed.
+ *   CLAIMED -> payload -> DATA -> ANSWERED
+ *
+ * A plain 0/1 caller may continue to use jx_idle_bitmap_reply(), which is the
+ * claim+commit convenience operation.
+ *
+ * ANSWERED is the completion fence: when the expected ANSWERED bitmap is full,
+ * every DATA bit and every payload published before commit is already visible.
  */
 typedef struct {
     uint8_t version;
@@ -53,7 +54,21 @@ int jx_idle_bitmap_begin(jx_idle_bitmap *bitmap,
                          uint64_t epoch,
                          uint32_t program_count);
 
-/* Returns:
+/* Reserve exactly one reply position for this program/epoch. */
+int jx_idle_bitmap_claim(jx_idle_bitmap *bitmap,
+                         uint64_t epoch,
+                         uint32_t program_ordinal);
+
+/* Commit an already-claimed reply after any associated payload is published.
+ * Returns 2 when this 1 is the unique bus-#2 armer, 1 for a later 1, and 0 for
+ * a committed zero reply. */
+int jx_idle_bitmap_commit_claimed(jx_idle_bitmap *bitmap,
+                                  uint64_t epoch,
+                                  uint32_t program_ordinal,
+                                  uint8_t has_data);
+
+/* Convenience claim+commit operation.
+ * Returns:
  *   2  data=1 and this producer atomically armed bus #2
  *   1  data=1 and bus #2 was already armed
  *   0  data=0; real reply committed in ANSWERED
@@ -68,18 +83,12 @@ int jx_idle_bitmap_complete(const jx_idle_bitmap *bitmap);
 int jx_idle_bitmap_collect_pending(const jx_idle_bitmap *bitmap);
 uint32_t jx_idle_bitmap_data_count(const jx_idle_bitmap *bitmap);
 
-/* Snapshot the ordered bus #1 reply string. data_out receives DATA; callers
- * that also need completion state can request ANSWERED. Bits above
- * program_count are guaranteed zero. */
 int jx_idle_bitmap_snapshot(const jx_idle_bitmap *bitmap,
                             uint64_t data_out[JX_IDLE_BITMAP_WORDS],
                             uint64_t answered_out[JX_IDLE_BITMAP_WORDS],
                             uint64_t *epoch_out,
                             uint32_t *program_count_out);
 
-/* Bus #2 claims the one armed edge only after all 0/1 replies returned, then
- * enumerates DATA set bits in stable program order. one_ordinal is therefore
- * exactly the ordinal of that 1 within the completed bitstring. */
 int jx_idle_bitmap_collect(jx_idle_bitmap *bitmap,
                            jx_idle_bitmap_collect_fn collect,
                            void *context);
