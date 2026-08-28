@@ -10,14 +10,24 @@ typedef VOID (WINAPI *jx_wake_by_address_all_fn)(PVOID);
 static jx_wait_on_address_fn jx_wait_on_address = NULL;
 static jx_wake_by_address_all_fn jx_wake_by_address_all = NULL;
 
-static int jx_win32_idle_sync_load(void) {
+static FARPROC jx_win32_idle_proc(const char *name) {
     HMODULE module;
-    if (jx_wait_on_address && jx_wake_by_address_all) return 0;
+    FARPROC proc = NULL;
     module = GetModuleHandleW(L"kernelbase.dll");
-    if (!module) module = GetModuleHandleW(L"kernel32.dll");
-    if (!module) return -1;
-    jx_wait_on_address = (jx_wait_on_address_fn)(uintptr_t)GetProcAddress(module, "WaitOnAddress");
-    jx_wake_by_address_all = (jx_wake_by_address_all_fn)(uintptr_t)GetProcAddress(module, "WakeByAddressAll");
+    if (module) proc = GetProcAddress(module, name);
+    if (proc) return proc;
+    module = GetModuleHandleW(L"kernel32.dll");
+    if (module) proc = GetProcAddress(module, name);
+    return proc;
+}
+
+static int jx_win32_idle_sync_load(void) {
+    if (!jx_wait_on_address) {
+        jx_wait_on_address = (jx_wait_on_address_fn)(uintptr_t)jx_win32_idle_proc("WaitOnAddress");
+    }
+    if (!jx_wake_by_address_all) {
+        jx_wake_by_address_all = (jx_wake_by_address_all_fn)(uintptr_t)jx_win32_idle_proc("WakeByAddressAll");
+    }
     return (jx_wait_on_address && jx_wake_by_address_all) ? 0 : -1;
 }
 
