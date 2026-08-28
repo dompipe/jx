@@ -14,20 +14,22 @@ jobs:
       - name: Build Win32 desktop host with common trace and power state
         shell: pwsh
         run: >-
-          clang -O2 -Wall -Wextra -Werror -municode -mwindows
+          clang -O2 -Wall -Wextra -Werror
           -Ihost/common -Ihost/windows
           -o $env:TEMP/jx-win32-host.exe
           host/windows/jx-win32-host.c
           host/common/jx-host-trace.c
           host/common/jx-global-power.c
           -luser32 -lgdi32 -lshell32
+          -Xlinker /subsystem:windows
       - name: Build Win32 executable tether helper
         shell: pwsh
         run: >-
-          clang -O2 -Wall -Wextra -Werror -municode
+          clang -O2 -Wall -Wextra -Werror
           -Ihost/windows
           -o $env:TEMP/jx-win32-tether-helper.exe
           host/windows/jx-win32-tether-helper.c
+          -Xlinker /subsystem:console
       - name: Compile Win32 executable tether launcher
         shell: pwsh
         run: >-
