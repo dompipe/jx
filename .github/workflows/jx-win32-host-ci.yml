@@ -11,7 +11,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build Win32 desktop host with common trace and power state
+      - name: Build Win32 desktop host with trace, power and live Task Manager
         shell: pwsh
         run: >-
           clang -O2 -Wall -Wextra -Werror
@@ -20,6 +20,8 @@ jobs:
           host/windows/jx-win32-host.c
           host/common/jx-host-trace.c
           host/common/jx-global-power.c
+          host/common/jx-task-manager.c
+          host/common/jx-task-control.c
           -luser32 -lgdi32 -lshell32
           -Xlinker /subsystem:windows
       - name: Build Win32 executable tether helper
