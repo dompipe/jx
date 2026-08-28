@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stdatomic.h>
 
-#define JX_IDLE_COLLECT_VERSION 1u
+#define JX_IDLE_COLLECT_VERSION 2u
 #define JX_IDLE_NOTE_CAPACITY 512u
 #define JX_IDLE_COLLECT_CALL_BYTES 3u
 
@@ -28,6 +28,10 @@ typedef struct {
     _Atomic uint32_t collect_pending;
     _Atomic uint32_t head;
     _Atomic uint32_t tail;
+    _Atomic uint32_t expected_answers;
+    _Atomic uint32_t answered;
+    _Atomic uint32_t data_answers;
+    _Atomic uint64_t epoch;
     jx_idle_note notes[JX_IDLE_NOTE_CAPACITY];
 } jx_idle_note_deque;
 
@@ -35,11 +39,18 @@ typedef int (*jx_idle_collect_fn)(const jx_idle_note *note, void *context);
 
 void jx_idle_note_deque_init(jx_idle_note_deque *deque);
 
+/* Begin one wake epoch. Every registered program is expected to publish
+ * exactly one note for this epoch, including has_data=0. */
+int jx_idle_note_begin_epoch(jx_idle_note_deque *deque,
+                             uint64_t epoch,
+                             uint32_t expected_answers);
+
 /* Publish one program's wake result. Returns:
+ *   3  note=0 was the final answer and closed an all-zero epoch
  *   2  note=1 and this producer armed the collect bus (0 -> 1)
  *   1  note=1 and collect bus was already armed
  *   0  note=0 published; no collect arm
- *  <0  error/full
+ *  <0  error/full/wrong epoch
  */
 int jx_idle_note_publish(jx_idle_note_deque *deque,
                          uint32_t program_id,
@@ -47,14 +58,15 @@ int jx_idle_note_publish(jx_idle_note_deque *deque,
                          uint8_t has_data);
 
 int jx_idle_collect_is_pending(const jx_idle_note_deque *deque);
+int jx_idle_epoch_is_complete(const jx_idle_note_deque *deque);
+uint32_t jx_idle_epoch_answered(const jx_idle_note_deque *deque);
 int jx_idle_collect_encode(uint8_t out[JX_IDLE_COLLECT_CALL_BYTES]);
 int jx_idle_collect_is_call(const uint8_t *code, size_t length);
 
-/* Second bus sweep. Notes with has_data=0 are discarded cheaply. Notes with
- * has_data=1 are handed to collect(). All notes consumed by the sweep leave
- * the deque. If a producer races in after the sweep, collect_pending remains
- * armed for the next sweep rather than losing the edge.
- */
+/* Second bus sweep. Notes with has_data=0 are acknowledgements and are
+ * discarded cheaply. Notes with has_data=1 are handed to collect(). If a
+ * producer publishes a later 1 after the sweep claims the current edge, it
+ * atomically re-arms the next collection sweep. */
 int jx_idle_collect_run(jx_idle_note_deque *deque,
                         jx_idle_collect_fn collect,
                         void *context);
