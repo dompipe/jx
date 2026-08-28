@@ -2,7 +2,7 @@
 
 namespace jx\semantic;
 
-require_once __DIR__ . '/jx-semantic.php';
+require_once __DIR__ . '/jx-jxl-compiler.php';
 require_once __DIR__ . '/jx-prepared-metadata.php';
 
 /** Deterministic compiled Book carrying prepared JXL. */
@@ -16,9 +16,9 @@ final class JxlBook64
     /** @return array{bytes:string,manifest:array<string,mixed>,content_sha256:string,file_sha256:string} */
     public static function compile(string $source, string $name = 'program'): array
     {
-        $compiler = new Compiler();
+        $compiler = new PreparedCompiler();
         $program = $compiler->parse($source);
-        $jxl = (new JxlEmitter())->emit($program);
+        $jxl = $compiler->emitProgram($program);
 
         $semantic = [
             'namespace' => $program->namespace,
@@ -65,7 +65,7 @@ final class JxlBook64
             'architecture' => '64-bit',
             'native_target' => 'jxl',
             'book' => $name,
-            'compiler' => 'jx.semantic+jxl/1',
+            'compiler' => 'jx.semantic+prepared+jxl/1',
             'content_sha256' => $contentSha,
             'sections' => $sectionTable,
         ];
