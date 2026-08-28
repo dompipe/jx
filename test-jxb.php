@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/jx-jxb.php';
 
+use jx\semantic\BookTrust;
 use jx\semantic\JxbBook;
 use jx\semantic\SemanticException;
 
@@ -48,12 +49,36 @@ try {
     try { JxbBook::admit($bad); } catch (SemanticException $e) { $rejected = $e->phase === 'jxb-admission'; }
     assert($rejected);
 
+    // Function/parameter metadata is also checked against the stable type table.
+    $badFunction = $loaded;
+    $prepared = json_decode($badFunction['entries'][JxbBook::PREPARED_PATH], true, flags: JSON_THROW_ON_ERROR);
+    $prepared['functions'][0]['return_type_id'] = 99;
+    $badFunction['entries'][JxbBook::PREPARED_PATH] = json_encode($prepared, JSON_THROW_ON_ERROR);
+    $rejected = false;
+    try { JxbBook::admit($badFunction); } catch (SemanticException $e) { $rejected = $e->phase === 'jxb-admission'; }
+    assert($rejected);
+
+    // Signed Books bind exact bytes and capabilities to the same execution admission path.
+    if (BookTrust::sodiumAvailable()) {
+        $keys = BookTrust::keypair('jx-jxb-regression');
+        $envelope = BookTrust::sign($compiled['bytes'], ['bag.read','ui.present'], 'jx-test', $keys['key_id'], $keys['secret']);
+        assert(JxbBook::runTrusted($compiled['bytes'], $envelope, $keys['public'], ['bag.read']) === 30);
+
+        $denied = false;
+        try {
+            JxbBook::runTrusted($compiled['bytes'], $envelope, $keys['public'], ['sql.write']);
+        } catch (SemanticException $e) {
+            $denied = $e->phase === 'trust';
+        }
+        assert($denied);
+    }
+
     // Public extension is conventional, not trusted: admitted bytes still identify the Book.
     $renamed = $dir . '/sample.bin';
     copy($compiled['path'], $renamed);
     assert(JxbBook::runFile($renamed) === 30);
 
-    echo "PASS JXB .jx -> .jxb -> typed admission -> JXL execution\n";
+    echo "PASS JXB .jx -> .jxb -> typed/trusted admission -> JXL execution\n";
 } finally {
     foreach (glob($dir . '/*') ?: [] as $file) @unlink($file);
     @rmdir($dir);
