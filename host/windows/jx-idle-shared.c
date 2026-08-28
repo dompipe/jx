@@ -168,19 +168,28 @@ int jx_win32_idle_shared_wait(jx_win32_idle_shared *shared,
                               uint64_t *monotonic_ms) {
     uint64_t epoch = 0u;
     uint64_t ms = 0u;
+    unsigned next_parity;
     DWORD wait_rc;
     (void)observed_wake_word;
     if (!shared || !shared->page || !shared->wake_events[0] || !shared->wake_events[1]) return -1;
-    for (;;) {
-        if (jx_win32_idle_shared_snapshot(shared, &epoch, &ms, NULL) != 0) return -1;
-        if (epoch > last_seen_epoch) {
-            if (new_epoch) *new_epoch = epoch;
-            if (monotonic_ms) *monotonic_ms = ms;
-            return 1;
-        }
-        wait_rc = WaitForMultipleObjects(2u, shared->wake_events, FALSE, INFINITE);
-        if (wait_rc != WAIT_OBJECT_0 && wait_rc != WAIT_OBJECT_0 + 1u) return -1;
-        /* One parity event remains signaled for the entire current epoch. The
-         * snapshot is the authority, so stale/spurious event observations loop. */
+
+    if (jx_win32_idle_shared_snapshot(shared, &epoch, &ms, NULL) != 0) return -1;
+    if (epoch > last_seen_epoch) {
+        if (new_epoch) *new_epoch = epoch;
+        if (monotonic_ms) *monotonic_ms = ms;
+        return 1;
     }
+
+    /* During epoch N, broadcast(N) has reset the opposite-parity event. That
+     * opposite event is therefore the doorbell for N+1. Waiting on only that
+     * event avoids spinning on the manual-reset event that represents N. */
+    next_parity = (unsigned)((last_seen_epoch + 1u) & 1u);
+    wait_rc = WaitForSingleObject(shared->wake_events[next_parity], INFINITE);
+    if (wait_rc != WAIT_OBJECT_0) return -1;
+
+    if (jx_win32_idle_shared_snapshot(shared, &epoch, &ms, NULL) != 0) return -1;
+    if (epoch <= last_seen_epoch) return 0;
+    if (new_epoch) *new_epoch = epoch;
+    if (monotonic_ms) *monotonic_ms = ms;
+    return 1;
 }
