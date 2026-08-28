@@ -6,6 +6,7 @@ use ArrayIterator;
 use Countable;
 use IteratorAggregate;
 use JsonSerializable;
+use LogicException;
 use OutOfBoundsException;
 use Traversable;
 use UnderflowException;
@@ -45,7 +46,8 @@ interface BagContainerContract extends Countable, IteratorAggregate, JsonSeriali
 abstract class BagContainer implements BagContainerContract
 {
     protected int $revision = 0;
-    protected int $checkpointRevision = -1;
+    /** @var array<string,int> */
+    protected array $checkpointRevisions = [];
 
     public function __construct(
         protected readonly Bag $owner,
@@ -66,11 +68,11 @@ abstract class BagContainer implements BagContainerContract
 
     final public function checkpoint(string $node = '_container'): static
     {
-        if ($this->checkpointRevision === $this->revision) return $this;
+        if (($this->checkpointRevisions[$node] ?? -1) === $this->revision) return $this;
         $ref = $this->owner->sign($node);
         try {
             $this->owner->set($this->canonical(), $node)->commit($ref);
-            $this->checkpointRevision = $this->revision;
+            $this->checkpointRevisions[$node] = $this->revision;
         } finally {
             $this->owner->unsign($ref);
         }
@@ -86,7 +88,7 @@ abstract class BagContainer implements BagContainerContract
         }
         $this->importPayload($snapshot['payload'] ?? []);
         $this->revision = (int)($snapshot['revision'] ?? 0);
-        $this->checkpointRevision = $this->revision;
+        $this->checkpointRevisions[$node] = $this->revision;
         return $this;
     }
 
@@ -318,7 +320,7 @@ class MapBag extends BagContainer
         $this->changed();
         return $value;
     }
-    public function get(string|int $key,mixed $default=null): mixed{return $this->values[$key]??$default;}
+    public function get(string|int $key,mixed $default=null): mixed{return array_key_exists($key,$this->values)?$this->values[$key]:$default;}
     public function has(string|int $key): bool{return array_key_exists($key,$this->values);}
     public function remove(string|int $key): bool{if(!array_key_exists($key,$this->values))return false;unset($this->values[$key]);$this->changed();return true;}
     public function clear(): static{if($this->values!==[]){$this->values=[];$this->changed();}return $this;}
@@ -341,6 +343,14 @@ final class SetBag extends MapBag
             $value===null=>'n:',
             default=>'x:'.hash('xxh3',serialize($value)),
         };
+    }
+    public function put(string|int $key,mixed $value): static
+    {
+        throw new LogicException('SetBag does not expose map-key put(); use add() or emplace(value)');
+    }
+    public function remove(string|int $key): bool
+    {
+        throw new LogicException('SetBag does not expose map-key remove(); use discard(value)');
     }
     /** Set BEMPLACE: emplace(value), insert only when absent. */
     public function emplace(mixed ...$args): mixed
