@@ -11,16 +11,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify compact promoted and fused ASM calls
+      - name: Verify release v4 one-byte hot calls
         run: >-
           cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common
           -o /tmp/jx-asm-call
           tests/jx-asm-call.c
           host/common/jx-asm-call.c
           && /tmp/jx-asm-call
-      - name: Verify stable automatic micro-slot promotion
+      - name: Verify profiled automatic hot promotion
         run: >-
-          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common
+          cc -O2 -std=c11 -Wall -Wextra -Werror -DJX_ASM_CALL_PROFILE=1 -Ihost/common
           -o /tmp/jx-asm-profile
           tests/jx-asm-profile.c
           host/common/jx-asm-profile.c
