@@ -19,6 +19,13 @@ static void unlock_deque(jx_idle_note_deque *deque) {
     atomic_store_explicit(&deque->lock, 0u, memory_order_release);
 }
 
+static void discard_queued_notes(jx_idle_note_deque *deque) {
+    lock_deque(deque);
+    uint32_t tail = atomic_load_explicit(&deque->tail, memory_order_acquire);
+    atomic_store_explicit(&deque->head, tail, memory_order_release);
+    unlock_deque(deque);
+}
+
 void jx_idle_note_deque_init(jx_idle_note_deque *deque) {
     if (!deque) return;
     memset(deque, 0, sizeof *deque);
@@ -27,6 +34,27 @@ void jx_idle_note_deque_init(jx_idle_note_deque *deque) {
     atomic_init(&deque->collect_pending, 0u);
     atomic_init(&deque->head, 0u);
     atomic_init(&deque->tail, 0u);
+    atomic_init(&deque->expected_answers, 0u);
+    atomic_init(&deque->answered, 0u);
+    atomic_init(&deque->data_answers, 0u);
+    atomic_init(&deque->epoch, 0u);
+}
+
+int jx_idle_note_begin_epoch(jx_idle_note_deque *deque,
+                             uint64_t epoch,
+                             uint32_t expected_answers) {
+    if (!deque || deque->version != JX_IDLE_COLLECT_VERSION || !epoch) return -1;
+    if (atomic_load_explicit(&deque->answered, memory_order_acquire) <
+        atomic_load_explicit(&deque->expected_answers, memory_order_acquire))
+        return -2;
+    if (jx_idle_collect_is_pending(deque)) return -3;
+
+    discard_queued_notes(deque);
+    atomic_store_explicit(&deque->epoch, epoch, memory_order_release);
+    atomic_store_explicit(&deque->expected_answers, expected_answers, memory_order_release);
+    atomic_store_explicit(&deque->answered, 0u, memory_order_release);
+    atomic_store_explicit(&deque->data_answers, 0u, memory_order_release);
+    return 0;
 }
 
 int jx_idle_note_publish(jx_idle_note_deque *deque,
@@ -35,6 +63,7 @@ int jx_idle_note_publish(jx_idle_note_deque *deque,
                          uint8_t has_data) {
     if (!deque || deque->version != JX_IDLE_COLLECT_VERSION || !program_id || has_data > 1u)
         return -1;
+    if (epoch != atomic_load_explicit(&deque->epoch, memory_order_acquire)) return -3;
 
     lock_deque(deque);
     uint32_t head = atomic_load_explicit(&deque->head, memory_order_relaxed);
@@ -52,7 +81,19 @@ int jx_idle_note_publish(jx_idle_note_deque *deque,
     atomic_store_explicit(&deque->tail, next, memory_order_release);
     unlock_deque(deque);
 
-    if (!has_data) return 0;
+    if (has_data)
+        atomic_fetch_add_explicit(&deque->data_answers, 1u, memory_order_acq_rel);
+    uint32_t answered = atomic_fetch_add_explicit(&deque->answered, 1u, memory_order_acq_rel) + 1u;
+    uint32_t expected_answers = atomic_load_explicit(&deque->expected_answers, memory_order_acquire);
+
+    if (!has_data) {
+        if (expected_answers && answered == expected_answers &&
+            atomic_load_explicit(&deque->data_answers, memory_order_acquire) == 0u) {
+            discard_queued_notes(deque);
+            return 3;
+        }
+        return 0;
+    }
 
     uint32_t expected = 0u;
     if (atomic_compare_exchange_strong_explicit(&deque->collect_pending,
@@ -67,6 +108,17 @@ int jx_idle_note_publish(jx_idle_note_deque *deque,
 int jx_idle_collect_is_pending(const jx_idle_note_deque *deque) {
     if (!deque || deque->version != JX_IDLE_COLLECT_VERSION) return 0;
     return atomic_load_explicit(&deque->collect_pending, memory_order_acquire) != 0u;
+}
+
+int jx_idle_epoch_is_complete(const jx_idle_note_deque *deque) {
+    if (!deque || deque->version != JX_IDLE_COLLECT_VERSION) return 0;
+    uint32_t expected = atomic_load_explicit(&deque->expected_answers, memory_order_acquire);
+    return expected == 0u || atomic_load_explicit(&deque->answered, memory_order_acquire) >= expected;
+}
+
+uint32_t jx_idle_epoch_answered(const jx_idle_note_deque *deque) {
+    if (!deque || deque->version != JX_IDLE_COLLECT_VERSION) return 0u;
+    return atomic_load_explicit(&deque->answered, memory_order_acquire);
 }
 
 int jx_idle_collect_encode(uint8_t out[JX_IDLE_COLLECT_CALL_BYTES]) {
@@ -88,15 +140,11 @@ int jx_idle_collect_run(jx_idle_note_deque *deque,
                         jx_idle_collect_fn collect,
                         void *context) {
     if (!deque || deque->version != JX_IDLE_COLLECT_VERSION || !collect) return -1;
-
-    /* Claim the armed edge first. A producer that publishes a 1 after this
-     * exchange observes 0 and re-arms the next collection sweep. */
     if (atomic_exchange_explicit(&deque->collect_pending, 0u, memory_order_acq_rel) == 0u)
         return 0;
 
     jx_idle_note batch[JX_IDLE_NOTE_CAPACITY];
     size_t count = 0u;
-
     lock_deque(deque);
     uint32_t head = atomic_load_explicit(&deque->head, memory_order_relaxed);
     uint32_t tail = atomic_load_explicit(&deque->tail, memory_order_acquire);
