@@ -24,6 +24,7 @@ typedef struct {
 
 typedef struct {
     uint8_t version;
+    _Atomic uint32_t lock;
     _Atomic uint32_t collect_pending;
     _Atomic uint32_t head;
     _Atomic uint32_t tail;
