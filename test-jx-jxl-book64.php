@@ -4,6 +4,7 @@ require_once __DIR__ . '/jx-jxl-book64.php';
 
 use jx\semantic\JxlBook64;
 use jx\semantic\JxlVm;
+use jx\semantic\PreparedType;
 
 $source = <<<'JX'
 function twice(int $x): int {
@@ -27,10 +28,18 @@ $v = JxlBook64::validate($a['bytes']);
 assert($v['manifest']['format'] === 'jx.64B/1');
 assert($v['manifest']['native_target'] === 'jxl');
 assert(isset($v['entries']['CODE/program.jxl']));
+assert(isset($v['entries'][JxlBook64::PREPARED_PATH]));
 assert(!isset($v['entries']['SOURCE/program.jx']));
 assert(substr($v['entries']['JX64/header.bin'], 0, 8) === 'JX64B001');
 assert($v['content_sha256'] === $a['content_sha256']);
 assert($v['file_sha256'] === $a['file_sha256']);
+
+$prepared = json_decode($v['entries'][JxlBook64::PREPARED_PATH], true, flags: JSON_THROW_ON_ERROR);
+assert($prepared['format'] === 'jx.prepared-metadata/1');
+assert($prepared['type_ids']['int'] === PreparedType::INT);
+assert($prepared['functions'][0]['name'] === 'twice');
+assert($prepared['functions'][0]['return_type_id'] === PreparedType::INT);
+assert(count($prepared['source_map']) > 4);
 
 $result = (new JxlVm())->run($v['entries']['CODE/program.jxl']);
 assert($result === 56);
@@ -42,4 +51,4 @@ unlink($tmp);
 assert(is_string($bytes));
 assert(JxlBook64::validate($bytes)['manifest']['book'] === 'book-test');
 
-echo "jx canonical -> JXL -> deterministic .64B: ok\n";
+echo "jx canonical -> JXL -> deterministic .64B + prepared metadata: ok\n";
