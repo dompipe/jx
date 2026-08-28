@@ -50,4 +50,4 @@ jobs:
       - name: Foreground-first fair service turn
         run: php -d zend.assertions=1 -d assert.exception=1 test-jx-service-turn.php
       - name: jx.exe semantic JXL and 64B paths
-        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-exe-semantic.php
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-cli-semantic.php
