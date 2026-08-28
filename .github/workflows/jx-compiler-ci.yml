@@ -54,8 +54,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Install XCB and Cairo development libraries
-        run: sudo apt-get update && sudo apt-get install -y libxcb1-dev libcairo2-dev pkg-config
+      - name: Install XCB Cairo and OpenSSL development libraries
+        run: sudo apt-get update && sudo apt-get install -y libxcb1-dev libcairo2-dev libssl-dev pkg-config
       - name: Build jx11
         run: >-
           cc -O2 -Wall -Wextra -Werror -o /tmp/jx11
@@ -81,6 +81,15 @@ jobs:
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx-patch-ipc tests/jx-patch-ipc.c host/common/jx-patch-ipc.c && /tmp/jx-patch-ipc
       - name: Build OpenSSH forced-command patch receiver
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx-patch-receiver host/linux/jx-patch-receiver.c host/common/jx-patch-ssh.c host/common/jx-patch-ipc.c
+      - name: Compile canonical patch wire and Ed25519 JX11 service
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common -Ihost/linux -c
+          host/common/jx-live-patch-wire.c host/linux/jx11-patch-service.c
+      - name: Link JX11 patch service proof
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common -Ihost/linux -o /tmp/jx11-patch-service-proof
+          tests/jx11-live-patch.c host/linux/jx11-live-patch.c host/linux/jx11-patch-service.c
+          host/common/jx-live-patch.c host/common/jx-live-patch-wire.c host/common/jx-patch-ipc.c -lcrypto
       - name: Verify JX11 safe-point patch generations
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-live-patch tests/jx11-live-patch.c host/linux/jx11-live-patch.c host/common/jx-live-patch.c && /tmp/jx11-live-patch
       - name: Verify native register ABI
