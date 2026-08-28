@@ -1,9 +1,9 @@
+#define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include "jx-idle-shared.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/futex.h>
-#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,8 +12,15 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
-static int futex_wake_all(uint32_t *word) {
-    return (int)syscall(SYS_futex, word, FUTEX_WAKE, 0x7fffffff, NULL, NULL, 0);
+static int futex_wake_all(_Atomic uint32_t *word) {
+    return (int)syscall(SYS_futex, (uint32_t *)word, FUTEX_WAKE, 0x7fffffff, NULL, NULL, 0);
+}
+
+static int futex_wait_word(_Atomic uint32_t *word, uint32_t expected) {
+    int rc = (int)syscall(SYS_futex, (uint32_t *)word, FUTEX_WAIT, expected, NULL, NULL, 0);
+    if (rc == 0) return 0;
+    if (errno == EAGAIN || errno == EINTR) return 0;
+    return -1;
 }
 
 static int map_page(jx_idle_shared *shared, int fd) {
@@ -76,8 +83,7 @@ void jx_idle_shared_close(jx_idle_shared *shared, int owner) {
 
 int jx_idle_shared_set_program_count(jx_idle_shared *shared, uint32_t count) {
     if (!shared || !shared->page) return -1;
-    atomic_store_explicit((_Atomic uint32_t *)&shared->page->program_count,
-                          count, memory_order_release);
+    atomic_store_explicit(&shared->page->program_count, count, memory_order_release);
     return 0;
 }
 
@@ -85,12 +91,9 @@ int jx_idle_shared_broadcast(jx_idle_shared *shared,
                              uint64_t epoch,
                              uint64_t monotonic_ms) {
     if (!shared || !shared->page) return -1;
-    atomic_store_explicit((_Atomic uint64_t *)&shared->page->monotonic_ms,
-                          monotonic_ms, memory_order_relaxed);
-    atomic_store_explicit((_Atomic uint64_t *)&shared->page->epoch,
-                          epoch, memory_order_release);
-    atomic_fetch_add_explicit((_Atomic uint32_t *)&shared->page->futex_word,
-                              1u, memory_order_release);
+    atomic_store_explicit(&shared->page->monotonic_ms, monotonic_ms, memory_order_relaxed);
+    atomic_store_explicit(&shared->page->epoch, epoch, memory_order_release);
+    atomic_fetch_add_explicit(&shared->page->futex_word, 1u, memory_order_release);
     (void)futex_wake_all(&shared->page->futex_word);
     return 0;
 }
@@ -100,11 +103,37 @@ int jx_idle_shared_snapshot(const jx_idle_shared *shared,
                             uint64_t *monotonic_ms,
                             uint32_t *program_count) {
     if (!shared || !shared->page) return -1;
-    if (epoch) *epoch = atomic_load_explicit((_Atomic uint64_t *)&shared->page->epoch,
-                                              memory_order_acquire);
-    if (monotonic_ms) *monotonic_ms = atomic_load_explicit((_Atomic uint64_t *)&shared->page->monotonic_ms,
+    if (epoch) *epoch = atomic_load_explicit(&shared->page->epoch, memory_order_acquire);
+    if (monotonic_ms) *monotonic_ms = atomic_load_explicit(&shared->page->monotonic_ms,
                                                             memory_order_relaxed);
-    if (program_count) *program_count = atomic_load_explicit((_Atomic uint32_t *)&shared->page->program_count,
+    if (program_count) *program_count = atomic_load_explicit(&shared->page->program_count,
                                                               memory_order_acquire);
     return 0;
+}
+
+uint32_t jx_idle_shared_wake_word(const jx_idle_shared *shared) {
+    if (!shared || !shared->page) return 0u;
+    return atomic_load_explicit(&shared->page->futex_word, memory_order_acquire);
+}
+
+int jx_idle_shared_wait(jx_idle_shared *shared,
+                        uint32_t observed_wake_word,
+                        uint64_t last_seen_epoch,
+                        uint64_t *new_epoch,
+                        uint64_t *monotonic_ms) {
+    if (!shared || !shared->page) return -1;
+
+    uint64_t epoch = atomic_load_explicit(&shared->page->epoch, memory_order_acquire);
+    if (epoch == last_seen_epoch) {
+        uint32_t current = atomic_load_explicit(&shared->page->futex_word, memory_order_acquire);
+        if (current == observed_wake_word && futex_wait_word(&shared->page->futex_word, observed_wake_word) != 0)
+            return -2;
+        epoch = atomic_load_explicit(&shared->page->epoch, memory_order_acquire);
+    }
+
+    if (epoch == last_seen_epoch) return 0;
+    if (new_epoch) *new_epoch = epoch;
+    if (monotonic_ms) *monotonic_ms = atomic_load_explicit(&shared->page->monotonic_ms,
+                                                            memory_order_relaxed);
+    return 1;
 }
