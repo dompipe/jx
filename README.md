@@ -1,111 +1,243 @@
-# jx (jinx)
+# JX (jinx)
 
-**Formerly pasm-v2.** Product name **jx**; PASM is the engine.
+> **Readable source. Prepared execution. Bags remember. Registers react. Compiled Books know how to wake.**
 
-## OSAura operating system
+JX is a user-facing programming language, compiler/runtime system, and application model built around a deliberately simple principle:
 
-JX is the language/compiler/runtime layer. The standalone operating system built around it is **OSAura**, maintained separately at `dompipe/OSAura`.
+> **Resolve cold -> bind once -> execute hot.**
+
+JX keeps the source language readable and familiar while moving repeated work out of the execution path. The current toolchain uses **PHP as the authoring/compiler/front-end host**, PASM/PASL as the lowering engine, **JXL** as the compact prepared-execution direction, and **`.64B` Books** as the deterministic native application/container boundary.
+
+JX is pronounced **jinx**.
+
+---
+
+## What JX is
+
+JX is not "PHP with a new name," and native JX applications are not intended to execute PHP source at runtime.
+
+PHP is currently valuable at the **front of the pipeline** because it gives JX a mature environment for parsing, compiler orchestration, development tools, host integration, testing, and the existing runtime library. JX then progressively lowers meaning into forms that do not need to rediscover that meaning every time they execute.
 
 ```text
-canonical JX / .64B
-        ↓
-JX runtime ABI
-        ↓
-OSAura kernel
-        ↓
-drivers / hardware
+canonical .jx source
+        |
+        v
+PHP-backed JX front end
+parse / validate / canonicalize / resolve
+        |
+        v
+semantic JX / PASL lowering
+        |
+        +--------------------+
+        |                    |
+        v                    v
+prepared JXL             native target code
+        |                    |
+        +----------+---------+
+                   v
+             compiled .64B Book
+                   |
+                   v
+       JX host / WSJX64 / OSAura64
 ```
 
-OSAura consumes the host-neutral JX pieces: Bags/containers, `.64B`, applied bytecodes, tasks, channels, hot generations/rollback, multiplexed buses, and JX Security. Windows/Linux-specific wake and host mechanisms remain adapters/reference implementations rather than becoming part of the OSAura kernel.
+The programmer should not have to write assembly-like source to obtain a fast execution path. **Canonical readability belongs in the language. Preparation belongs in the compiler. Speed belongs in the prepared/native runtime.**
 
-The portability and synchronization contract is documented in `docs/OSAURA.md`.
+---
 
-## Quick start
+## The four layers
+
+### 1. Canonical JX — what people write
+
+Canonical JX is the human- and AI-readable authority.
+
+It contains concepts such as:
+
+- variables and expressions,
+- control flow,
+- Bags and Bag-backed containers,
+- Books and Pages,
+- Tasks and events,
+- Controls and styles,
+- SQL/data-source bindings,
+- plugins,
+- permissions and application semantics.
+
+Example:
+
+```jx
+bag = Bag.underwrite(256);
+ref = bag.sign("msg");
+bag.set("hello-jx").commit(ref);
+q = bag.quotient();
+```
+
+Run the current PHP-backed surface with:
 
 ```bash
-# Install commands, PATH integration, and shared plugin storage
-sudo php jx-install.php install-system   # Linux/macOS
-php jx-install.php install-system        # Windows
-
-# Install required plugins (one-by-one, with pre + full backups)
-jx-install install-required
-
-# Run
 jx --print examples/hello.jx
-php examples/jx-smoke.php
 ```
 
-## Layout
+or directly:
 
-| Path | Role |
-|------|------|
-| `jx.php` | Core runtime (Bag, Task, Page, Book, Delivery, Complex, SmartTable, Sym) |
-| `jx-alias.php` | Language-wide alias domains, collision rules, canonicalization + provenance |
-| `jx-bag-containers.php` | Bag-backed record/vector/stack/queue/deque/map/set disciplines |
-| `pasm-bag-hotops.php` | Canonical Bag hot ops (`BPUSH`, `BPOP`, `BEMPLACE`, etc.) + native lowering recipes |
-| `pasm-loop-space.php` | Single-op variable mutation + bounded compiled loop-space descriptors |
-| `pasm-lang-compiler-loop.php` | Active PASL compiler with out-of-line compiled `for`/`while` blocks |
-| `jx-lang.php` / `jx-run.php` | Language engine + executable compiler |
-| `jx/plugins/` | Host-neutral JX plugin contracts (Charts, Media, AudioFX, Audio Analysis) |
-| `plugins/` | **Single source directory** for installable module plugins |
-| `host/modules/` | Per-plugin links to shared active packages |
-| `host/backups/pre/` | Snapshot before each new plugin install |
-| `host/backups/full/` | Full install snapshot (restore / redirect) |
-| `jx/INTRO.md` | Introduction materials |
-| `jx/INSTALL.md` | Install & plugin policy |
-| `jx/COMPILER.md` | Compiler pipeline |
-| `docs/BAG-CONTAINERS.md` | Containers as Bag disciplines + native-shadow strategy |
-| `docs/JX-ALIASES.md` | Language-wide alias rules and canonicalization |
-| `docs/LOOP-SPACE.md` | Single-op mutations + bounded out-of-line loop compilation |
-| `docs/OSAURA.md` | JX ↔ OSAura OS portability and synchronization contract |
-| `docs/history/` | Original-to-latest Markdown and blame conveyance |
-| `history/jx-lang/` | History-preserving snapshot of the earlier `jx-lang` tree |
+```bash
+php jx-run.php --print examples/hello.jx
+```
 
-## Language-wide aliases
+### 2. PHP-backed front end — where cold work happens today
 
-Aliases are a standard compiler feature. Human-facing spellings resolve to one canonical operation before semantic lowering and do not survive into executable code.
+The PHP-backed toolchain performs work that should not be paid repeatedly by a hot program:
 
 ```text
-enqueue  ─┐
-append   ─┼─> BPUSH ─> Bag discipline ─> native shadow
-push     ─┘
+source parsing
+alias canonicalization
+validation
+name/type resolution
+Bag/method resolution
+loop compilation
+schema/policy checks
+native-layout selection
+Book construction
+prepared-binding construction
 ```
 
-The alias registry is domain-scoped, collision-safe, plugin-extensible, and provenance-aware. A diagnostic can retain `source_spelling=enqueue` while the compiler and native shadow only see `BPUSH`.
+PHP therefore serves as a practical bridge between a friendly language and increasingly native execution.
 
-Examples:
+The rule is not "run everything through PHP forever." The rule is:
+
+> **Use the front end to discover meaning once; make the executable remember the answer.**
+
+### 3. JXL — prepared execution
+
+**JXL is not another source language.** A programmer normally should not hand-author it.
+
+JXL is the prepared compact representation that the compiler/runtime can use once canonical meaning has already been resolved.
+
+The current ratified JXL byte law is intentionally separate from the global JX ABI-v4 hot-call grammar:
 
 ```text
-Book.load       -> Book.open
-Bag.allocate    -> Bag.underwrite
-deliver(...)    -> delivery(...)
-SQL exec        -> EXECUTE
-chart draw      -> RENDER
-JNE             -> PASM JNZ
+JXL / .8B stream
+
+0xxxxxxx = executable JXL opcode
+1xxxxxxx = attached extension/data byte; never an opcode
 ```
 
-See `docs/JX-ALIASES.md`.
+A JX/JXL session selects its decoder once at admission. The repeat path should not continually ask which language mode it is executing.
 
-## Single-operation variable mutation
+JXL is designed around prepared register windows, prelinked operations, compact state identifiers, and the rule that expensive lookup belongs outside the hot loop.
 
-Variable changes canonicalize into one operation before target lowering:
+See [`docs/JXL-PREPARED-EXECUTION.md`](docs/JXL-PREPARED-EXECUTION.md).
+
+### 4. `.64B` — the compiled Book
+
+A `.64B` Book is the broader compiled 64-bit package/container.
+
+It can carry:
 
 ```text
-$x++            -> VINC x
-$x--            -> VDEC x
-$x += y         -> VADD x,y
-$x -= y         -> VSUB x,y
-$x *= y         -> VMUL x,y
-$x = algebra    -> VALG x,<compiled algebra tree>
+compiled code
+JXL executable sections
+Bag schemas/state
+Book/Page metadata
+hot/prepared tables
+generations
+manifests
+assets
+native ELF/PE sections
 ```
 
-Where the target permits it, increment/decrement and simple compound assignments lower to a single native instruction (`inc`, `dec`, `add`, `sub`, etc.). Recursive algebra remains one canonical mutation; its expression tree is ordered and fused at compile time rather than rediscovered at runtime.
+Native installation consumes **compiled Books, not PHP source**.
+
+The file extension is descriptive; the package bytes and `JX64B001` identity are authoritative. `.64B` output is deterministic and checksum-verifiable.
+
+See [`docs/NATIVE-64B.md`](docs/NATIVE-64B.md).
+
+---
+
+## Status vocabulary
+
+The repository uses explicit status words so fast-moving development does not turn future ideas into accidental claims.
+
+| Status | Meaning |
+|---|---|
+| **ACTIVE** | Accepted by the current compiler/runtime and covered by tests |
+| **PHP-BACKED** | Usable through the current PHP host/runtime API, but not necessarily lowered through the native JX surface yet |
+| **JXL** | Prepared executable representation; not canonical source syntax |
+| **PLANNED** | Ratified or documented direction that is not yet claimed as implemented |
+
+When documentation and implementation disagree, tests and the active compiler are authoritative for **ACTIVE** claims.
+
+---
+
+## Language surface today
+
+The current compiler-backed control-flow surface includes:
+
+```jx
+// assignment and arithmetic mutation
+$x = 1;
+$x++;
+$x--;
+$x += 4;
+$x -= 2;
+$x *= 3;
+$x /= 2;
+$x %= 5;
+$x &= 7;
+$x |= 8;
+$x ^= 2;
+$x <<= 1;
+$x >>= 1;
+
+// conditions
+if ($x > 3) {
+    $x += 1;
+} else {
+    $x -= 1;
+}
+
+// while
+while ($x) {
+    $x--;
+}
+
+// for
+for ($i = 0; $i < 10; $i++) {
+    if ($i == 4) continue;
+    if ($i == 8) break;
+    $x += $i;
+}
+
+// select / switch-style lowering
+select ($x) {
+    case 1:
+        $x += 10;
+    case 2:
+        $x += 20;
+    default:
+        $x = 0;
+}
+
+// complex values
+complex $z = 3+4i;
+complex $w = 1-2i;
+complex $p;
+$p = $z * $w;
+```
+
+`for`, `while`, `if/else`, `select`/`switch`-style selection, `break`, `continue`, integer/bitwise mutation, and complex declarations are compiler-backed today.
+
+The semantic loop model also defines `foreach`, `do-while`, and `repeat`, but their complete surface lowering is **PLANNED**, not falsely presented as active syntax.
+
+See [`docs/JX-PROGRAMMING-TUTELAGE.md`](docs/JX-PROGRAMMING-TUTELAGE.md) for the full programming book/manuscript.
+
+---
 
 ## Compiled loop space
 
-`pasm-lang.php` now loads `pasm-lang-compiler-loop.php` as the active PASL compiler. `for` and `while` bodies are compiled once into out-of-line blocks rather than emitted inline in the loop controller.
+JX does not need to rediscover a loop body every iteration.
 
-Canonical loop control is:
+The current compiler lowers active `for` and `while` loops into bounded out-of-line compiled blocks. The canonical controller shape is:
 
 ```text
 LCHECK condition
@@ -114,55 +246,44 @@ LCALL  compiled_body
 LREPEAT loop_slot
 ```
 
-On the current PASM ISA, `LCALL` lowers to a direct branch because each loop block has a fixed continuation. This avoids adding a runtime call-stack mechanism just to obtain the desired shape. Native ELF/EXE emitters remain free to turn that same canonical operation into a machine `call`, tail branch, or inline body.
+On the current PASM ISA, `LCALL` may lower to a direct branch with a fixed continuation. A native target may instead use a machine call, tail branch, or inline block while preserving the same JX meaning.
 
-For a `for` loop, init executes once, the controller performs the condition check, the compiled body branches to a compiled step block, and the step returns to the condition check. `continue` targets the step block and `break` targets the loop exit. A `while` loop uses the same structure without a step block.
+Default active nesting depth is 8 and is explicitly bounded at compile time.
 
-Loop state is allocated in bounded slots. Default nesting depth is 8; exceeding the configured limit is a compile-time error. Nested bodies are compiled while the parent still occupies its slot, so the limit is enforced in the active compiler. Sequential loops reuse slots after leaving scope.
+See [`docs/LOOP-SPACE.md`](docs/LOOP-SPACE.md).
 
-The semantic loop-space model also defines `do-while`, `foreach`, and `repeat`. Their surface-specific entry/collection semantics are not yet accepted by the PASL front end; `for` and `while` are the active out-of-line compiled forms now.
+---
 
-See `docs/LOOP-SPACE.md`.
+## Bags are the semantic memory model
 
-## Bags and containers
+Bags are one of the central JX abstractions.
 
-Containers are modeled as **Bag disciplines**, not as a second memory system. A Bag supplies ownership, capacity, identity and canonical checkpoint law; the discipline supplies the hot access strategy.
+A Bag supplies persistent identity, ownership, capacity, generations/checkpoints, and structured state. Containers are **disciplines over Bags**, not a second unrelated memory system.
 
 ```text
 Bag
-|- record -> fixed dense slots / native field offsets
+|- record -> fixed dense fields
 |- vector -> contiguous indexed storage
-|- stack  -> contiguous + LIFO
-|- queue  -> power-of-two ring + FIFO
-|- deque  -> double-ended power-of-two ring
-|- map    -> target-native hash
-`- set    -> target-native hash set
+|- stack  -> LIFO
+|- queue  -> FIFO ring
+|- deque  -> double-ended ring
+|- map    -> target-native hash discipline
+`- set    -> target-native hash-set discipline
 ```
 
-Use the container layer explicitly:
+The runtime rule is:
 
-```php
-require_once __DIR__ . '/jx.php';
-require_once __DIR__ . '/jx-bag-containers.php';
+> **Be native while working; become canonical at the Bag boundary.**
 
-$state = jx\BagContainers::record(4096, [
-    'health' => 'int',
-    'phi' => ['type' => 'int', 'default' => 0],
-]);
-$state->put('health', 100);
+And for UI/control state:
 
-$jobs = jx\BagContainers::queue(65536, 'Task');
-$jobs->enqueue($task);
+> **A control is Bag-backed. Clone the view, borrow the Bag, copy only on semantic mutation.**
 
-// Explicit canonical boundary; hot operations do not pay this cost.
-$jobs->checkpoint();
-```
-
-The invariant is: **be native while working; become canonical at the Bag boundary**. `nativeLayout()` is a compiler/shadow hint; `canonical()` is the authoritative state image.
+Moving a view should not destroy its data identity. Changing a data source should not erase unrelated control state. A semantic update advances a generation; stale generations can be rejected.
 
 ### Bag hot operations
 
-The core canonical family is:
+Canonical Bag operations include:
 
 ```text
 BPUSH BPOP
@@ -171,115 +292,191 @@ BEMPLACE
 BPEEK BRESERVE BDIRTY BSYNC
 ```
 
-Normal fixed-width push/pop forms target two machine instructions after register-residency lowering.
-
-`BEMPLACE` computes an insertion location once:
-
-- vector/stack: one address calculation + one overlap-safe bulk tail move + one store
-- map: one probe to existing/insertion address + insert if absent
-- set: one probe to existing/insertion address + insert key if absent
-
-Aliases such as `insert`, `emplace`, `packin`, `putifabsent`, and `addifabsent` all resolve to `BEMPLACE`; the discipline decides the physical lowering.
-
-Regression and benchmark harnesses:
-
-```bash
-php test-jx-bag-containers.php
-php test-pasm-bag-hotops.php
-php test-jx-alias.php
-php test-jx-lang-alias.php
-php test-pasm-loop-space.php
-php test-pasm-loop-compiler.php
-php benchmark-jx-bag-containers.php 1000000 7
-```
-
-The repository also contains `.github/workflows/jx-compiler-ci.yml` to lint the active compiler and run these regressions on GitHub Actions.
-
-## Books and OS hosts
-
-Books and Bindings are runtime state, not browser objects. The same Book can be presented by three operating-system hosts:
-
-- **browser**: PASL compiles to PASM and executes in the page VM
-- **win32**: the stable C ABI maps windows and events to Win32
-- **x11**: the same ABI maps windows and events to Xlib
-
-All hosts exchange versioned `jx.host/1` JSON drops, so replacing a browser or native window system does not replace the Book, leaf history, channels, or PASL program. See `pasl/host/README.md` and the runnable XIP Cover Book.
-
-## Host-neutral charts and media
-
-JX includes host-neutral plugin contracts for Charts, Media, AudioFX, and Audio Analysis. The base Media player remains intentionally small: source, Bag binding, playback options, style, events, and extension slots. Processing belongs in extension plugins rather than in the base player.
-
-Canonical chart types are:
+Human-friendly aliases are resolved before hot execution. For example:
 
 ```text
-pie
-candle
-bar
-line
-vectormap
+enqueue --+
+append  ---+--> BPUSH --> prepared/native Bag operation
+push    ---+
 ```
 
-Media and analysis flow through Bags so charting and algebra do not depend on database handles:
+There should be no runtime string lookup merely because the programmer preferred `enqueue` over `push`.
+
+See:
+
+- [`docs/BAG-CONTAINERS.md`](docs/BAG-CONTAINERS.md)
+- [`docs/JX-ALIASES.md`](docs/JX-ALIASES.md)
+
+---
+
+## Bits for truth, words for numbers, Bags for structure
+
+The machine model deliberately does not widen every state identifier just because the target CPU is 64-bit.
 
 ```text
-MP3 / MP4
-   -> Media plugin
-      -> optional Media-extension plugins
-         -> browser/native media renderer
-            -> Audio Analysis plugin (optional)
-               -> Bag
-                  -> Chart / algebra / Page
+address width        = 64-bit
+native numeric state = native words
+boolean state        = packed bits
+register IDs         = compact IDs
+Bag/window/task IDs  = compact handles where sensible
 ```
 
-The browser media host contract lives in `host/browser/jx-media-host.js`; plugin contracts live under `jx/plugins/`.
+For example, 256 booleans can occupy four 64-bit words:
 
-## Plugins
-
-- Sourced **only** from `plugins/`
-- Installed **one at a time**; new installs append **last** after need is assessed
-- Dual backup: **pre** (per install) + **full** (total install)
-- Plugins may register aliases only in a collision-safe domain/context
-
-Bundled host-neutral contracts include Charts, Media, AudioFX, and Audio Analysis. These consume Bags rather than SQL/NoSQL handles; data-source bindings remain separate from presentation.
-
-```bash
-php jx-install.php list
-php jx-install.php install intro
-php jx-install.php backup-full
-php jx-install.php restore-full <timestamp>
+```c
+uint64_t boolreg[4];
 ```
 
-## Includes
+The shorthand is:
 
-- Decimals (`plugins/decimals` → `jx\Decimal`)
-- Complex, Delivery, const, smart compiler, lang bridge
-- Memory law, Books/Bags/Pages, Resistant path
-- Bag-backed record/vector/stack/queue/deque/map/set disciplines
-- Language-wide canonical aliases with zero runtime alias lookup
-- Single-op variable lowering and bounded compiled loop space
-- Host-neutral chart/media contracts and native-shadow entry points
+> **Bits for truth. Native words for numbers. Bags for structure.**
 
-See `jx/INTRO.md` for the guided introduction.
+---
 
-## OOP benchmark — first stop
+## Global JX hot-call ABI v4
 
-The canonical PASM OOP container implementation is benchmarked against the legacy implementation and direct native PHP. The checked-in harness runs each mode in a fresh process and reports repeated measurements; the direct-native gap remains an optimization target rather than being hidden.
+The **global JX/OSAura hot-call ABI** is distinct from JXL.
 
-Run:
-
-```bash
-php benchmark-pasm-oop-fast.php
-php benchmark-pasm-oop-fast-sync.php
-php benchmark-pasm-oop-fast-deque.php
-```
-
-GitHub Actions definition:
+Its byte law is:
 
 ```text
-.github/workflows/oop-benchmark.yml
+1xxxxxxx                  -> HOT / exactly 1 byte
+0xxxxxxx xxxxxxxx         -> EXTENDED / exactly 2 bytes
 ```
 
-### 100,000 total operations
+For a HOT byte:
+
+```text
+bit 7      = 1
+bits 6..3  = bank 0..15
+bits 2..0  = shadow 0..7
+```
+
+That gives exactly:
+
+```text
+16 banks x 8 shadows = 128 one-byte hot positions
+```
+
+The eight-shadow physical discipline is a core invariant across the machine.
+
+The current OSAura map reserves the final two banks:
+
+```text
+F0-FF = PROTECTED / UNASSIGNED
+```
+
+**Do not consume F0-FF without an explicit ABI decision.**
+
+See [`docs/HOT-CALL-ABI-V4.md`](docs/HOT-CALL-ABI-V4.md).
+
+---
+
+## The processor bus and attention model
+
+JX/OSAura is moving toward a processor-owned multiplex model rather than copying application state around unnecessarily.
+
+```text
+Bag generation changes
+        |
+        v
+processor-owned change descriptor
+(borrowed reference, not Bag copy)
+        |
+        v
+primary listener / foreground first
+        |
+        v
+remaining programs in PID order
+        |
+        v
+processor deals result
+        |
+        v
+return through the same route
+```
+
+Memory owns Bags. The processor keeps hot references/prepared state. The bus carries change information and wake intent—not entire duplicated Bags.
+
+For JX11, visual attention is connected to execution attention:
+
+```text
+top / focused JX11 window
+        |
+        v
+primary listener PID
+        |
+        +--> first processor-bus listener
+        |
+        `--> direct listener-specific event delivery
+```
+
+Security subject identity remains separate from program PID/listener identity.
+
+---
+
+## JX11: windowing without making the host OS the language
+
+JX11 is the host-neutral UI/window direction.
+
+Current work includes:
+
+- off-screen surfaces,
+- alpha composition,
+- damage tracking,
+- compact window handles,
+- parent/child windows,
+- focus and hit-testing,
+- pointer capture,
+- keyboard/pointer routing,
+- Bag-backed borrowed views,
+- listener PID binding,
+- listener-specific event routing,
+- Win32 host input/presentation adapters,
+- native X11/XCB host work.
+
+Windows, X11, or a browser may provide mechanisms. They do not become the semantic JX object model.
+
+A host can change without replacing the Book, Bag identity, Page state, or canonical application meaning.
+
+---
+
+## OSAura and WSJX64
+
+JX is the language/compiler/runtime layer. **OSAura** is the standalone x86-64 operating-system project built around the same semantics and maintained in `dompipe/OSAura`.
+
+```text
+canonical JX
+     |
+     v
+JXL / native prepared sections
+     |
+     v
+.64B Book
+     |
+     v
+JX runtime ABI
+     |
+     +--> WSJX64 hosted machine on Windows
+     |
+     `--> OSAura64 kernel
+```
+
+The boundary rule is:
+
+> **Kernel owns mechanisms. JX owns meanings.**
+
+Host-specific file handles, HWNDs, raw kernel pointers, and other native mechanism values should not leak into canonical JX identity.
+
+---
+
+## Benchmarks: what they show and what they do not
+
+The repository carries benchmark harnesses for the current PHP/PASM implementations. These are useful measurements of implementation progress, not claims that every current JX path already beats native PHP.
+
+### Canonical OOP container benchmark
+
+#### 100,000 total operations
 
 | Workload | Legacy ms | Canonical OOP ms | Native PHP ms | Legacy / new | Improvement vs legacy |
 |---|---:|---:|---:|---:|---:|
@@ -290,7 +487,7 @@ GitHub Actions definition:
 | Map put/get | 4.715 | 4.314 | 0.630 | 1.09x | 8.5% |
 | Set add/has | 24.989 | 13.779 | 0.706 | 1.81x | 44.9% |
 
-### 1,000,000 total operations
+#### 1,000,000 total operations
 
 | Workload | Legacy ms | Canonical OOP ms | Native PHP ms | Legacy / new | Improvement vs legacy |
 |---|---:|---:|---:|---:|---:|
@@ -301,40 +498,241 @@ GitHub Actions definition:
 | Map put/get | 48.917 | 45.220 | 9.232 | 1.08x | 7.6% |
 | Set add/has | 240.272 | 152.258 | 10.117 | 1.58x | 36.6% |
 
-At one million operations the canonical rewrite is faster than the legacy implementation across all six measured workloads. Direct native PHP remains faster; native shadows, fixed offsets, register identities, and compile-time resolution are the path for closing that gap while keeping canonical source readable.
+At one million operations, the canonical implementation beats the legacy implementation in all six listed workloads. **Direct native PHP is still faster in these PHP-hosted measurements.** That gap is visible on purpose.
 
-## System layout
+The native/JXL strategy is how JX intends to remove costs that those PHP-hosted benchmarks still contain:
 
-| Platform | Commands | Shared active plugins |
-|----------|----------|-----------------------|
-| Linux | `/etc/bin/jx`, `/etc/bin/jx-install` | `/etc/jx/plugins` |
-| macOS | `/usr/local/bin/jx`, `/usr/local/bin/jx-install` | `/usr/local/share/jx/plugins` |
-| Windows | `%LOCALAPPDATA%\jx\bin` (User PATH) | `%ProgramData%\jx\plugins` |
-
-Plugins are independent packages. A Book or library links only the packages it uses:
-
-```bash
-jx-install link decimals book /path/to/book
-jx-install link delivery library /path/to/library
-jx-install unlink decimals book /path/to/book
-jx-install uninstall decimals
+```text
+repeated name lookup       -> canonicalize once
+repeated method resolution -> prelink once
+runtime alias search       -> zero
+wide repetitive encoding   -> compact prepared form
+repeated z-order work      -> prepare once per damaged frame
+large object copies        -> borrow stable Bag/view references
 ```
 
-Preview or remove system integration with:
+Run benchmark harnesses such as:
 
 ```bash
-php jx-install.php install-system --dry-run
-jx-install uninstall-system
+php benchmark-pasm-oop-fast.php
+php benchmark-pasm-oop-fast-sync.php
+php benchmark-pasm-oop-fast-deque.php
+php benchmark-jx-bag-containers.php 1000000 7
 ```
 
-System uninstall backs up shared plugins before removing them. Add `--keep-plugins` to retain the independent package store.
-
-## Lineage
-
-This repository converges `dompipe/pasm-v2` and `dompipe/jx-lang` without flattening either Git history. The current implementation and canonical docs come from the later `pasm-v2` integration. The earlier standalone language design remains under `history/jx-lang/`, where `git log --follow` and `git blame --follow` can continue through its original commits.
-
-See [docs/history/README.md](docs/history/README.md) for source revisions, navigation, and provenance commands.
+Benchmark results should always identify which layer is being measured: PHP-backed runtime, PASM VM, prepared JXL, native host, or direct native baseline.
 
 ---
 
-jx — pronounced jinx.
+## SQL, media, charts, and plugins
+
+JX treats data and presentation as separate concerns.
+
+SQL/data-source objects can feed Bags; Controls and Charts consume Bags rather than becoming database handles themselves. This is especially important for controls because changing the source should not destroy the control's persistent Bag identity.
+
+Host-neutral chart types currently include:
+
+```text
+pie
+candle
+bar
+line
+vectormap
+```
+
+Media/analysis is similarly Bag-oriented:
+
+```text
+media source
+    -> media plugin
+       -> optional processing/analysis
+          -> Bag
+             -> chart / algebra / Page / Control
+```
+
+Installable packages come from the repository's `plugins/` source tree and use pre/full backup policy during installation.
+
+```bash
+php jx-install.php list
+php jx-install.php install intro
+php jx-install.php backup-full
+```
+
+---
+
+## Quick start
+
+### Install command integration
+
+```bash
+# Linux / macOS
+sudo php jx-install.php install-system
+
+# Windows
+php jx-install.php install-system
+```
+
+### Install required plugins
+
+```bash
+jx-install install-required
+```
+
+### Run canonical JX
+
+```bash
+jx --print examples/hello.jx
+```
+
+### Run the full active-tree gate
+
+```bash
+php -d zend.assertions=1 -d assert.exception=1 test-all.php
+```
+
+### Compile/run PASL examples
+
+```bash
+php pasm-run.php --print examples/pasl/complex-and-loops.pasl
+```
+
+---
+
+## Repository map
+
+| Path | Role |
+|---|---|
+| `jx.php` | Core PHP-backed JX runtime: Bags, Tasks, Pages, Books and core values |
+| `jx-lang.php`, `jx-run.php` | JX language engine / executable front end |
+| `pasm-lang-compiler-loop.php` | Active loop/control-flow compiler |
+| `pasm-loop-space.php` | Canonical mutations and bounded loop-space model |
+| `jx-bag-containers.php` | Bag-backed container disciplines |
+| `pasm-bag-hotops.php` | Canonical Bag hot operations and lowering recipes |
+| `jx-alias.php` | Compile-time alias canonicalization/provenance |
+| `jx/` | Language-level docs and adapters |
+| `docs/JX-PROGRAMMING-TUTELAGE.md` | Full programming tutorial/book manuscript |
+| `docs/JXL-PREPARED-EXECUTION.md` | Authoritative JXL prepared-execution contract |
+| `docs/NATIVE-64B.md` | Native compiled Book format/boundary |
+| `docs/HOT-CALL-ABI-V4.md` | Global JX/OSAura hot-call ABI |
+| `docs/BAG-CONTAINERS.md` | Bag/container architecture |
+| `docs/LOOP-SPACE.md` | Loop compiler design |
+| `jx/COMPILER.md` | Compiler pipeline and status boundary |
+| `jx/GAPS.md` | Status-aware implementation roadmap |
+| `host/` | Native/browser host mechanisms |
+| `plugins/` | Installable plugin source packages |
+| `tests/`, `test-*.php` | Regression/conformance tests |
+| `.github/workflows/` | Linux/Windows/native/compiler/runtime CI |
+
+---
+
+## Start with the programming book
+
+The large JX tutorial is intentionally being written as a **PDF-ready programming book manuscript**, not merely as scattered API notes.
+
+Read:
+
+**[`docs/JX-PROGRAMMING-TUTELAGE.md`](docs/JX-PROGRAMMING-TUTELAGE.md)**
+
+It covers, lesson by lesson:
+
+- syntax and statements,
+- values and types,
+- arithmetic and bitwise operations,
+- every current and planned loop family,
+- branching and selection,
+- Bags and containers,
+- Books / Pages / Tasks,
+- Controls, styles and data sources,
+- SQL/NoSQL direction,
+- OOP and aliases,
+- plugins,
+- errors and diagnostics,
+- JX11 and event delivery,
+- processor-bus semantics,
+- JXL,
+- `.64B`,
+- native execution,
+- the PHP-backed engine,
+- performance methodology,
+- the long-term information model.
+
+The Markdown manuscript is intended to remain canonical so future PDF editions can be generated without maintaining a second divergent version of the language book.
+
+---
+
+## Documentation rules for a fast-growing language
+
+JX is accumulating compiler, UI, OS, storage, data, plugin, and prepared-execution concepts quickly. That makes documentation discipline part of the architecture.
+
+When adding a feature:
+
+1. say whether it is **ACTIVE**, **PHP-BACKED**, **JXL**, or **PLANNED**;
+2. keep canonical source syntax separate from executable encodings;
+3. do not describe a semantic model as accepted syntax until its parser/lowering exists;
+4. preserve the eight-shadow law where the global hot subsystem applies;
+5. keep `F0-FF` protected/unassigned unless explicitly ratified otherwise;
+6. keep JXL's byte grammar separate from the global ABI-v4 byte grammar;
+7. add tests for architectural contracts that future compiler/AI work could accidentally reverse;
+8. prefer one canonical explanation linked from specialized documents over contradictory copies.
+
+`test-jx-language-doc-contract.php` enforces several of these documentation invariants in CI.
+
+---
+
+## What remains
+
+JX already has substantial runtime/compiler machinery, but important work remains before the entire intended language is native end-to-end.
+
+Among the major open areas:
+
+- generalized `foreach`, `do-while`, and `repeat` surface lowering,
+- broader function/class/method native language surface,
+- complete canonical `.jx` -> JXL/native `.64B` compiler path,
+- full JXL admission and execution in native hosts,
+- event -> prepared execution -> Bag mutation -> present as one foreground service turn,
+- complete native/host semantic conformance,
+- larger realistic application benchmarks,
+- continued JX11 control/window integration,
+- continued SQL/NoSQL and plugin lowering,
+- deeper AI/compiler documentation generated from the canonical status model.
+
+See [`jx/GAPS.md`](jx/GAPS.md) for the maintained roadmap.
+
+---
+
+## Philosophy
+
+JX is being built to let a programmer write understandable programs while the machine quietly remembers everything it can learn ahead of time.
+
+```text
+human-readable names
+        -> canonical operations
+        -> semantic resolution
+        -> prepared identities
+        -> compact executable state
+        -> native mechanisms
+```
+
+The recurring design rules are:
+
+> **Canonical source is for coders. Prepared form is for execution.**
+
+> **Bags remember. Registers react. Prepared code executes.**
+
+> **Kernel owns mechanisms. JX owns meanings.**
+
+> **Clone the view. Borrow the Bag. Copy only on semantic mutation.**
+
+> **Resolve cold. Bind once. Execute hot.**
+
+---
+
+## Lineage
+
+JX converges the earlier `dompipe/pasm-v2` and `dompipe/jx-lang` work while retaining history. PASM remains the execution-engine lineage beneath the JX language/compiler/runtime surface.
+
+Historical material remains under `history/jx-lang/` and `docs/history/` for provenance rather than being silently rewritten into current behavior.
+
+---
+
+**JX — pronounced jinx. A readable PHP-backed language front end being compiled toward prepared JXL and native `.64B` Books.**
