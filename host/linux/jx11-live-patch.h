@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "../common/jx-live-patch.h"
+#include "jx11-patch-module.h"
 
 typedef struct {
     uint64_t generation;
@@ -12,6 +13,8 @@ typedef struct {
     const void *reaction_table;
     const void *config_table;
     const void *asset_table;
+    void *native_handle;
+    const jx11_patch_module_v1 *native_module;
 } jx11_generation;
 
 typedef struct {
