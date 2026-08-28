@@ -15,8 +15,16 @@ jobs:
         with:
           php-version: '8.3'
           extensions: sodium
-      - name: Semantic IR and JXL parity
-        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php
+      - name: Semantic parser breadth
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php parse
+      - name: Semantic interpreter breadth
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php language
+      - name: Semantic numeric control flow
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php numeric
+      - name: JXL numeric parity
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php jxl
+      - name: JXL attachment byte law
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php attachment
       - name: Prepared type metadata and source map
         run: php -d zend.assertions=1 -d assert.exception=1 test-jx-prepared-metadata.php
       - name: Deterministic JXL Book and embedded metadata
