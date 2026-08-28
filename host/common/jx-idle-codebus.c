@@ -19,6 +19,13 @@ static const jx_idle_bitmap *domain_bitmap_const(const jx_idle_codebus *bus,
     return &bus->replies.domain[domain];
 }
 
+static void clear_payload_domain(jx_idle_codebus *bus, jx_idle_domain_id domain) {
+    for (size_t i = 0; i < JX_IDLE_BITMAP_MAX_PROGRAMS; ++i) {
+        atomic_store_explicit(&bus->payload[domain].code[i], 0u, memory_order_relaxed);
+        atomic_store_explicit(&bus->payload[domain].length[i], 0u, memory_order_relaxed);
+    }
+}
+
 void jx_idle_codebus_init(jx_idle_codebus *bus) {
     if (!bus) return;
     memset(bus, 0, sizeof *bus);
@@ -41,13 +48,22 @@ int jx_idle_codebus_begin(jx_idle_codebus *bus,
     if (rc < 0) return rc;
     rc = jx_idle_bitmap_begin(&bus->replies.domain[JX_IDLE_DOMAIN_WINDOW], epoch, window_count);
     if (rc < 0) return rc;
+    rc = jx_idle_bitmap_begin(&bus->replies.domain[JX_IDLE_DOMAIN_SECURITY], epoch, 0u);
+    if (rc < 0) return rc;
 
-    for (size_t d = 0; d < JX_IDLE_DOMAIN_COUNT; ++d) {
-        for (size_t i = 0; i < JX_IDLE_BITMAP_MAX_PROGRAMS; ++i) {
-            atomic_store_explicit(&bus->payload[d].code[i], 0u, memory_order_relaxed);
-            atomic_store_explicit(&bus->payload[d].length[i], 0u, memory_order_relaxed);
-        }
-    }
+    for (size_t d = 0; d < JX_IDLE_DOMAIN_COUNT; ++d)
+        clear_payload_domain(bus, (jx_idle_domain_id)d);
+    return 0;
+}
+
+int jx_idle_codebus_begin_security(jx_idle_codebus *bus,
+                                   uint64_t epoch,
+                                   uint32_t security_count) {
+    if (!bus || bus->version != JX_IDLE_CODEBUS_VERSION) return -1;
+    int rc = jx_idle_bitmap_begin(&bus->replies.domain[JX_IDLE_DOMAIN_SECURITY],
+                                  epoch, security_count);
+    if (rc < 0) return rc;
+    clear_payload_domain(bus, JX_IDLE_DOMAIN_SECURITY);
     return 0;
 }
 
