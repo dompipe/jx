@@ -21,6 +21,7 @@ int main(void) {
     jx_idle_bus bus;
     jx_idle_bus_init(&bus);
     assert(bus.version == JX_IDLE_BUS_VERSION);
+    assert(JX_IDLE_BUS_PERIOD_MS == 250u);
 
     uint8_t code[JX_IDLE_CALL_BYTES] = {0};
     assert(jx_idle_bus_encode(code) == 0);
@@ -48,14 +49,14 @@ int main(void) {
     assert(jx_idle_bus_take_permission(&bus, 100u, &epoch) == 1);
     assert(epoch == 1u);
 
-    assert(jx_idle_bus_maybe_tick(&bus, 1499u) == 0);
+    assert(jx_idle_bus_maybe_tick(&bus, 1249u) == 0);
     assert(system.calls == 1u);
 
-    /* Program 2 sleeps through three pulses. Permission coalesces to the
-     * newest epoch instead of building three queued wakeups. */
+    /* Program 2 sleeps through three 250ms pulses. Permission coalesces to
+     * the newest epoch instead of building three queued wakeups. */
+    assert(jx_idle_bus_maybe_tick(&bus, 1250u) == 1);
     assert(jx_idle_bus_maybe_tick(&bus, 1500u) == 1);
-    assert(jx_idle_bus_maybe_tick(&bus, 2000u) == 1);
-    assert(jx_idle_bus_maybe_tick(&bus, 2500u) == 1);
+    assert(jx_idle_bus_maybe_tick(&bus, 1750u) == 1);
     assert(system.calls == 4u);
     assert(jx_idle_bus_take_permission(&bus, 2u, &epoch) == 1);
     assert(epoch == 4u);
@@ -66,9 +67,9 @@ int main(void) {
     assert(jx_idle_bus_take_permission(&bus, 50u, &epoch) == -2);
 
     assert(jx_idle_bus_remove_system(&bus, on_system_tick, &system) == 0);
-    assert(jx_idle_bus_tick(&bus, 3000u) == 0);
+    assert(jx_idle_bus_tick(&bus, 2000u) == 0);
     assert(system.calls == 4u);
 
-    puts("jx-idle-bus: one 3-byte pulse broadcasts coalesced update permission");
+    puts("jx-idle-bus: one 3-byte pulse broadcasts permission every 250ms");
     return 0;
 }
