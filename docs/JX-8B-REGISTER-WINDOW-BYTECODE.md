@@ -1,33 +1,25 @@
 # JX `.8B` Register-Window Bytecode
 
+> **Status note (JXL update):** the register-window and prepared-block ideas in this document remain useful design material, but its older statement that `.8B` directly uses the global JX ABI-v4 high-bit HOT grammar is **superseded for JXL**. The authoritative JXL stream law is now documented in [`JXL-PREPARED-EXECUTION.md`](JXL-PREPARED-EXECUTION.md): `0xxxxxxx` is an executable JXL opcode and `1xxxxxxx` is attached extension/data and is never independently dispatched. The global JX/OSAura Hot-Call ABI v4 remains a separate ABI with its own `1xxxxxxx = one-byte HOT` / `0xxxxxxx xxxxxxxx = two-byte EXTENDED` rule. Admission binds the appropriate decoder once. Do not conflate the two grammars.
+
 ## Purpose
 
-JX `.8B` is a compact executable bytecode format for programs that need a large logical register set while keeping hot executable instructions exactly one byte wide.
+JX `.8B` is a compact executable bytecode format for programs that need a large logical register set while keeping prepared executable operations compact.
 
-The design preserves JX ABI v4:
+The original register-window design preserved JX ABI v4 directly in the stream. **Current JXL keeps the register-window idea but uses the separate JXL byte law described above.** References below to direct ABI-v4 hot bytes should therefore be read as historical design rationale unless they are explicitly about calls from JXL into a prelinked global ABI-v4 service target.
 
-```text
-1xxxxxxx                  -> HOT / exactly 1 byte
-0xxxxxxx xxxxxxxx         -> EXTENDED / exactly 2 bytes
-```
+JXL does **not** widen a compact operation merely to carry a full register number. Instead, code blocks are prelinked to register windows. Each window contains eight full 8-bit register IDs.
 
-`.8B` does **not** widen the hot byte to carry a register number. Instead, code blocks are prelinked to register windows. Each window contains eight full 8-bit register IDs.
-
-This gives JX up to 256 directly named registers while retaining the existing three-bit local selector and one-byte hot bytecode.
+This gives JX up to 256 directly named logical registers while retaining an eight-entry local working set.
 
 ## Core idea
 
 ```text
-one-byte hot instruction
+prepared executable block
         |
-        +-- bank:4
-        +-- shadow:3
+        +-- active register window
                  |
-          prepared binding
-                 |
-          active register window
-                 |
-       local selector 0..7
+          local selector 0..7
                  |
         8-bit register ID 0..255
 ```
@@ -93,7 +85,7 @@ cold load/prelink
  -> store prepared binding
 
 repeat
- -> one-byte opcode
+ -> compact executable opcode
  -> prepared executor
  -> already resolved register
 ```
@@ -102,7 +94,7 @@ The window is therefore primarily a **file/prelink concept**, not a tax paid on 
 
 ## Code blocks
 
-`.8B` code is divided into blocks. A block descriptor identifies:
+`.8B`/JXL code is divided into blocks. A block descriptor identifies:
 
 ```c
 typedef struct {
@@ -116,7 +108,7 @@ typedef struct {
 
 A block has one default register window. Prepared operations inside the block may additionally prelink explicit full register IDs from metadata when necessary.
 
-Changing blocks can therefore change the eight locally visible registers without widening any hot instruction.
+Changing blocks can therefore change the eight locally visible registers without widening every executable operation.
 
 ## Why blocks instead of a runtime PAGE opcode
 
@@ -132,63 +124,41 @@ PAGE 7
 
 That contradicts the JX goal of removing repeated resolution work.
 
-`.8B` instead records block/window association in file metadata. During load/prelink, the host or OSAura runtime prepares each block with the correct register window before execution.
+JXL instead records block/window association in file metadata. During load/prelink, the host or OSAura runtime prepares each block with the correct register window before execution.
 
 The common hot loop therefore contains no page-switch instruction.
 
 ## File identity
 
-Proposed standalone extension:
+Useful standalone/debug extension:
 
 ```text
 program.8B
 ```
 
-Magic:
+JXL may also use `.jxl` as an explicit prepared-stream name. The authoritative executable identity should ultimately be the format bytes/manifest, not merely the filename extension.
 
-```text
-JX8B0001
-```
+`.8B`/JXL may be embedded as a section inside a normal `.64B` Book. `.64B` remains the broader compiled Book/container format; JXL is the compact register-windowed executable stream.
 
-`.8B` may also be embedded as a section inside a normal `.64B` Book. `.64B` remains the broader compiled Book/container format; `.8B` is the compact register-windowed executable stream.
-
-## Proposed file layout
+## Historical proposed file layout
 
 ```text
 JX8B header
 register-window table
 block table
 prepared-binding table
-one-byte/two-byte code stream
+compact code stream
 optional constants
 optional debug/canonical map
 ```
 
-Suggested fixed header:
-
-```c
-typedef struct {
-    uint8_t magic[8];          // "JX8B0001"
-    uint16_t version;          // 1
-    uint16_t flags;
-    uint16_t window_count;     // 1..32
-    uint16_t block_count;
-    uint32_t prepared_count;
-    uint32_t code_bytes;
-    uint32_t window_offset;
-    uint32_t block_offset;
-    uint32_t prepared_offset;
-    uint32_t code_offset;
-} jx8b_header;
-```
-
-All multi-byte file fields use little endian in v1.
+Any concrete v1 JXL header/table layout must agree with `JXL-PREPARED-EXECUTION.md` and its executable/attachment byte law before being treated as release ABI.
 
 ## Prepared binding
 
-The prepared table is where `.8B` turns many logical registers into a one-byte runtime path.
+The prepared table is where JXL turns many logical registers into a compact runtime path.
 
-Suggested v1 binding:
+A useful binding shape remains conceptually:
 
 ```c
 typedef struct {
@@ -203,7 +173,7 @@ typedef struct {
 } jx8b_prepared;
 ```
 
-`register0` and `register1` are the already-resolved full 8-bit register IDs. `local0/local1` are retained for verification/debugging and can be omitted from a future stripped release representation if profiling proves that worthwhile.
+`register0` and `register1` are the already-resolved full 8-bit register IDs. `local0/local1` can be retained for verification/debugging and omitted from a future stripped release representation if profiling proves that worthwhile.
 
 A loader verifies:
 
@@ -216,7 +186,7 @@ and then prelinks directly to the register storage.
 
 ## Runtime register file
 
-The canonical v1 logical register file is:
+The canonical v1 logical register file direction is:
 
 ```c
 uint64_t reg[256];
@@ -224,28 +194,32 @@ uint64_t reg[256];
 
 The **register ID is 8-bit**; the register value does not have to be 8-bit.
 
-This distinction is important:
-
 ```text
 8-bit register ID -> 256 addressable registers
 register contents -> native JX value width
 ```
 
-A future typed register file can attach type metadata without changing the bytecode width.
+A typed register file can attach type metadata without changing the compact ID width.
 
-## One-byte bytecodes
+## JXL executable bytes
 
-The existing ABI v4 hot byte remains authoritative:
+The current authoritative JXL law is:
 
 ```text
-bit 7      = 1
-bits 6..3  = hot bank 0..15
-bits 2..0  = shadow 0..7
+0xxxxxxx = executable JXL opcode
+1xxxxxxx = attached extension/data byte; never opcode
 ```
 
-The shadow still identifies one of eight prelinked operations/slots in that bank. `.8B` extends what those prepared operations can point at; it does not reinterpret the ABI byte as a raw register operand.
+A high-bit byte is valid only where the preceding prepared operation/block metadata declares attached data. An unattached high-bit byte is malformed.
 
-This preserves compatibility with OSAura's `0x80..0xFF` one-byte hot decoder.
+The global Hot-Call ABI v4 remains separate:
+
+```text
+1bbbbsss                  = one-byte global HOT bank/shadow call
+0fffffff ssssssss         = two-byte global EXTENDED family/slot call
+```
+
+JXL may invoke a prelinked global service target, but its own stream is decoded as JXL first.
 
 ## Example
 
@@ -276,13 +250,7 @@ local 6 -> reg[200]
 local 7 -> reg[201]
 ```
 
-Hot code remains a stream such as:
-
-```text
-83 91 A6 C0 87
-```
-
-Every byte is still one instruction. The prepared bindings already know which full register(s) each operation touches.
+The prepared JXL operations can then use local selectors/prepared bindings without searching the 256-register file on every operation.
 
 ## Canonical source rule
 
@@ -297,7 +265,7 @@ canonical variables/register needs
  -> group hot working sets into windows of eight
  -> form code blocks
  -> prelink prepared bindings
- -> emit `.8B`
+ -> emit JXL
 ```
 
 If a working set exceeds eight simultaneously hot values, the compiler may:
@@ -305,13 +273,13 @@ If a working set exceeds eight simultaneously hot values, the compiler may:
 1. split the region into multiple prepared blocks,
 2. bind some operands explicitly through prepared metadata,
 3. spill cold values to Bags/containers,
-4. use an extended operation when a truly dynamic register selection is required.
+4. use an extended prepared form when truly dynamic selection is required.
 
-The compiler should choose whichever minimizes repeated work.
+The compiler should choose whichever minimizes repeated work while preserving semantics.
 
 ## Relationship to Bags
 
-`.8B` does not replace Bags.
+JXL does not replace Bags.
 
 ```text
 registers -> immediate hot working state
@@ -336,52 +304,46 @@ A Bag field that becomes hot can be cached/promoted into one of the 256 logical 
   manifests
   one or more executable sections
 
-.8B
-  compact executable/register-window section
-  256 logical register IDs
-  one-byte hot stream
+JXL / .8B
+  compact prepared executable/register-window section
+  up to 256 logical register IDs
+  eight-register local windows
 ```
 
-A `.64B` Book may carry multiple `.8B` programs or generations.
+A `.64B` Book may carry multiple JXL programs or generations.
 
 ## Admission verification
 
-An `.8B` loader must reject:
+A JXL loader must reject, as applicable:
 
 - invalid magic/version,
-- more than 32 windows in v1,
+- too many windows for the declared format version,
 - window/block/table ranges outside the file,
 - blocks outside the code section,
 - local selectors above 7,
 - register IDs outside 0..255,
-- high-bit hot opcodes whose prepared binding is missing,
-- malformed two-byte extended instructions,
+- unattached high-bit bytes,
+- malformed or truncated declared attachments,
 - prepared register IDs that do not agree with the selected window,
+- invalid branch targets,
 - overlapping or contradictory block descriptors unless explicitly permitted by a future version.
 
 ## Host parity
 
-The exact same `.8B` file must be accepted by:
+The exact same validated JXL section must have the same semantics under:
 
 ```text
 native OSAura
-Windows command-line OSAura emulator
-jx.exe native host
+Windows WSJX64 host
+jx native host
 ```
 
-The backend mechanism can differ; register/window semantics cannot.
+The backend mechanism can differ; register/window/prepared semantics cannot.
 
 ## Future optimization
 
-After profiling, a loaded `.8B` block can be transformed internally into a direct executor array:
+After profiling, a loaded JXL block can be transformed internally into a direct executor array containing already-resolved operation and register references.
 
-```text
-byte opcode
- -> executor[opcode & 0x7f]
- -> prelinked register pointer(s)
- -> native operation
-```
+The central reason for this format remains:
 
-No register-window lookup remains in the repeat path.
-
-That is the central reason for this file type: **increase register reach without making the bytecode wider.**
+> **Increase logical register reach and preserve compiler decisions without making ordinary canonical JX carry the complexity.**
