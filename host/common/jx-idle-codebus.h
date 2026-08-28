@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stdatomic.h>
 
-#define JX_IDLE_CODEBUS_VERSION 1u
+#define JX_IDLE_CODEBUS_VERSION 2u
 #define JX_IDLE_CODEBUS_CODE_NONE 0u
 #define JX_IDLE_CODEBUS_CODE_1BYTE 1u
 #define JX_IDLE_CODEBUS_CODE_2BYTE 2u
@@ -35,6 +35,12 @@ int jx_idle_codebus_begin(jx_idle_codebus *bus,
                           uint64_t epoch,
                           uint32_t core_count,
                           uint32_t window_count);
+
+/* Arm SECURITY only when an inspection batch exists. Existing callers can
+ * keep using jx_idle_codebus_begin(); SECURITY begins with an empty barrier. */
+int jx_idle_codebus_begin_security(jx_idle_codebus *bus,
+                                   uint64_t epoch,
+                                   uint32_t security_count);
 
 /* Every program must reply. code_length==0 is the canonical zero reply.
  * A data reply carries exactly one one- or two-byte prepared code. */
