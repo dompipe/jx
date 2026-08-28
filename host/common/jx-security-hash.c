@@ -3,7 +3,6 @@
 
 static uint32_t rol32(uint32_t x, unsigned n) { return (x << n) | (x >> (32u - n)); }
 static uint32_t ror32(uint32_t x, unsigned n) { return (x >> n) | (x << (32u - n)); }
-
 static uint32_t load_le32(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
@@ -48,22 +47,23 @@ static void md5_block(uint32_t s[4], const uint8_t block[64]) {
     s[0]+=a; s[1]+=b; s[2]+=c; s[3]+=d;
 }
 
-int jx_security_md5(const uint8_t *data, size_t length, uint8_t out[JX_SECURITY_MD5_BYTES]) {
+int jx_security_md5(const uint8_t *data,size_t length,uint8_t out[JX_SECURITY_MD5_BYTES]) {
     uint32_t s[4]={0x67452301u,0xefcdab89u,0x98badcfeu,0x10325476u};
-    uint8_t block[128]; size_t full=length/64u, rem=length%64u, i; uint64_t bits=(uint64_t)length*8u;
-    if ((!data && length) || !out) return -1;
-    for (i=0;i<full;i++) md5_block(s,data+i*64u);
-    memset(block,0,sizeof block); if (rem) memcpy(block,data+full*64u,rem); block[rem]=0x80u;
-    size_t total=(rem<56u)?64u:128u;
-    for (i=0;i<8;i++) block[total-8u+i]=(uint8_t)(bits>>(8u*i));
-    md5_block(s,block); if (total==128u) md5_block(s,block+64u);
-    for (i=0;i<4;i++) store_le32(out+i*4u,s[i]); return 0;
+    uint8_t block[128]; size_t full=length/64u,rem=length%64u,i,total; uint64_t bits=(uint64_t)length*8u;
+    if((!data&&length)||!out)return -1;
+    for(i=0;i<full;i++)md5_block(s,data+i*64u);
+    memset(block,0,sizeof block); if(rem)memcpy(block,data+full*64u,rem); block[rem]=0x80u;
+    total=(rem<56u)?64u:128u;
+    for(i=0;i<8;i++)block[total-8u+i]=(uint8_t)(bits>>(8u*i));
+    md5_block(s,block); if(total==128u)md5_block(s,block+64u);
+    for(i=0;i<4;i++)store_le32(out+i*4u,s[i]);
+    return 0;
 }
 
 static void sha1_block(uint32_t s[5], const uint8_t block[64]) {
     uint32_t w[80],a,b,c,d,e; unsigned i;
-    for(i=0;i<16;i++) w[i]=load_be32(block+i*4u);
-    for(i=16;i<80;i++) w[i]=rol32(w[i-3]^w[i-8]^w[i-14]^w[i-16],1);
+    for(i=0;i<16;i++)w[i]=load_be32(block+i*4u);
+    for(i=16;i<80;i++)w[i]=rol32(w[i-3]^w[i-8]^w[i-14]^w[i-16],1);
     a=s[0];b=s[1];c=s[2];d=s[3];e=s[4];
     for(i=0;i<80;i++) {
         uint32_t f,k,t;
@@ -71,21 +71,22 @@ static void sha1_block(uint32_t s[5], const uint8_t block[64]) {
         else if(i<40){f=b^c^d;k=0x6ed9eba1u;}
         else if(i<60){f=(b&c)|(b&d)|(c&d);k=0x8f1bbcdcu;}
         else{f=b^c^d;k=0xca62c1d6u;}
-        t=rol32(a,5)+f+e+k+w[i]; e=d;d=c;c=rol32(b,30);b=a;a=t;
+        t=rol32(a,5)+f+e+k+w[i];e=d;d=c;c=rol32(b,30);b=a;a=t;
     }
     s[0]+=a;s[1]+=b;s[2]+=c;s[3]+=d;s[4]+=e;
 }
 
 int jx_security_sha1(const uint8_t *data,size_t length,uint8_t out[JX_SECURITY_SHA1_BYTES]) {
     uint32_t s[5]={0x67452301u,0xefcdab89u,0x98badcfeu,0x10325476u,0xc3d2e1f0u};
-    uint8_t block[128]; size_t full=length/64u,rem=length%64u,i; uint64_t bits=(uint64_t)length*8u;
+    uint8_t block[128]; size_t full=length/64u,rem=length%64u,i,total; uint64_t bits=(uint64_t)length*8u;
     if((!data&&length)||!out)return -1;
-    for(i=0;i<full;i++) sha1_block(s,data+i*64u);
+    for(i=0;i<full;i++)sha1_block(s,data+i*64u);
     memset(block,0,sizeof block); if(rem)memcpy(block,data+full*64u,rem); block[rem]=0x80u;
-    size_t total=(rem<56u)?64u:128u;
-    for(i=0;i<8;i++) block[total-1u-i]=(uint8_t)(bits>>(8u*i));
+    total=(rem<56u)?64u:128u;
+    for(i=0;i<8;i++)block[total-1u-i]=(uint8_t)(bits>>(8u*i));
     sha1_block(s,block); if(total==128u)sha1_block(s,block+64u);
-    for(i=0;i<5;i++)store_be32(out+i*4u,s[i]); return 0;
+    for(i=0;i<5;i++)store_be32(out+i*4u,s[i]);
+    return 0;
 }
 
 static void sha256_block(uint32_t s[8], const uint8_t block[64]) {
@@ -109,19 +110,20 @@ static void sha256_block(uint32_t s[8], const uint8_t block[64]) {
     for(i=0;i<64;i++){
         uint32_t S1=ror32(e,6)^ror32(e,11)^ror32(e,25),ch=(e&f)^((~e)&g);
         uint32_t t1=h+S1+ch+k[i]+w[i],S0=ror32(a,2)^ror32(a,13)^ror32(a,22),maj=(a&b)^(a&c)^(b&c);
-        uint32_t t2=S0+maj; h=g;g=f;f=e;e=d+t1;d=c;c=b;b=a;a=t1+t2;
+        uint32_t t2=S0+maj;h=g;g=f;f=e;e=d+t1;d=c;c=b;b=a;a=t1+t2;
     }
     s[0]+=a;s[1]+=b;s[2]+=c;s[3]+=d;s[4]+=e;s[5]+=f;s[6]+=g;s[7]+=h;
 }
 
 int jx_security_sha256(const uint8_t *data,size_t length,uint8_t out[JX_SECURITY_SHA256_BYTES]) {
     uint32_t s[8]={0x6a09e667u,0xbb67ae85u,0x3c6ef372u,0xa54ff53au,0x510e527fu,0x9b05688cu,0x1f83d9abu,0x5be0cd19u};
-    uint8_t block[128]; size_t full=length/64u,rem=length%64u,i; uint64_t bits=(uint64_t)length*8u;
+    uint8_t block[128]; size_t full=length/64u,rem=length%64u,i,total; uint64_t bits=(uint64_t)length*8u;
     if((!data&&length)||!out)return -1;
     for(i=0;i<full;i++)sha256_block(s,data+i*64u);
     memset(block,0,sizeof block); if(rem)memcpy(block,data+full*64u,rem); block[rem]=0x80u;
-    size_t total=(rem<56u)?64u:128u;
+    total=(rem<56u)?64u:128u;
     for(i=0;i<8;i++)block[total-1u-i]=(uint8_t)(bits>>(8u*i));
     sha256_block(s,block); if(total==128u)sha256_block(s,block+64u);
-    for(i=0;i<8;i++)store_be32(out+i*4u,s[i]); return 0;
+    for(i=0;i<8;i++)store_be32(out+i*4u,s[i]);
+    return 0;
 }
