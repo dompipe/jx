@@ -1,0 +1,108 @@
+#include "jx-asm-profile.h"
+#include <limits.h>
+#include <string.h>
+
+static jx_asm_profile_candidate *find_candidate(jx_asm_profile *profile,
+                                                uint8_t family,
+                                                uint8_t slot) {
+    if (!profile) return NULL;
+    for (uint8_t i = 0; i < profile->candidate_count; ++i) {
+        jx_asm_profile_candidate *c = &profile->candidates[i];
+        if (c->family == family && c->slot == slot) return c;
+    }
+    return NULL;
+}
+
+void jx_asm_profile_init(jx_asm_profile *profile, uint64_t minimum_epoch_hits) {
+    if (!profile) return;
+    memset(profile, 0, sizeof *profile);
+    profile->version = JX_ASM_PROFILE_VERSION;
+    profile->minimum_epoch_hits = minimum_epoch_hits ? minimum_epoch_hits : 1u;
+}
+
+int jx_asm_profile_register(jx_asm_profile *profile,
+                            uint8_t family,
+                            uint8_t slot,
+                            uint8_t arity,
+                            jx_asm_micro_fn micro_fn,
+                            void *context) {
+    if (!profile || profile->version != JX_ASM_PROFILE_VERSION || !micro_fn ||
+        family >= JX_ASM_CALL_FAMILY_COUNT || arity > 3u) return -1;
+    if (find_candidate(profile, family, slot)) return -2;
+    if (profile->candidate_count >= JX_ASM_PROFILE_MAX_CANDIDATES) return -3;
+
+    jx_asm_profile_candidate *c = &profile->candidates[profile->candidate_count++];
+    memset(c, 0, sizeof *c);
+    c->family = family;
+    c->slot = slot;
+    c->arity = arity;
+    c->micro_fn = micro_fn;
+    c->context = context;
+    return 0;
+}
+
+int jx_asm_profile_hit(jx_asm_profile *profile,
+                       uint8_t family,
+                       uint8_t slot,
+                       uint64_t count) {
+    if (!profile || profile->version != JX_ASM_PROFILE_VERSION || count == 0u)
+        return -1;
+    jx_asm_profile_candidate *c = find_candidate(profile, family, slot);
+    if (!c) return -2;
+    if (UINT64_MAX - c->hits < count) c->hits = UINT64_MAX;
+    else c->hits += count;
+    return 0;
+}
+
+void jx_asm_profile_finish_epoch(jx_asm_profile *profile) {
+    if (!profile || profile->version != JX_ASM_PROFILE_VERSION) return;
+    ++profile->epoch;
+    for (uint8_t i = 0; i < profile->candidate_count; ++i) {
+        jx_asm_profile_candidate *c = &profile->candidates[i];
+        uint64_t epoch_hits = c->hits - c->epoch_base;
+        c->last_epoch_hits = epoch_hits;
+        c->epoch_base = c->hits;
+        if (epoch_hits >= profile->minimum_epoch_hits) {
+            if (c->stable_epochs != UINT8_MAX) ++c->stable_epochs;
+        } else {
+            c->stable_epochs = 0u;
+        }
+    }
+}
+
+static int better(const jx_asm_profile_candidate *a,
+                  const jx_asm_profile_candidate *b) {
+    if (!b) return 1;
+    if (a->last_epoch_hits != b->last_epoch_hits)
+        return a->last_epoch_hits > b->last_epoch_hits;
+    if (a->family != b->family) return a->family < b->family;
+    return a->slot < b->slot;
+}
+
+int jx_asm_profile_prepare_micro(const jx_asm_profile *profile,
+                                 jx_asm_call_table *next_table) {
+    if (!profile || profile->version != JX_ASM_PROFILE_VERSION || !next_table ||
+        next_table->version != JX_ASM_CALL_VERSION) return -1;
+
+    uint8_t chosen[JX_ASM_PROFILE_MAX_CANDIDATES] = {0};
+    int bound = 0;
+    for (uint8_t micro_slot = 0; micro_slot < JX_ASM_CALL_MICRO_COUNT; ++micro_slot) {
+        const jx_asm_profile_candidate *best = NULL;
+        int best_index = -1;
+        for (uint8_t i = 0; i < profile->candidate_count; ++i) {
+            const jx_asm_profile_candidate *c = &profile->candidates[i];
+            if (chosen[i] || c->stable_epochs < JX_ASM_PROFILE_STABLE_EPOCHS ||
+                c->last_epoch_hits < profile->minimum_epoch_hits) continue;
+            if (better(c, best)) {
+                best = c;
+                best_index = (int)i;
+            }
+        }
+        if (!best) break;
+        if (jx_asm_call_bind_micro(next_table, micro_slot, best->arity,
+                                   best->micro_fn, best->context) != 0) return -2;
+        chosen[best_index] = 1u;
+        ++bound;
+    }
+    return bound;
+}
