@@ -19,6 +19,8 @@ typedef struct {
     uint8_t version;
     uint8_t reserved[7];
     jx_idle_domains replies;
+    /* CORE, WINDOW and SECURITY use the same prepared 1-2 byte code lanes;
+     * only the domain-specific meaning of a code differs. */
     jx_idle_code_domain payload[JX_IDLE_DOMAIN_COUNT];
 } jx_idle_codebus;
 
