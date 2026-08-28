@@ -59,7 +59,7 @@ int jx_remote_bag_prepare(const jx_remote_bag_source *source,
         event.json = json;
         event.json_length = json_length;
         event.candidate = candidate;
-        if (jx_bag_listener_emit(listeners, &event) != 0) return JX_REMOTE_BAG_ERR_LISTENER;
+        if (jx_bag_listener_emit(listeners, &event) < 0) return JX_REMOTE_BAG_ERR_LISTENER;
     }
     return JX_REMOTE_BAG_OK;
 }
