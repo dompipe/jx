@@ -4,17 +4,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define JX_IDLE_BUS_VERSION 2u
+#define JX_IDLE_BUS_VERSION 3u
 #define JX_IDLE_BUS_MAX_SYSTEM_LISTENERS 32u
 #define JX_IDLE_BUS_MAX_PROGRAMS 256u
-#define JX_IDLE_BUS_PERIOD_MS 500u
+#define JX_IDLE_BUS_PERIOD_MS 250u
 #define JX_IDLE_CALL_BYTES 3u
 
 /* One byte beyond the ordinary two-byte cold-call form.
  * This is a fixed system envelope, not an ASM family lookup:
  *   0x7f 0x00 0x01 = SYSTEM | IDLE-BUS | TICK
  *
- * The host emits this once per 500 ms epoch. It grants update permission to
+ * The host emits this once per 250 ms epoch. It grants update permission to
  * every currently registered program by advancing that program's mailbox.
  * It does NOT synchronously invoke every program. Programs consume the newest
  * permission epoch when they next run; multiple unconsumed ticks coalesce.
