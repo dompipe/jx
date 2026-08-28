@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #define JX11_PATCH_MODULE_ABI_VERSION 1u
-#define JX11_PATCH_MODULE_SYMBOL "jx11_patch_module_v1"
+#define JX11_PATCH_MODULE_SYMBOL "jx11_patch_module_entry_v1"
 
 typedef struct jx11_patch_host_v1 {
     uint32_t abi_version;
