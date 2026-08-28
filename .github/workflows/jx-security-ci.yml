@@ -1,0 +1,27 @@
+name: JX security CI
+
+on:
+  push:
+    paths:
+      - 'host/common/jx-security.*'
+      - 'host/common/jx-idle-bitmap.*'
+      - 'host/common/jx-idle-domains.*'
+      - 'host/common/jx-idle-codebus.*'
+      - 'tests/jx-security.c'
+      - '.github/workflows/jx-security-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native security scanner and SECURITY codebus test
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Werror -pthread \
+            tests/jx-security.c \
+            host/common/jx-security.c \
+            host/common/jx-idle-codebus.c \
+            host/common/jx-idle-bitmap.c \
+            -o /tmp/jx-security
+          /tmp/jx-security
