@@ -11,7 +11,9 @@
 #define JX_REMOTE_BAG_CAP_SCHEMA (1u << 1)
 
 typedef enum {
+    /* Reserved for non-mutating status/read surfaces. Never valid for Bag writes. */
     JX_REMOTE_BAG_TRANSPORT_HTTPS = 1,
+    /* Required transport for all remote Bag mutation. */
     JX_REMOTE_BAG_TRANSPORT_SSH = 2
 } jx_remote_bag_transport;
 
@@ -51,7 +53,9 @@ typedef enum {
 } jx_remote_bag_result;
 
 /**
- * Validate provenance and authority for a remote Bag request.
+ * Validate provenance and authority for a remote Bag mutation request.
+ * Mutation is SSH-only. HTTPS is intentionally rejected here even when the
+ * source record is configured for HTTPS; HTTPS belongs to separate read/status APIs.
  * This does not mutate source->last_sequence; callers advance it only after
  * the Bag transaction has committed successfully.
  */
@@ -60,7 +64,7 @@ int jx_remote_bag_authorize(const jx_remote_bag_source *source,
                             uint64_t now);
 
 /**
- * Validate a remote canonical JSON Bag update and emit PREPARE listeners.
+ * Validate an SSH-delivered canonical JSON Bag update and emit PREPARE listeners.
  * The caller owns canonicalization/storage and later calls commit/rollback.
  */
 int jx_remote_bag_prepare(const jx_remote_bag_source *source,
