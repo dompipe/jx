@@ -11,110 +11,68 @@ static uint64_t add_bias(void *frame_ptr, void *context) {
     return frame->r[6] + *bias;
 }
 
-static uint64_t micro_identity(jx_asm_frame *frame, uint16_t selectors, void *context) {
-    const uint64_t *bias = (const uint64_t *)context;
-    const uint8_t src = jx_asm_frame_unpack3_dst(selectors);
-    return frame->r[src] + *bias;
-}
-
-static uint64_t micro_add3(jx_asm_frame *frame, uint16_t selectors, void *context) {
-    (void)context;
-    const uint8_t dst = jx_asm_frame_unpack3_dst(selectors);
-    const uint8_t a = jx_asm_frame_unpack3_a(selectors);
-    const uint8_t b = jx_asm_frame_unpack3_b(selectors);
-    frame->r[dst] = frame->r[a] + frame->r[b];
-    return frame->r[dst];
-}
-
 int main(void) {
     jx_asm_call_table table;
     jx_asm_call_table_init(&table);
     assert(table.version == JX_ASM_CALL_VERSION);
-    assert(table.families[0x10] == NULL);
-    assert(table.families[0x11] == NULL);
+    assert(JX_ASM_CALL_VERSION == 4u);
+    assert(JX_ASM_CALL_HOT_COUNT == 128u);
+    assert(JX_ASM_CALL_HOT_BANK_COUNT == 16u);
+    assert(JX_ASM_CALL_HOT_SHADOW_COUNT == 8u);
 
     jx_asm_frame frame;
     jx_asm_frame_init(&frame);
-    assert(frame.version == JX_ASM_FRAME_VERSION);
     frame.r[0] = 17u;
     frame.r[1] = 20u;
-    frame.r[2] = 100u;
-    frame.r[3] = 7u;
-    frame.r[4] = 11u;
-
-    uint8_t p2 = jx_asm_frame_pack2(3u, 6u);
-    assert(jx_asm_frame_unpack2_a(p2) == 3u);
-    assert(jx_asm_frame_unpack2_b(p2) == 6u);
-    uint16_t p3 = jx_asm_frame_pack3(2u, 4u, 7u);
-    assert(jx_asm_frame_unpack3_dst(p3) == 2u);
-    assert(jx_asm_frame_unpack3_a(p3) == 4u);
-    assert(jx_asm_frame_unpack3_b(p3) == 7u);
-
-    uint64_t spill[2] = { 101u, 202u };
-    uint64_t spill_value = 0u;
-    assert(jx_asm_frame_set_spill(&frame, spill, 2u) == 0);
-    assert(jx_asm_frame_spill_read(&frame, 1u, &spill_value) == 0);
-    assert(spill_value == 202u);
-    assert(jx_asm_frame_spill_write(&frame, 0u, 303u) == 0);
-    assert(spill[0] == 303u);
 
     uint64_t bias = 5u;
     assert(jx_asm_call_bind(&table, 0x10u, 0x03u, add_bias, &bias) == 0);
-    assert(table.families[0x10] != NULL);
-    assert(table.families[0x11] == NULL);
 
-    const uint8_t cold[] = { 0x10u, 0x03u };
+    /* Extended form: MSB=0 means exactly two bytes. */
+    const uint8_t extended[] = { 0x10u, 0x03u };
     uint64_t result = 0u;
     uint8_t used = 0u;
-    assert(jx_asm_call_invoke(&table, cold, sizeof cold, &frame, &result, &used) == 0);
+    assert(jx_asm_call_invoke(&table, extended, sizeof extended, &frame, &result, &used) == 0);
     assert(result == 42u);
-    assert(frame.r[6] == 37u);
     assert(used == 2u);
+    assert(jx_asm_call_invoke(&table, extended, 1u, &frame, &result, &used) != 0);
 
-    assert(jx_asm_call_promote(&table, 0x80u, 0x10u, 0x03u) == 0);
-    result = 0u;
-    assert(jx_asm_call_hot(&table, 0x80u, &frame, &result) == 0);
+    /* Hot form: [1][bank:4][shadow:3] is always one complete byte. */
+    assert(jx_asm_call_promote_hot(&table, 0u, 0u, 0x10u, 0x03u) == 0);
+    const uint8_t hot0 = jx_asm_call_hot_opcode(0u, 0u);
+    assert(hot0 == 0x80u);
+    assert(jx_asm_call_hot_bank(hot0) == 0u);
+    assert(jx_asm_call_hot_shadow(hot0) == 0u);
+    assert(jx_asm_call_hot(&table, hot0, &frame, &result) == 0);
     assert(result == 42u);
 
-    const uint8_t hot[] = { 0x80u };
+    /* Prove the top bank/shadow also occupies one byte: 11111111. */
+    assert(jx_asm_call_promote_hot(&table, 15u, 7u, 0x10u, 0x03u) == 0);
+    const uint8_t hot127 = jx_asm_call_hot_opcode(15u, 7u);
+    assert(hot127 == 0xFFu);
+    assert(jx_asm_call_hot_bank(hot127) == 15u);
+    assert(jx_asm_call_hot_shadow(hot127) == 7u);
+    const uint8_t one_byte[] = { hot127 };
     result = 0u; used = 0u;
-    assert(jx_asm_call_invoke(&table, hot, sizeof hot, &frame, &result, &used) == 0);
+    assert(jx_asm_call_invoke(&table, one_byte, sizeof one_byte, &frame, &result, &used) == 0);
     assert(result == 42u);
     assert(used == 1u);
 
-    /* One-register microcall: target slot + source selector are fused into one byte. */
-    assert(jx_asm_call_bind_micro(&table, 2u, 1u, micro_identity, &bias) == 0);
-    uint8_t micro[2] = {0u, 0u};
-    assert(jx_asm_call_encode_micro(&table, 2u, 4u, 0u, 0u, micro, &used) == 0);
-    assert(used == 1u);
-    assert(micro[0] == (uint8_t)(JX_ASM_CALL_MICRO_BASE | (2u << 3) | 4u));
-    result = 0u;
-    assert(jx_asm_call_invoke(&table, micro, used, &frame, &result, &used) == 0);
-    assert(result == 16u);
+    /* Compatibility promotion accepts every MSB=1 opcode, including 0xC0..0xFF. */
+    assert(jx_asm_call_promote(&table, 0xC0u, 0x10u, 0x03u) == 0);
+    const uint8_t c0[] = { 0xC0u };
+    assert(jx_asm_call_invoke(&table, c0, sizeof c0, &frame, &result, &used) == 0);
     assert(used == 1u);
 
-    /* Three-register microcall: dst is fused into byte 0, a+b share byte 1. */
-    assert(jx_asm_call_bind_micro(&table, 3u, 3u, micro_add3, NULL) == 0);
-    assert(jx_asm_call_encode_micro(&table, 3u, 2u, 3u, 4u, micro, &used) == 0);
-    assert(used == 2u);
-    assert((micro[0] & 7u) == 2u);
-    assert((micro[1] & 7u) == 3u);
-    assert(((micro[1] >> 3) & 7u) == 4u);
-    result = 0u;
-    assert(jx_asm_call_invoke(&table, micro, used, &frame, &result, &used) == 0);
-    assert(result == 18u);
-    assert(frame.r[2] == 18u);
-    assert(used == 2u);
-
-    /* Arity determines width; a truncated 3-register microcall must fail. */
-    assert(jx_asm_call_invoke(&table, micro, 1u, &frame, &result, &used) != 0);
-    assert(jx_asm_call_hot(&table, 0xC0u, &frame, &result) != 0);
-    assert(jx_asm_call_invoke(&table, cold, 1u, &frame, &result, &used) != 0);
+    jx_asm_call_decoded decoded;
+    assert(jx_asm_call_decode(&table, one_byte, 1u, &decoded) == 0);
+    assert(decoded.hot == 1u && decoded.bytes == 1u);
+    assert(decoded.bank == 15u && decoded.shadow == 7u);
+    assert(jx_asm_call_decode(&table, extended, 2u, &decoded) == 0);
+    assert(decoded.hot == 0u && decoded.bytes == 2u);
 
     jx_asm_call_table_dispose(&table);
     assert(table.version == 0u);
-    for (size_t i = 0; i < JX_ASM_CALL_FAMILY_COUNT; ++i) assert(table.families[i] == NULL);
-
-    puts("jx-asm-call: fused 1-byte/2-byte register-selecting ASM microcalls ok");
+    puts("jx-asm-call: v4 1xxxxxxx hot / 0xxxxxxx xxxxxxxx extended ABI ok");
     return 0;
 }
