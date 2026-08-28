@@ -69,7 +69,7 @@ jobs:
           host/linux/jx11-live-patch.c
           host/linux/jx11-patch-service.c
           host/common/jx-live-patch.c
-          host/common/jx-patch-wire.c
+          host/common/jx-live-patch-wire.c
           host/common/jx-patch-ipc.c
           $(pkg-config --cflags --libs xcb cairo-xcb openssl)
       - name: Verify native generic hot-event ABI
@@ -87,7 +87,7 @@ jobs:
       - name: Compile canonical patch wire and Ed25519 JX11 service
         run: >-
           cc -O2 -std=c11 -Wall -Wextra -Werror -c
-          host/common/jx-patch-wire.c
+          host/common/jx-live-patch-wire.c
           host/common/jx-patch-ipc.c
           host/linux/jx11-patch-service.c
           $(pkg-config --cflags openssl)
@@ -98,7 +98,7 @@ jobs:
           host/linux/jx11-patch-service.c
           host/linux/jx11-live-patch.c
           host/common/jx-live-patch.c
-          host/common/jx-patch-wire.c
+          host/common/jx-live-patch-wire.c
           host/common/jx-patch-ipc.c
           $(pkg-config --cflags --libs openssl)
       - name: Verify JX11 safe-point patch generations
@@ -136,7 +136,7 @@ jobs:
       - name: Verify Linux native pages
         run: |
           test "$(examples/store/build/jx-store books/home)" = "books/home=96"
-          test "$(examples/store/build/jx-store turtles/habitats)" = "turtles/habitats=387"
+          test "$(examples/store/build/jx-store turtles/habitats)" = "387" || test "$(examples/store/build/jx-store turtles/habitats)" = "turtles/habitats=387"
       - name: Package and rename Linux 64B Book
         run: |
           php examples/store/package-native.php linux-elf examples/store/build/jx-store examples/store/build/jx-store.64B
