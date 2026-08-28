@@ -28,13 +28,38 @@ static DWORD WINAPI wait_thread(LPVOID p) {
     return 0u;
 }
 
+static int wait_one_epoch(wait_ctx *ctx, jx_win32_idle_shared *host,
+                          uint64_t epoch, uint64_t ms, int base_code) {
+    HANDLE thread;
+    ctx->observed = jx_win32_idle_shared_wake_word(&ctx->child);
+    ctx->last_epoch = epoch - 1u;
+    ctx->epoch = 0u;
+    ctx->ms = 0u;
+    ctx->result = 0;
+    thread = CreateThread(NULL, 0u, wait_thread, ctx, 0u, NULL);
+    if (!thread) return fail_stage(base_code, "thread");
+    Sleep(20u);
+    if (jx_win32_idle_shared_broadcast(host, epoch, ms) != 0) {
+        CloseHandle(thread);
+        return fail_stage(base_code + 1, "broadcast");
+    }
+    if (WaitForSingleObject(thread, 2000u) != WAIT_OBJECT_0) {
+        CloseHandle(thread);
+        return fail_stage(base_code + 2, "wait-thread");
+    }
+    CloseHandle(thread);
+    if (ctx->result != 1 || ctx->epoch != epoch || ctx->ms != ms)
+        return fail_stage(base_code + 3, "wake-result");
+    return 0;
+}
+
 int main(void) {
     jx_win32_idle_shared host;
     wait_ctx ctx;
-    HANDLE thread;
     uint8_t tick[JX_IDLE_CALL_BYTES];
     uint64_t epoch = 0u, ms = 0u;
     uint32_t count = 0u;
+    int rc;
 
     if (jx_idle_bus_encode(tick) != 0) return fail_stage(1, "encode");
     if (tick[0] != 0x7fu || tick[1] != 0x00u || tick[2] != 0x01u) return fail_stage(2, "abi");
@@ -43,22 +68,19 @@ int main(void) {
 
     ZeroMemory(&ctx, sizeof ctx);
     if (jx_win32_idle_shared_child_open(&ctx.child) != 0) return fail_stage(5, "child-open");
-    ctx.observed = jx_win32_idle_shared_wake_word(&ctx.child);
-    ctx.last_epoch = 0u;
-    thread = CreateThread(NULL, 0u, wait_thread, &ctx, 0u, NULL);
-    if (!thread) return fail_stage(6, "thread");
 
-    Sleep(20u);
-    if (jx_win32_idle_shared_broadcast(&host, 1u, 250u) != 0) return fail_stage(7, "broadcast");
-    if (WaitForSingleObject(thread, 2000u) != WAIT_OBJECT_0) return fail_stage(8, "wait-thread");
-    CloseHandle(thread);
+    rc = wait_one_epoch(&ctx, &host, 1u, 250u, 10);
+    if (rc != 0) return rc;
+    rc = wait_one_epoch(&ctx, &host, 2u, 500u, 20);
+    if (rc != 0) return rc;
 
-    if (ctx.result != 1 || ctx.epoch != 1u || ctx.ms != 250u) return fail_stage(9, "wake-result");
-    if (jx_win32_idle_shared_snapshot(&ctx.child, &epoch, &ms, &count) != 0) return fail_stage(10, "snapshot");
-    if (epoch != 1u || ms != 250u || count != 7u) return fail_stage(11, "snapshot-values");
+    if (jx_win32_idle_shared_snapshot(&ctx.child, &epoch, &ms, &count) != 0)
+        return fail_stage(30, "snapshot");
+    if (epoch != 2u || ms != 500u || count != 7u)
+        return fail_stage(31, "snapshot-values");
 
     jx_win32_idle_shared_close(&ctx.child, 0);
     jx_win32_idle_shared_close(&host, 1);
-    puts("PASS Win32 WaitOnAddress/WakeByAddressAll shares JX 7F0001 idle-bus ABI");
+    puts("PASS Win32 named-event doorbell preserves JX 7F0001 ABI across consecutive epochs");
     return 0;
 }
