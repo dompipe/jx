@@ -13,6 +13,12 @@ static jx_asm_profile_candidate *find_candidate(jx_asm_profile *profile,
     return NULL;
 }
 
+static void add_hits(jx_asm_profile_candidate *c, uint64_t count) {
+    if (!c || count == 0u) return;
+    if (UINT64_MAX - c->hits < count) c->hits = UINT64_MAX;
+    else c->hits += count;
+}
+
 void jx_asm_profile_init(jx_asm_profile *profile, uint64_t minimum_epoch_hits) {
     if (!profile) return;
     memset(profile, 0, sizeof *profile);
@@ -49,8 +55,49 @@ int jx_asm_profile_hit(jx_asm_profile *profile,
         return -1;
     jx_asm_profile_candidate *c = find_candidate(profile, family, slot);
     if (!c) return -2;
-    if (UINT64_MAX - c->hits < count) c->hits = UINT64_MAX;
-    else c->hits += count;
+    add_hits(c, count);
+    return 0;
+}
+
+int jx_asm_profile_harvest_table(jx_asm_profile *profile,
+                                 jx_asm_call_table *table) {
+    if (!profile || profile->version != JX_ASM_PROFILE_VERSION ||
+        !table || table->version != JX_ASM_CALL_VERSION) return -1;
+
+    for (uint8_t family = 0u; family < JX_ASM_CALL_FAMILY_COUNT; ++family) {
+        jx_asm_call_target *page = table->families[family];
+        if (!page) continue;
+        for (uint16_t slot = 0u; slot < JX_ASM_CALL_SLOT_COUNT; ++slot) {
+            jx_asm_call_target *target = &page[slot];
+            if (!target->fn || target->hits == 0u) continue;
+            jx_asm_profile_candidate *c = find_candidate(profile,
+                                                          target->source_family,
+                                                          target->source_slot);
+            if (c) add_hits(c, target->hits);
+            target->hits = 0u;
+        }
+    }
+
+    for (uint8_t i = 0u; i < JX_ASM_CALL_PROMOTED_COUNT; ++i) {
+        jx_asm_call_target *target = &table->promoted[i];
+        if (!target->fn || target->hits == 0u) continue;
+        jx_asm_profile_candidate *c = find_candidate(profile,
+                                                      target->source_family,
+                                                      target->source_slot);
+        if (c) add_hits(c, target->hits);
+        target->hits = 0u;
+    }
+
+    for (uint8_t i = 0u; i < JX_ASM_CALL_MICRO_COUNT; ++i) {
+        jx_asm_micro_target *target = &table->micro[i];
+        if (!target->fn || target->hits == 0u ||
+            target->source_family == JX_ASM_CALL_SOURCE_NONE) continue;
+        jx_asm_profile_candidate *c = find_candidate(profile,
+                                                      target->source_family,
+                                                      target->source_slot);
+        if (c) add_hits(c, target->hits);
+        target->hits = 0u;
+    }
     return 0;
 }
 
@@ -99,8 +146,10 @@ int jx_asm_profile_prepare_micro(const jx_asm_profile *profile,
             }
         }
         if (!best) break;
-        if (jx_asm_call_bind_micro(next_table, micro_slot, best->arity,
-                                   best->micro_fn, best->context) != 0) return -2;
+        if (jx_asm_call_bind_micro_source(next_table, micro_slot, best->arity,
+                                          best->family, best->slot,
+                                          best->micro_fn, best->context) != 0)
+            return -2;
         chosen[best_index] = 1u;
         ++bound;
     }
