@@ -5,20 +5,18 @@
 #include <stdint.h>
 #include "jx-asm-call.h"
 
-#define JX_ASM_PROFILE_VERSION 2u
+#define JX_ASM_PROFILE_VERSION 3u
 #define JX_ASM_PROFILE_MAX_CANDIDATES 64u
 #define JX_ASM_PROFILE_STABLE_EPOCHS 2u
 
 typedef struct {
     uint8_t family;
     uint8_t slot;
-    uint8_t arity;
     uint8_t stable_epochs;
+    uint8_t reserved;
     uint64_t hits;
     uint64_t epoch_base;
     uint64_t last_epoch_hits;
-    jx_asm_micro_fn micro_fn;
-    void *context;
 } jx_asm_profile_candidate;
 
 typedef struct {
@@ -30,18 +28,11 @@ typedef struct {
     jx_asm_profile_candidate candidates[JX_ASM_PROFILE_MAX_CANDIDATES];
 } jx_asm_profile;
 
-/*
- * Profiling never edits a live call map. Execution only increments local
- * saturating counters beside prelinked targets. Harvesting aggregates those
- * counters by source family/slot and resets them between epochs.
- */
+/* Profiling is off the execution path; hot entries count locally. */
 void jx_asm_profile_init(jx_asm_profile *profile, uint64_t minimum_epoch_hits);
 int jx_asm_profile_register(jx_asm_profile *profile,
                             uint8_t family,
-                            uint8_t slot,
-                            uint8_t arity,
-                            jx_asm_micro_fn micro_fn,
-                            void *context);
+                            uint8_t slot);
 int jx_asm_profile_hit(jx_asm_profile *profile,
                        uint8_t family,
                        uint8_t slot,
@@ -51,11 +42,11 @@ int jx_asm_profile_harvest_table(jx_asm_profile *profile,
 void jx_asm_profile_finish_epoch(jx_asm_profile *profile);
 
 /*
- * Select up to JX_ASM_CALL_MICRO_COUNT stable candidates and bind them to the
- * supplied NEXT-generation call table. Returns the number of bound micro slots.
- * Ranking is deterministic: last epoch hits descending, then family/slot.
+ * Rank stable extended targets and bind them into sequential v4 hot entries.
+ * The maximum is bounded by both candidate count and the 128-entry hot map.
  */
-int jx_asm_profile_prepare_micro(const jx_asm_profile *profile,
-                                 jx_asm_call_table *next_table);
+int jx_asm_profile_prepare_hot(const jx_asm_profile *profile,
+                               const jx_asm_call_table *source_table,
+                               jx_asm_call_table *next_table);
 
 #endif
