@@ -3,6 +3,7 @@
 namespace jx\semantic;
 
 require_once __DIR__ . '/jx-semantic.php';
+require_once __DIR__ . '/jx-prepared-metadata.php';
 
 /** Deterministic compiled Book carrying prepared JXL. */
 final class JxlBook64
@@ -10,6 +11,7 @@ final class JxlBook64
     public const MAGIC = 'JX64B001';
     public const FORMAT = 'jx.64B/1';
     public const CODE_PATH = 'CODE/program.jxl';
+    public const PREPARED_PATH = 'META/prepared.json';
 
     /** @return array{bytes:string,manifest:array<string,mixed>,content_sha256:string,file_sha256:string} */
     public static function compile(string $source, string $name = 'program'): array
@@ -39,6 +41,7 @@ final class JxlBook64
         $sections = [
             self::CODE_PATH => $jxl,
             'META/semantic.json' => self::json($semantic),
+            self::PREPARED_PATH => PreparedMetadata::json($program),
         ];
         ksort($sections, SORT_STRING);
 
