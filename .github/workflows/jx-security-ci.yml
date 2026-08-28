@@ -4,10 +4,13 @@ on:
   push:
     paths:
       - 'host/common/jx-security.*'
+      - 'host/common/jx-security-hash.*'
+      - 'host/common/jx-security-import.*'
       - 'host/common/jx-idle-bitmap.*'
       - 'host/common/jx-idle-domains.*'
       - 'host/common/jx-idle-codebus.*'
       - 'tests/jx-security.c'
+      - 'tests/jx-security-import.c'
       - '.github/workflows/jx-security-ci.yml'
   workflow_dispatch:
 
@@ -21,7 +24,17 @@ jobs:
           cc -std=c11 -O2 -Wall -Wextra -Werror -pthread \
             tests/jx-security.c \
             host/common/jx-security.c \
+            host/common/jx-security-hash.c \
             host/common/jx-idle-codebus.c \
             host/common/jx-idle-bitmap.c \
             -o /tmp/jx-security
           /tmp/jx-security
+      - name: Build and test ClamAV/phpMussel hash importer
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Werror \
+            tests/jx-security-import.c \
+            host/common/jx-security.c \
+            host/common/jx-security-hash.c \
+            host/common/jx-security-import.c \
+            -o /tmp/jx-security-import
+          /tmp/jx-security-import
