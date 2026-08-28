@@ -30,6 +30,10 @@ static int digest_equal(const uint8_t *a, const uint8_t *b) {
     return diff == 0u;
 }
 
+static int is_elf(const uint8_t *bytes, size_t length) {
+    return length >= 16u && bytes[0] == 0x7fu && bytes[1] == 'E' && bytes[2] == 'L' && bytes[3] == 'F';
+}
+
 static int write_all(int fd, const uint8_t *bytes, size_t length) {
     size_t at = 0u;
     while (at < length) {
@@ -46,10 +50,7 @@ static int write_all(int fd, const uint8_t *bytes, size_t length) {
 
 static int split_dir(const char *path, char dir[PATH_MAX]) {
     const char *slash = strrchr(path, '/');
-    if (!slash) {
-        strcpy(dir, ".");
-        return 0;
-    }
+    if (!slash) { strcpy(dir, "."); return 0; }
     size_t n = (size_t)(slash - path);
     if (n == 0u) n = 1u;
     if (n >= PATH_MAX) return -1;
@@ -62,6 +63,7 @@ int jx11_exe_tether_persist(const jx11_exe_tether_install *install) {
     if (!install || !install->install_path || !*install->install_path ||
         !install->replacement || install->replacement_length == 0u ||
         !install->expected_sha256) return JX11_EXE_TETHER_ERR_ARGUMENT;
+    if (!is_elf(install->replacement, install->replacement_length)) return JX11_EXE_TETHER_ERR_FORMAT;
 
     uint8_t actual[JX11_EXE_TETHER_DIGEST_BYTES];
     if (sha256_bytes(install->replacement, install->replacement_length, actual) != 0 ||
@@ -81,35 +83,26 @@ int jx11_exe_tether_persist(const jx11_exe_tether_install *install) {
 
     int fd = mkstemp(temp_path);
     if (fd < 0) return JX11_EXE_TETHER_ERR_IO;
-    int rc = JX11_EXE_TETHER_ERR_IO;
     if (fchmod(fd, mode) != 0 || write_all(fd, install->replacement, install->replacement_length) != 0 || fsync(fd) != 0) {
-        close(fd);
-        unlink(temp_path);
-        return rc;
+        close(fd); unlink(temp_path); return JX11_EXE_TETHER_ERR_IO;
     }
-    if (close(fd) != 0) {
-        unlink(temp_path);
-        return rc;
-    }
+    if (close(fd) != 0) { unlink(temp_path); return JX11_EXE_TETHER_ERR_IO; }
 
     if (had_current) {
         (void)unlink(previous_path);
         if (rename(install->install_path, previous_path) != 0) {
-            unlink(temp_path);
-            return JX11_EXE_TETHER_ERR_RENAME;
+            unlink(temp_path); return JX11_EXE_TETHER_ERR_RENAME;
         }
     }
 
     if (rename(temp_path, install->install_path) != 0) {
         if (had_current) (void)rename(previous_path, install->install_path);
-        unlink(temp_path);
-        return JX11_EXE_TETHER_ERR_RENAME;
+        unlink(temp_path); return JX11_EXE_TETHER_ERR_RENAME;
     }
 
     int dirfd = open(dir_path, O_RDONLY | O_DIRECTORY);
     if (dirfd < 0) return JX11_EXE_TETHER_ERR_SYNC;
     int sync_rc = fsync(dirfd);
     close(dirfd);
-    if (sync_rc != 0) return JX11_EXE_TETHER_ERR_SYNC;
-    return JX11_EXE_TETHER_OK;
+    return sync_rc == 0 ? JX11_EXE_TETHER_OK : JX11_EXE_TETHER_ERR_SYNC;
 }
