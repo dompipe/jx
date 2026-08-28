@@ -113,6 +113,13 @@ int jx_maintainer_runtime_add_source(jx_maintainer_runtime *runtime,
                runtime->service.plane.maintainer_trust_digest,
                JX_REMOTE_BAG_TRUST_DIGEST_BYTES) != 0)
         return -2;
+    for (size_t i = 0; i < runtime->source_count; ++i) {
+        const jx_remote_bag_source *existing = &runtime->sources[i];
+        if (strcmp(existing->source_id, source->source_id) == 0 &&
+            strcmp(existing->installation_id, source->installation_id) == 0 &&
+            strcmp(existing->bag_name, source->bag_name) == 0)
+            return -3;
+    }
     runtime->sources[runtime->source_count++] = *source;
     runtime->service.source_count = runtime->source_count;
     return 0;
