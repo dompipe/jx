@@ -2,6 +2,24 @@
 
 **Formerly pasm-v2.** Product name **jx**; PASM is the engine.
 
+## OSAura operating system
+
+JX is the language/compiler/runtime layer. The standalone operating system built around it is **OSAura**, maintained separately at `dompipe/OSAura`.
+
+```text
+canonical JX / .64B
+        ↓
+JX runtime ABI
+        ↓
+OSAura kernel
+        ↓
+drivers / hardware
+```
+
+OSAura consumes the host-neutral JX pieces: Bags/containers, `.64B`, applied bytecodes, tasks, channels, hot generations/rollback, multiplexed buses, and JX Security. Windows/Linux-specific wake and host mechanisms remain adapters/reference implementations rather than becoming part of the OSAura kernel.
+
+The portability and synchronization contract is documented in `docs/OSAURA.md`.
+
 ## Quick start
 
 ```bash
@@ -39,6 +57,7 @@ php examples/jx-smoke.php
 | `docs/BAG-CONTAINERS.md` | Containers as Bag disciplines + native-shadow strategy |
 | `docs/JX-ALIASES.md` | Language-wide alias rules and canonicalization |
 | `docs/LOOP-SPACE.md` | Single-op mutations + bounded out-of-line loop compilation |
+| `docs/OSAURA.md` | JX ↔ OSAura OS portability and synchronization contract |
 | `docs/history/` | Original-to-latest Markdown and blame conveyance |
 | `history/jx-lang/` | History-preserving snapshot of the earlier `jx-lang` tree |
 
