@@ -136,7 +136,7 @@ jobs:
       - name: Verify Linux native pages
         run: |
           test "$(examples/store/build/jx-store books/home)" = "books/home=96"
-          test "$(examples/store/build/jx-store turtles/habitats)" = "387" || test "$(examples/store/build/jx-store turtles/habitats)" = "turtles/habitats=387"
+          test "$(examples/store/build/jx-store turtles/habitats)" = "turtles/habitats=387"
       - name: Package and rename Linux 64B Book
         run: |
           php examples/store/package-native.php linux-elf examples/store/build/jx-store examples/store/build/jx-store.64B
