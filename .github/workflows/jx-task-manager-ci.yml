@@ -18,3 +18,11 @@ jobs:
           tests/jx-task-manager.c
           host/common/jx-task-manager.c
           && /tmp/jx-task-manager
+      - name: Verify portable task controls
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common
+          -o /tmp/jx-task-control
+          tests/jx-task-control.c
+          host/common/jx-task-control.c
+          host/common/jx-task-manager.c
+          && /tmp/jx-task-control
