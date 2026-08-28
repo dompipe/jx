@@ -2,20 +2,28 @@
 #include "jx-idle-bus.h"
 #include <string.h>
 
-static atomic_flag deque_lock = ATOMIC_FLAG_INIT;
-
-static void lock_deque(void) {
-    while (atomic_flag_test_and_set_explicit(&deque_lock, memory_order_acquire)) { }
+static void lock_deque(jx_idle_note_deque *deque) {
+    uint32_t expected;
+    for (;;) {
+        expected = 0u;
+        if (atomic_compare_exchange_weak_explicit(&deque->lock,
+                                                  &expected,
+                                                  1u,
+                                                  memory_order_acquire,
+                                                  memory_order_relaxed))
+            return;
+    }
 }
 
-static void unlock_deque(void) {
-    atomic_flag_clear_explicit(&deque_lock, memory_order_release);
+static void unlock_deque(jx_idle_note_deque *deque) {
+    atomic_store_explicit(&deque->lock, 0u, memory_order_release);
 }
 
 void jx_idle_note_deque_init(jx_idle_note_deque *deque) {
     if (!deque) return;
     memset(deque, 0, sizeof *deque);
     deque->version = JX_IDLE_COLLECT_VERSION;
+    atomic_init(&deque->lock, 0u);
     atomic_init(&deque->collect_pending, 0u);
     atomic_init(&deque->head, 0u);
     atomic_init(&deque->tail, 0u);
@@ -28,12 +36,12 @@ int jx_idle_note_publish(jx_idle_note_deque *deque,
     if (!deque || deque->version != JX_IDLE_COLLECT_VERSION || !program_id || has_data > 1u)
         return -1;
 
-    lock_deque();
+    lock_deque(deque);
     uint32_t head = atomic_load_explicit(&deque->head, memory_order_relaxed);
     uint32_t tail = atomic_load_explicit(&deque->tail, memory_order_relaxed);
     uint32_t next = (tail + 1u) % JX_IDLE_NOTE_CAPACITY;
     if (next == head) {
-        unlock_deque();
+        unlock_deque(deque);
         return -2;
     }
     jx_idle_note *note = &deque->notes[tail];
@@ -42,7 +50,7 @@ int jx_idle_note_publish(jx_idle_note_deque *deque,
     note->has_data = has_data;
     memset(note->reserved, 0, sizeof note->reserved);
     atomic_store_explicit(&deque->tail, next, memory_order_release);
-    unlock_deque();
+    unlock_deque(deque);
 
     if (!has_data) return 0;
 
@@ -81,15 +89,15 @@ int jx_idle_collect_run(jx_idle_note_deque *deque,
                         void *context) {
     if (!deque || deque->version != JX_IDLE_COLLECT_VERSION || !collect) return -1;
 
-    /* Claim the armed edge first. If a producer publishes a 1 after this
-     * exchange, its CAS re-arms the next collection sweep. */
+    /* Claim the armed edge first. A producer that publishes a 1 after this
+     * exchange observes 0 and re-arms the next collection sweep. */
     if (atomic_exchange_explicit(&deque->collect_pending, 0u, memory_order_acq_rel) == 0u)
         return 0;
 
     jx_idle_note batch[JX_IDLE_NOTE_CAPACITY];
     size_t count = 0u;
 
-    lock_deque();
+    lock_deque(deque);
     uint32_t head = atomic_load_explicit(&deque->head, memory_order_relaxed);
     uint32_t tail = atomic_load_explicit(&deque->tail, memory_order_acquire);
     while (head != tail && count < JX_IDLE_NOTE_CAPACITY) {
@@ -97,7 +105,7 @@ int jx_idle_collect_run(jx_idle_note_deque *deque,
         head = (head + 1u) % JX_IDLE_NOTE_CAPACITY;
     }
     atomic_store_explicit(&deque->head, head, memory_order_release);
-    unlock_deque();
+    unlock_deque(deque);
 
     int collected = 0;
     for (size_t i = 0; i < count; ++i) {
