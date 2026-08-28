@@ -49,26 +49,44 @@ int main(void) {
     assert(jx_idle_collect_is_call(call, sizeof call));
     assert(!jx_idle_collect_is_call(call, 2u));
 
-    /* Zero notes are still written into the deque but never arm bus #2. */
+    /* Four programs must all answer. Zeroes count, but never enter DATA list. */
+    assert(jx_idle_note_begin_epoch(&deque, 1u, 4u) == 0);
     assert(jx_idle_note_publish(&deque, 1u, 1u, 0u) == 0);
     assert(jx_idle_note_publish(&deque, 2u, 1u, 0u) == 0);
+    assert(jx_idle_epoch_answered(&deque) == 2u);
+    assert(jx_idle_epoch_data_answers(&deque) == 0u);
     assert(!jx_idle_collect_is_pending(&deque));
 
-    /* The first one is the edge: 0 -> 1 arms collection immediately. */
+    /* First 1 flips ACK -> DATA and arms bus #2 immediately. */
     assert(jx_idle_note_publish(&deque, 3u, 1u, 1u) == 2);
     assert(jx_idle_collect_is_pending(&deque));
-    /* Later ones join the already-armed sweep rather than starting another. */
-    assert(jx_idle_note_publish(&deque, 4u, 1u, 1u) == 1);
-
+    /* But collection waits because one program has not answered yet. */
     collect_probe probe = {0};
+    assert(jx_idle_collect_run(&deque, collect_note, &probe) == 0);
+    assert(probe.count == 0u);
+
+    /* Last answer is also 1. Both ones must be drained together. */
+    assert(jx_idle_note_publish(&deque, 4u, 1u, 1u) == 1);
+    assert(jx_idle_epoch_is_complete(&deque));
+    assert(jx_idle_epoch_data_answers(&deque) == 2u);
     assert(jx_idle_collect_run(&deque, collect_note, &probe) == 2);
     assert(probe.count == 2u);
     assert(probe.id_sum == 7u);
     assert(probe.epoch_sum == 2u);
     assert(!jx_idle_collect_is_pending(&deque));
-    assert(jx_idle_collect_run(&deque, collect_note, &probe) == 0);
 
-    /* Concurrent producers: exactly one may win the atomic arm edge. */
+    /* All-zero epoch completes without ever arming the second bus. */
+    assert(jx_idle_note_begin_epoch(&deque, 2u, 3u) == 0);
+    assert(jx_idle_note_publish(&deque, 10u, 2u, 0u) == 0);
+    assert(jx_idle_note_publish(&deque, 11u, 2u, 0u) == 0);
+    assert(jx_idle_note_publish(&deque, 12u, 2u, 0u) == 0);
+    assert(jx_idle_epoch_is_complete(&deque));
+    assert(jx_idle_epoch_data_answers(&deque) == 0u);
+    assert(!jx_idle_collect_is_pending(&deque));
+
+    /* Concurrent data producers: exactly one flips the atomic mode/arm edge,
+     * but all 32 one-notes are collected as one completed epoch batch. */
+    assert(jx_idle_note_begin_epoch(&deque, 77u, PRODUCERS) == 0);
     pthread_t threads[PRODUCERS];
     producer_arg args[PRODUCERS];
     _Atomic unsigned armers;
@@ -84,6 +102,8 @@ int main(void) {
 
     assert(atomic_load_explicit(&armers, memory_order_relaxed) == 1u);
     assert(jx_idle_collect_is_pending(&deque));
+    assert(jx_idle_epoch_is_complete(&deque));
+    assert(jx_idle_epoch_data_answers(&deque) == PRODUCERS);
 
     collect_probe concurrent = {0};
     assert(jx_idle_collect_run(&deque, collect_note, &concurrent) == PRODUCERS);
@@ -91,10 +111,6 @@ int main(void) {
     assert(concurrent.epoch_sum == (uint64_t)PRODUCERS * 77u);
     assert(!jx_idle_collect_is_pending(&deque));
 
-    /* Once drained, the next data producer owns a fresh 0 -> 1 edge. */
-    assert(jx_idle_note_publish(&deque, 999u, 78u, 1u) == 2);
-    assert(jx_idle_collect_run(&deque, collect_note, &concurrent) == 1);
-
-    puts("jx-idle-collect: first atomic 1 arms second bus; deque collection ok");
+    puts("jx-idle-collect: atomic list flip + all ones collected in one batch");
     return 0;
 }
