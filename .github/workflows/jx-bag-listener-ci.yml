@@ -110,3 +110,17 @@ jobs:
           host/common/jx-bag-listener.c
           host/common/jx-bag-patch.c
           && /tmp/jx-live-bag-maintainer
+      - name: Verify JXM1 private socket reaches live Bag
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common -Ihost/linux
+          -o /tmp/jx-maintainer-service-ipc
+          tests/jx-maintainer-service-ipc.c
+          host/linux/jx-maintainer-service.c
+          host/common/jx-maintainer-ipc.c
+          host/common/jx-remote-bag-wire.c
+          host/common/jx-live-bag.c
+          host/common/jx-maintainer-service.c
+          host/common/jx-remote-bag.c
+          host/common/jx-bag-listener.c
+          host/common/jx-bag-patch.c
+          && /tmp/jx-maintainer-service-ipc
