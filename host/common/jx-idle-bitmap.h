@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stdatomic.h>
 
-#define JX_IDLE_BITMAP_VERSION 1u
+#define JX_IDLE_BITMAP_VERSION 2u
 #define JX_IDLE_BITMAP_MAX_PROGRAMS 256u
 #define JX_IDLE_BITMAP_WORD_BITS 64u
 #define JX_IDLE_BITMAP_WORDS (JX_IDLE_BITMAP_MAX_PROGRAMS / JX_IDLE_BITMAP_WORD_BITS)
@@ -16,13 +16,20 @@
  * Every registered program owns one stable ordinal bit position. A program
  * always answers an epoch, even when the answer is zero:
  *
- *   ANSWERED bit = program returned for this epoch
- *   DATA bit     = program returned 1 / has prepared data
+ *   CLAIMED bit  = this program owns its one reply slot for the epoch
+ *   ANSWERED bit = the complete 0/1 reply has been published
+ *   DATA bit     = the published reply was 1 / prepared data exists
  *
- * DATA therefore is the ordered 0/1 bitstring carried by bus #1. ANSWERED is
- * control state used only to distinguish a real zero from "not returned yet".
- * The first DATA=1 atomically arms bus #2, but bus #2 cannot collect until the
- * complete expected ANSWERED mask has returned.
+ * A 1 reply is committed in this order:
+ *   CLAIMED -> DATA -> ANSWERED
+ * A 0 reply is committed:
+ *   CLAIMED -> ANSWERED
+ *
+ * ANSWERED is therefore the completion fence: when the expected ANSWERED
+ * bitmap is full, every DATA bit for that epoch is already visible. DATA is
+ * the ordered 0/1 bitstring carried by bus #1. The first DATA=1 atomically
+ * arms bus #2, but bus #2 cannot collect until all expected ANSWERED bits are
+ * committed.
  */
 typedef struct {
     uint8_t version;
@@ -31,6 +38,7 @@ typedef struct {
     _Atomic uint32_t program_count;
     _Atomic uint32_t collect_pending;
     uint64_t expected[JX_IDLE_BITMAP_WORDS];
+    _Atomic uint64_t claimed[JX_IDLE_BITMAP_WORDS];
     _Atomic uint64_t answered[JX_IDLE_BITMAP_WORDS];
     _Atomic uint64_t data[JX_IDLE_BITMAP_WORDS];
 } jx_idle_bitmap;
@@ -48,7 +56,7 @@ int jx_idle_bitmap_begin(jx_idle_bitmap *bitmap,
 /* Returns:
  *   2  data=1 and this producer atomically armed bus #2
  *   1  data=1 and bus #2 was already armed
- *   0  data=0; real reply recorded in ANSWERED
+ *   0  data=0; real reply committed in ANSWERED
  *  <0  invalid/duplicate/wrong epoch
  */
 int jx_idle_bitmap_reply(jx_idle_bitmap *bitmap,
@@ -60,7 +68,7 @@ int jx_idle_bitmap_complete(const jx_idle_bitmap *bitmap);
 int jx_idle_bitmap_collect_pending(const jx_idle_bitmap *bitmap);
 uint32_t jx_idle_bitmap_data_count(const jx_idle_bitmap *bitmap);
 
-/* Snapshot the ordered bus #1 reply string. out_words receives DATA; callers
+/* Snapshot the ordered bus #1 reply string. data_out receives DATA; callers
  * that also need completion state can request ANSWERED. Bits above
  * program_count are guaranteed zero. */
 int jx_idle_bitmap_snapshot(const jx_idle_bitmap *bitmap,
