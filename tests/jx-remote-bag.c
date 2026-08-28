@@ -32,7 +32,7 @@ int main(void) {
 
     jx_remote_bag_source source = {0};
     source.version = JX_REMOTE_BAG_VERSION;
-    source.transport = JX_REMOTE_BAG_TRANSPORT_HTTPS;
+    source.transport = JX_REMOTE_BAG_TRANSPORT_SSH;
     source.capability_mask = JX_REMOTE_BAG_CAP_WRITE;
     strcpy(source.source_id, "weather-feed.example");
     strcpy(source.bag_name, "Weather");
@@ -41,7 +41,7 @@ int main(void) {
 
     jx_remote_bag_request req = {0};
     req.version = JX_REMOTE_BAG_VERSION;
-    req.transport = JX_REMOTE_BAG_TRANSPORT_HTTPS;
+    req.transport = JX_REMOTE_BAG_TRANSPORT_SSH;
     req.requested_capabilities = JX_REMOTE_BAG_CAP_WRITE;
     strcpy(req.source_id, "weather-feed.example");
     req.sequence = 101u;
@@ -71,10 +71,18 @@ int main(void) {
     assert(source.last_sequence == 101u);
     assert(jx_remote_bag_authorize(&source, &req, 1050u) == JX_REMOTE_BAG_ERR_REPLAY);
 
+    /* HTTPS is never mutation authority. */
     jx_remote_bag_request bad = req;
     bad.sequence = 102u;
-    bad.transport = JX_REMOTE_BAG_TRANSPORT_SSH;
+    bad.transport = JX_REMOTE_BAG_TRANSPORT_HTTPS;
     assert(jx_remote_bag_authorize(&source, &bad, 1050u) == JX_REMOTE_BAG_ERR_TRANSPORT);
+
+    jx_remote_bag_source https_source = source;
+    https_source.transport = JX_REMOTE_BAG_TRANSPORT_HTTPS;
+    bad = req;
+    bad.sequence = 102u;
+    bad.transport = JX_REMOTE_BAG_TRANSPORT_HTTPS;
+    assert(jx_remote_bag_authorize(&https_source, &bad, 1050u) == JX_REMOTE_BAG_ERR_TRANSPORT);
 
     bad = req; bad.sequence = 102u;
     strcpy(bad.qualifier.bag_name, "Prices");
@@ -101,6 +109,6 @@ int main(void) {
     assert(jx_remote_bag_prepare(&source, &req, 1050u, &current, json, sizeof json - 1u,
                                  json_digest, &vetoes, NULL) == JX_REMOTE_BAG_ERR_LISTENER);
 
-    puts("jx-remote-bag: provenance, scope, freshness, capability and listener gates passed");
+    puts("jx-remote-bag: SSH-only mutation, scope, freshness, capability and listener gates passed");
     return 0;
 }
