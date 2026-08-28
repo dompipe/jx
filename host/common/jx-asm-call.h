@@ -31,7 +31,8 @@ typedef struct {
 typedef struct {
     uint8_t version;
     jx_asm_call_target promoted[JX_ASM_CALL_PROMOTED_COUNT];
-    jx_asm_call_target families[JX_ASM_CALL_FAMILY_COUNT][JX_ASM_CALL_SLOT_COUNT];
+    /* Sparse: allocate a 256-slot page only for a family that is actually bound. */
+    jx_asm_call_target *families[JX_ASM_CALL_FAMILY_COUNT];
 } jx_asm_call_table;
 
 typedef struct {
@@ -41,6 +42,7 @@ typedef struct {
 } jx_asm_call_decoded;
 
 void jx_asm_call_table_init(jx_asm_call_table *table);
+void jx_asm_call_table_dispose(jx_asm_call_table *table);
 int jx_asm_call_bind(jx_asm_call_table *table,
                      uint8_t family,
                      uint8_t slot,
