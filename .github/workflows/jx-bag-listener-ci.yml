@@ -19,3 +19,12 @@ jobs:
           host/common/jx-bag-listener.c
           host/common/jx-bag-patch.c
           && /tmp/jx-bag-listener
+      - name: Verify shadow bytecode filter fallback
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common
+          -o /tmp/jx-exec-branch
+          tests/jx-exec-branch.c
+          host/common/jx-exec-branch.c
+          host/common/jx-bag-listener.c
+          host/common/jx-bag-patch.c
+          && /tmp/jx-exec-branch
