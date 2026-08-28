@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "jx-channel-bus.h"
 
 #define JX_HOT_SWAP_VERSION 1u
 #define JX_HOT_SWAP_DIGEST_BYTES 32u
@@ -27,6 +28,7 @@ typedef struct {
     jx_hot_swap_program candidate;
     void *shared_state;
     uint8_t candidate_ready;
+    uint8_t cutover_requested;
 } jx_hot_swap_gate;
 
 typedef enum {
@@ -37,7 +39,8 @@ typedef enum {
     JX_HOT_SWAP_ERR_STATE_ABI = -4,
     JX_HOT_SWAP_ERR_GENERATION = -5,
     JX_HOT_SWAP_ERR_START = -6,
-    JX_HOT_SWAP_ERR_NOT_READY = -7
+    JX_HOT_SWAP_ERR_NOT_READY = -7,
+    JX_HOT_SWAP_ERR_CHANNEL = -8
 } jx_hot_swap_result;
 
 void jx_hot_swap_init(jx_hot_swap_gate *gate,
@@ -45,18 +48,19 @@ void jx_hot_swap_init(jx_hot_swap_gate *gate,
                       void *shared_state);
 
 /**
- * Prepare a newly compiled shadow alongside the active one.
- * The candidate must consume the exact same data-source and state ABI contracts.
- * start() runs against the same shared state before the active program is changed.
+ * Compile/load-time preparation only. It must not start the candidate or alter routing.
  */
 int jx_hot_swap_prepare(jx_hot_swap_gate *gate,
                         const jx_hot_swap_program *candidate);
 
 /**
- * Safe-point operation: switch dispatch to the prepared candidate, then stop the old program.
- * Shared state is never copied or replaced.
+ * Explicit UI/user cutover. The channel root pauses, the candidate starts on the same
+ * shared state, routing flips, the old program stops, then queued channel traffic resumes.
  */
-int jx_hot_swap_commit(jx_hot_swap_gate *gate);
+int jx_hot_swap_button_cutover(jx_hot_swap_gate *gate,
+                               jx_channel_bus *bus,
+                               uint32_t old_program_endpoint,
+                               uint32_t new_program_endpoint);
 
 /** Route an event through whichever compiled shadow is active now. */
 int jx_hot_swap_call(jx_hot_swap_gate *gate, uint32_t event, void *payload);
