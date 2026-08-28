@@ -1,13 +1,15 @@
 <?php declare(strict_types=1);
 
-require_once __DIR__ . '/jx-semantic.php';
+require_once __DIR__ . '/jx-jxl-compiler.php';
 
 use jx\semantic\Compiler;
 use jx\semantic\JxlVm;
 use jx\semantic\Parser;
+use jx\semantic\PreparedCompiler;
 use jx\semantic\Type;
 
 $c = new Compiler();
+$preparedCompiler = new PreparedCompiler($c);
 $stage = $argv[1] ?? 'all';
 
 $language = <<<'JX'
@@ -55,10 +57,10 @@ $run = static function(string $name, callable $fn) use ($stage): void {
     echo "PASS semantic stage {$name}\n";
 };
 
-$jxlCase = static function(string $source, int $expected) use ($c): void {
-    $semantic = $c->run($source);
+$jxlCase = static function(string $source, int $expected) use ($preparedCompiler): void {
+    $semantic = $preparedCompiler->run($source);
     assert($semantic === $expected);
-    $bytes = $c->emitJxl($source);
+    $bytes = $preparedCompiler->emitJxl($source);
     assert(strlen($bytes) > 0);
     $prepared = (new JxlVm())->run($bytes);
     assert($prepared === $expected);
@@ -84,8 +86,8 @@ $run('jxl-do', static fn() => $jxlCase('int $x = 4; do { $x--; } while ($x > 2);
 $run('jxl-repeat', static fn() => $jxlCase('int $x = 1; repeat (3) { $x += 2; } $x;', 7));
 $run('jxl', static fn() => $jxlCase($numeric, 43));
 
-$run('attachment', static function() use ($c, $numeric): void {
-    $jxl = $c->emitJxl($numeric);
+$run('attachment', static function() use ($preparedCompiler, $numeric): void {
+    $jxl = $preparedCompiler->emitJxl($numeric);
     $failed = false;
     try { (new JxlVm())->run(chr(0x80) . $jxl); }
     catch (\jx\semantic\SemanticException $e) { $failed = str_contains($e->getMessage(), 'attachment encountered as opcode'); }
