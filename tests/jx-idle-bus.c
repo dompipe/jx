@@ -9,7 +9,7 @@ typedef struct {
     uint64_t last_ms;
 } probe;
 
-static int on_tick(uint64_t epoch, uint64_t monotonic_ms, void *context) {
+static int on_system_tick(uint64_t epoch, uint64_t monotonic_ms, void *context) {
     probe *p = (probe *)context;
     ++p->calls;
     p->last_epoch = epoch;
@@ -29,26 +29,46 @@ int main(void) {
     assert(jx_idle_bus_is_tick(code, sizeof code));
     assert(!jx_idle_bus_is_tick(code, 2u));
 
-    probe a = {0}, b = {0};
-    assert(jx_idle_bus_add(&bus, on_tick, &a) == 0);
-    assert(jx_idle_bus_add(&bus, on_tick, &b) == 0);
-    assert(jx_idle_bus_add(&bus, on_tick, &a) == -2);
+    probe system = {0};
+    assert(jx_idle_bus_add_system(&bus, on_system_tick, &system) == 0);
+    assert(jx_idle_bus_add_system(&bus, on_system_tick, &system) == -2);
 
-    assert(jx_idle_bus_maybe_tick(&bus, 1000u) == 2);
-    assert(a.calls == 1u && b.calls == 1u);
-    assert(a.last_epoch == 1u && a.last_ms == 1000u);
+    for (uint32_t id = 1u; id <= 100u; ++id)
+        assert(jx_idle_bus_add_program(&bus, id) == 0);
+    assert(bus.program_count == 100u);
+
+    assert(jx_idle_bus_maybe_tick(&bus, 1000u) == 1);
+    assert(system.calls == 1u);
+    assert(system.last_epoch == 1u && system.last_ms == 1000u);
+
+    uint64_t epoch = 0u;
+    assert(jx_idle_bus_take_permission(&bus, 1u, &epoch) == 1);
+    assert(epoch == 1u);
+    assert(jx_idle_bus_take_permission(&bus, 1u, &epoch) == 0);
+    assert(jx_idle_bus_take_permission(&bus, 100u, &epoch) == 1);
+    assert(epoch == 1u);
 
     assert(jx_idle_bus_maybe_tick(&bus, 1499u) == 0);
-    assert(a.calls == 1u && b.calls == 1u);
+    assert(system.calls == 1u);
 
-    assert(jx_idle_bus_maybe_tick(&bus, 1500u) == 2);
-    assert(a.calls == 2u && b.calls == 2u);
-    assert(a.last_epoch == 2u && a.last_ms == 1500u);
+    /* Program 2 sleeps through three pulses. Permission coalesces to the
+     * newest epoch instead of building three queued wakeups. */
+    assert(jx_idle_bus_maybe_tick(&bus, 1500u) == 1);
+    assert(jx_idle_bus_maybe_tick(&bus, 2000u) == 1);
+    assert(jx_idle_bus_maybe_tick(&bus, 2500u) == 1);
+    assert(system.calls == 4u);
+    assert(jx_idle_bus_take_permission(&bus, 2u, &epoch) == 1);
+    assert(epoch == 4u);
+    assert(jx_idle_bus_take_permission(&bus, 2u, &epoch) == 0);
 
-    assert(jx_idle_bus_remove(&bus, on_tick, &b) == 0);
-    assert(jx_idle_bus_tick(&bus, 2000u) == 1);
-    assert(a.calls == 3u && b.calls == 2u);
+    assert(jx_idle_bus_remove_program(&bus, 50u) == 0);
+    assert(bus.program_count == 99u);
+    assert(jx_idle_bus_take_permission(&bus, 50u, &epoch) == -2);
 
-    puts("jx-idle-bus: 3-byte tick + shared 500ms fanout ok");
+    assert(jx_idle_bus_remove_system(&bus, on_system_tick, &system) == 0);
+    assert(jx_idle_bus_tick(&bus, 3000u) == 0);
+    assert(system.calls == 4u);
+
+    puts("jx-idle-bus: one 3-byte pulse broadcasts coalesced update permission");
     return 0;
 }
