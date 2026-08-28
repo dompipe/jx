@@ -40,6 +40,21 @@ $threw=false;
 try { AppliedBytecode::prepared("\x01\x02\x03"); } catch (Throwable) { $threw=true; }
 if(!$threw)$fail('prepared bytecode accepted >2 bytes');
 
+// Exercise the authoritative jx.exe frontend used by native builds.
+$tmp=sys_get_temp_dir().'/jx-applied-runtime-'.getmypid().'.bin';
+@unlink($tmp);
+$cmd=[PHP_BINARY,__DIR__.'/jx-run.php','--applied-runtime','--print','-o',$tmp];
+$spec=[0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['pipe','w']];
+$p=proc_open(implode(' ',array_map('escapeshellarg',$cmd)),$spec,$pipes,__DIR__);
+if(!is_resource($p))$fail('proc_open jx.exe applied runtime');
+$out=stream_get_contents($pipes[1]);$err=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);
+$rc=proc_close($p);
+if($rc!==0)$fail('jx.exe applied runtime rc='.$rc.' stderr='.$err);
+$eq(is_file($tmp)?file_get_contents($tmp):false,AppliedBytecode::runtimeBusPage(),'jx.exe emitted applied runtime page');
+$eq(trim($out),'7f00017f0002','jx.exe print applied bytes');
+if(!str_contains($err,'jx.exe PAGE 001')||!str_contains($err,'target:JX-APPLIED'))$fail('jx.exe applied report missing: '.trim($err));
+@unlink($tmp);
+
 if(class_exists(ZipArchive::class)){
     $dir=sys_get_temp_dir().'/jx-applied-'.bin2hex(random_bytes(5));
     if(!mkdir($dir,0775,true)&&!is_dir($dir))$fail('temp dir');
