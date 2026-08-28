@@ -89,14 +89,6 @@ static void module_deactivate(jx11_patch_service *service, const jx11_generation
         generation->native_module->deactivate(service->host);
 }
 
-static void unload_generation_module(jx11_generation *generation) {
-    if (!generation || !generation->native_handle) return;
-    jx11_loaded_patch_module loaded = { generation->native_handle, generation->native_module };
-    jx11_patch_module_unload(&loaded);
-    generation->native_handle = NULL;
-    generation->native_module = NULL;
-}
-
 int jx11_patch_service_open(jx11_patch_service *service, const char *path,
                             const char *public_key_pem, jx11_live_patch *manager) {
     if (!service || !path || !*path || !public_key_pem || !*public_key_pem || !manager) return -1;
@@ -126,9 +118,7 @@ void jx11_patch_service_close(jx11_patch_service *service) {
     if (!service) return;
     if (service->manager) {
         module_deactivate(service, &service->manager->active);
-        unload_generation_module(&service->manager->pending);
-        unload_generation_module(&service->manager->active);
-        unload_generation_module(&service->manager->previous);
+        jx11_live_patch_dispose(service->manager);
     }
     if (service->fd >= 0) close(service->fd);
     if (service->path[0]) unlink(service->path);
@@ -203,18 +193,12 @@ int jx11_patch_service_process_one(jx11_patch_service *service) {
     int r=jx11_live_patch_stage(service->manager,&manifest,&staged);
     if (r!=JX_PATCH_OK) { jx11_patch_module_unload(&loaded); write_text(client,"ERR stage\n"); close(client); return -9; }
 
-    jx11_generation stale_previous = service->manager->previous;
-    uint8_t had_stale_previous = service->manager->previous_valid;
     jx11_generation old_active = service->manager->active;
     r=jx11_live_patch_commit_pending(service->manager,&manifest);
     if (r!=JX_PATCH_OK) {
-        jx11_patch_module_unload(&loaded);
-        memset(&service->manager->pending,0,sizeof service->manager->pending);
-        service->manager->pending_ready=0u;
+        jx11_live_patch_discard_pending(service->manager);
         write_text(client,"ERR commit\n"); close(client); return -9;
     }
-    if (had_stale_previous && stale_previous.native_handle && stale_previous.native_handle != old_active.native_handle)
-        unload_generation_module(&stale_previous);
     module_deactivate(service, &old_active);
     module_activate(service, &service->manager->active);
 
