@@ -106,7 +106,6 @@ int main(void) {
     frame.r[3] = 40u;
     uint8_t code[2] = {0};
     uint8_t used = 0u;
-    uint64_t result = 0u;
     assert(jx_asm_call_encode_micro(&next, 0u, 3u, 0u, 0u, code, &used) == 0);
     assert(used == 1u);
     invoke_many(&next, code, used, &frame, 11u);
