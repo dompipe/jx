@@ -12,6 +12,10 @@
 #include "jx11-live-patch.h"
 #include "jx11-patch-service.h"
 #include "../common/jx-host-trace.h"
+/* jx11-runtime.c is intentionally the composition translation unit for the
+ * canonical JX11 core, so pull the tiny common trace implementation in here
+ * just as the wrapper below pulls in jx11.c. */
+#include "../common/jx-host-trace.c"
 
 static jx11_live_patch patch_manager;
 static jx11_patch_service patch_service;
