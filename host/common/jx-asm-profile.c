@@ -13,17 +13,6 @@ static jx_asm_profile_candidate *find_candidate(jx_asm_profile *profile,
     return NULL;
 }
 
-static int find_candidate_index(const jx_asm_profile *profile,
-                                uint8_t family,
-                                uint8_t slot) {
-    if (!profile) return -1;
-    for (uint8_t i = 0; i < profile->candidate_count; ++i) {
-        const jx_asm_profile_candidate *c = &profile->candidates[i];
-        if (c->family == family && c->slot == slot) return (int)i;
-    }
-    return -1;
-}
-
 static void add_hits(jx_asm_profile_candidate *c, uint64_t count) {
     if (!c || count == 0u) return;
     if (UINT64_MAX - c->hits < count) c->hits = UINT64_MAX;
