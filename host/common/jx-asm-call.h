@@ -122,14 +122,24 @@ int jx_asm_call_invoke(jx_asm_call_table *table,
                        uint64_t *result,
                        uint8_t *bytes_used);
 
+/*
+ * Profiling is deliberately a build-time choice. Release hot calls must not
+ * pay a read/branch/write counter tax on every dispatch. Profile builds define
+ * JX_ASM_CALL_PROFILE=1 and harvest the local counters between epochs.
+ */
 static inline void jx_asm_call_count(uint32_t *hits) {
+#if defined(JX_ASM_CALL_PROFILE) && JX_ASM_CALL_PROFILE
     if (hits && *hits != UINT32_MAX) ++(*hits);
+#else
+    (void)hits;
+#endif
 }
 
 /*
  * Fastest entry point. The caller has already established that opcode is hot,
  * so the path is mask -> flat target -> native call. No decoder structure,
- * family-page lookup, string lookup, hash lookup or allocation is involved.
+ * family-page lookup, string lookup, hash lookup, allocation, or release-mode
+ * profile counter is involved.
  */
 static inline int jx_asm_call_hot(jx_asm_call_table *table,
                                   uint8_t opcode,
