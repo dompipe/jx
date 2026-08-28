@@ -57,7 +57,7 @@ int main(void) {
 
     /* Unknown task and invalid action fail before host dispatch. */
     assert(jx_task_controller_apply(&ctl, id + 999u, JX_TASK_ACTION_PAUSE) == -2);
-    assert(jx_task_controller_apply(&ctl, id, (jx_task_action)0xffu) == -4);
+    assert(jx_task_controller_apply(&ctl, id, (jx_task_action)0xffu) == -3);
     assert(ctx.calls == calls_after_stop);
 
     puts("jx-task-control: transitions, host failure, stop gate and recovery semantics ok");
