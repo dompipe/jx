@@ -1,0 +1,25 @@
+name: JX maintainer runtime CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  maintainer-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify provisioned maintainer runtime commits live Bag
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common
+          -o /tmp/jx-maintainer-runtime
+          tests/jx-maintainer-runtime.c
+          host/common/jx-maintainer-runtime.c
+          host/common/jx-live-bag.c
+          host/common/jx-maintainer-service.c
+          host/common/jx-remote-bag.c
+          host/common/jx-bag-listener.c
+          host/common/jx-bag-patch.c
+          && /tmp/jx-maintainer-runtime
