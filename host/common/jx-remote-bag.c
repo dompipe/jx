@@ -6,18 +6,44 @@ static int text_equal(const char *a, const char *b, size_t max) {
     return strncmp(a, b, max) == 0;
 }
 
-int jx_remote_bag_authorize(const jx_remote_bag_source *source,
+static int digest_nonzero(const uint8_t *digest, size_t length) {
+    uint8_t any = 0u;
+    if (!digest) return 0;
+    for (size_t i = 0; i < length; ++i) any |= digest[i];
+    return any != 0u;
+}
+
+int jx_remote_bag_authorize(const jx_maintainer_plane *plane,
+                            const jx_remote_bag_source *source,
                             const jx_remote_bag_request *request,
                             uint64_t now) {
-    if (!source || !request) return JX_REMOTE_BAG_ERR_ARGUMENT;
-    if (source->version != JX_REMOTE_BAG_VERSION || request->version != JX_REMOTE_BAG_VERSION)
+    if (!plane || !source || !request) return JX_REMOTE_BAG_ERR_ARGUMENT;
+    if (plane->version != JX_REMOTE_BAG_VERSION ||
+        source->version != JX_REMOTE_BAG_VERSION ||
+        request->version != JX_REMOTE_BAG_VERSION)
         return JX_REMOTE_BAG_ERR_VERSION;
-    if (!source->enabled || !source->source_id[0] ||
+
+    if (!plane->provisioned || !plane->installation_id[0] ||
+        !digest_nonzero(plane->maintainer_trust_digest, JX_REMOTE_BAG_TRUST_DIGEST_BYTES))
+        return JX_REMOTE_BAG_ERR_NOT_PROVISIONED;
+
+    if (!source->enabled || !source->maintainer) return JX_REMOTE_BAG_ERR_NOT_MAINTAINER;
+    if (!source->source_id[0] ||
         !text_equal(source->source_id, request->source_id, JX_REMOTE_BAG_SOURCE_MAX + 1u))
         return JX_REMOTE_BAG_ERR_SOURCE;
 
-    /* Remote mutation is deliberately SSH-only. HTTPS may be used by a separate
-     * read/status surface, but it is never authority to change live Bags. */
+    if (!text_equal(plane->installation_id, source->installation_id,
+                    JX_REMOTE_BAG_INSTALLATION_MAX + 1u) ||
+        !text_equal(plane->installation_id, request->installation_id,
+                    JX_REMOTE_BAG_INSTALLATION_MAX + 1u))
+        return JX_REMOTE_BAG_ERR_INSTALLATION;
+
+    if (!jx_bag_patch_digest_equal(plane->maintainer_trust_digest,
+                                   source->maintainer_trust_digest))
+        return JX_REMOTE_BAG_ERR_TRUST;
+
+    /* Maintainer mutation is deliberately SSH-only. HTTPS may expose separate
+     * non-mutating inspection surfaces, but it is never mutation authority. */
     if (source->transport != JX_REMOTE_BAG_TRANSPORT_SSH ||
         request->transport != JX_REMOTE_BAG_TRANSPORT_SSH ||
         request->transport != source->transport)
@@ -40,7 +66,8 @@ int jx_remote_bag_authorize(const jx_remote_bag_source *source,
     return JX_REMOTE_BAG_OK;
 }
 
-int jx_remote_bag_prepare(const jx_remote_bag_source *source,
+int jx_remote_bag_prepare(const jx_maintainer_plane *plane,
+                          const jx_remote_bag_source *source,
                           const jx_remote_bag_request *request,
                           uint64_t now,
                           const jx_bag_patch_current *current,
@@ -49,7 +76,7 @@ int jx_remote_bag_prepare(const jx_remote_bag_source *source,
                           const uint8_t actual_json_digest[JX_BAG_PATCH_DIGEST_BYTES],
                           const jx_bag_listener_registry *listeners,
                           void *candidate) {
-    int rc = jx_remote_bag_authorize(source, request, now);
+    int rc = jx_remote_bag_authorize(plane, source, request, now);
     if (rc != JX_REMOTE_BAG_OK) return rc;
     if (jx_bag_patch_validate(current, &request->qualifier, json, json_length, actual_json_digest) != JX_BAG_PATCH_OK)
         return JX_REMOTE_BAG_ERR_PATCH;
