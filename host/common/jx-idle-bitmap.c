@@ -19,6 +19,7 @@ void jx_idle_bitmap_init(jx_idle_bitmap *bitmap) {
     atomic_init(&bitmap->program_count, 0u);
     atomic_init(&bitmap->collect_pending, 0u);
     for (size_t i = 0; i < JX_IDLE_BITMAP_WORDS; ++i) {
+        atomic_init(&bitmap->claimed[i], 0u);
         atomic_init(&bitmap->answered[i], 0u);
         atomic_init(&bitmap->data[i], 0u);
     }
@@ -38,6 +39,7 @@ int jx_idle_bitmap_begin(jx_idle_bitmap *bitmap,
     if (remainder) bitmap->expected[full_words] = (UINT64_C(1) << remainder) - 1u;
 
     for (size_t i = 0; i < JX_IDLE_BITMAP_WORDS; ++i) {
+        atomic_store_explicit(&bitmap->claimed[i], 0u, memory_order_relaxed);
         atomic_store_explicit(&bitmap->answered[i], 0u, memory_order_relaxed);
         atomic_store_explicit(&bitmap->data[i], 0u, memory_order_relaxed);
     }
@@ -60,20 +62,27 @@ int jx_idle_bitmap_reply(jx_idle_bitmap *bitmap,
     uint32_t bit = program_ordinal % JX_IDLE_BITMAP_WORD_BITS;
     uint64_t mask = UINT64_C(1) << bit;
 
-    uint64_t prior_answered = atomic_fetch_or_explicit(&bitmap->answered[word], mask,
+    /* CLAIMED reserves the reply slot without making the reply visible to the
+     * completion test. This lets a 1 publish DATA before ANSWERED is committed. */
+    uint64_t prior_claimed = atomic_fetch_or_explicit(&bitmap->claimed[word], mask,
                                                        memory_order_acq_rel);
-    if (prior_answered & mask) return -4;
+    if (prior_claimed & mask) return -4;
 
-    if (!has_data) return 0;
+    int armed = 0;
+    if (has_data) {
+        atomic_fetch_or_explicit(&bitmap->data[word], mask, memory_order_release);
+        uint32_t expected = 0u;
+        if (atomic_compare_exchange_strong_explicit(&bitmap->collect_pending,
+                                                    &expected, 1u,
+                                                    memory_order_acq_rel,
+                                                    memory_order_acquire))
+            armed = 1;
+    }
 
-    atomic_fetch_or_explicit(&bitmap->data[word], mask, memory_order_release);
-    uint32_t expected = 0u;
-    if (atomic_compare_exchange_strong_explicit(&bitmap->collect_pending,
-                                                &expected, 1u,
-                                                memory_order_acq_rel,
-                                                memory_order_acquire))
-        return 2;
-    return 1;
+    /* ANSWERED is published last. An acquire load that observes the completed
+     * mask is therefore guaranteed to observe every earlier DATA publication. */
+    atomic_fetch_or_explicit(&bitmap->answered[word], mask, memory_order_release);
+    return has_data ? (armed ? 2 : 1) : 0;
 }
 
 int jx_idle_bitmap_complete(const jx_idle_bitmap *bitmap) {
