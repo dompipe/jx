@@ -16,8 +16,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#define JX11_PATCH_SIGNATURE_MAX 4096u
-
 static int read_exact(int fd, uint8_t *out, size_t length) {
     size_t at = 0u;
     while (at < length) {
@@ -156,7 +154,7 @@ int jx11_patch_service_process_one(jx11_patch_service *service) {
     }
     if (h.operation != JX_PATCH_IPC_OP_PUSH ||
         h.manifest_length != JX_PATCH_MANIFEST_WIRE_BYTES ||
-        h.signature_length == 0u || h.signature_length > JX11_PATCH_SIGNATURE_MAX ||
+        h.signature_length == 0u || h.signature_length > JX_PATCH_SIGNATURE_MAX ||
         h.patch_length == 0u || h.patch_length > JX_PATCH_MAX_BYTES) {
         write_text(client,"ERR lengths\n"); close(client); return -4;
     }
