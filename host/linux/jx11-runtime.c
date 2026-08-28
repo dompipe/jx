@@ -28,6 +28,52 @@ static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connec
 #undef main
 #undef xcb_wait_for_event
 
+static void patch_host_log(int level, const char *message) {
+    fprintf(stderr, "jx11: patch[%d]: %s\n", level, message ? message : "");
+}
+
+static void patch_host_set_background_rgb(uint32_t rgb) {
+    background_pixel = rgb & 0x00ffffffu;
+    invalidate(DIRTY_ROOT);
+}
+
+static void patch_host_invalidate_desktop(void) {
+    invalidate(DIRTY_ROOT | DIRTY_TASKBAR);
+}
+
+static uint64_t patch_host_active_generation(void) {
+    return patch_manager.active.generation;
+}
+
+static const jx11_patch_host_v1 patch_host = {
+    JX11_PATCH_MODULE_ABI_VERSION,
+    sizeof(jx11_patch_host_v1),
+    patch_host_log,
+    patch_host_set_background_rgb,
+    patch_host_invalidate_desktop,
+    patch_host_active_generation
+};
+
+static void patch_safe_point(void) {
+    const jx11_patch_module_v1 *module = patch_manager.active.native_module;
+    if (patch_service_enabled && module && module->safe_point) module->safe_point(&patch_host);
+}
+
+static int patch_filter_event(xcb_generic_event_t *event) {
+    const jx11_patch_module_v1 *module = patch_manager.active.native_module;
+    if (!patch_service_enabled || !module || !module->filter_x_event || !event) return 1;
+    return module->filter_x_event(&patch_host, (uint8_t)(event->response_type & 0x7fu), event) != 0;
+}
+
+static xcb_generic_event_t *poll_filtered_x_event(xcb_connection_t *connection) {
+    for (;;) {
+        xcb_generic_event_t *event = xcb_poll_for_event(connection);
+        if (!event) return NULL;
+        if (patch_filter_event(event)) return event;
+        free(event);
+    }
+}
+
 static int hash_running_image(uint8_t out[JX_PATCH_DIGEST_BYTES]) {
     FILE *fp = fopen("/proc/self/exe", "rb");
     if (!fp) return -1;
@@ -52,9 +98,8 @@ static int hash_running_image(uint8_t out[JX_PATCH_DIGEST_BYTES]) {
 }
 
 static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connection) {
+    patch_safe_point();
     if (!patch_service_enabled) {
-        /* We cannot call xcb_wait_for_event here because the core's macro has
-         * been removed. Poll the X fd directly and consume through XCB. */
         for (;;) {
             xcb_generic_event_t *event = xcb_poll_for_event(connection);
             if (event) return event;
@@ -67,7 +112,7 @@ static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connec
     }
 
     for (;;) {
-        xcb_generic_event_t *event = xcb_poll_for_event(connection);
+        xcb_generic_event_t *event = poll_filtered_x_event(connection);
         if (event) return event;
         if (xcb_connection_has_error(connection)) return NULL;
 
@@ -90,9 +135,10 @@ static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connec
         if ((fds[1].revents & POLLIN) != 0) {
             int prc = jx11_patch_service_process_one(&patch_service);
             if (prc < 0) fprintf(stderr, "jx11: patch service transaction failed (%d)\n", prc);
+            patch_safe_point();
         }
         if ((fds[0].revents & (POLLIN | POLLERR | POLLHUP)) != 0) {
-            event = xcb_poll_for_event(connection);
+            event = poll_filtered_x_event(connection);
             if (event) return event;
             if (xcb_connection_has_error(connection)) return NULL;
         }
@@ -101,7 +147,7 @@ static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connec
 
 static void print_runtime_help(void) {
     puts("jx11 [--nested] [--desktop FILE] [--launch PROGRAM] [--patch-socket PATH --patch-pubkey PEM]");
-    puts("  --patch-socket PATH   enable local JXP1 live-patch service");
+    puts("  --patch-socket PATH   enable local JXP1 executable live-patch service");
     puts("  --patch-pubkey PEM    Ed25519 public key used to authorize signed patches");
 }
 
@@ -149,8 +195,9 @@ int main(int argc, char **argv) {
             free(core_argv);
             return 78;
         }
+        jx11_patch_service_set_host(&patch_service, &patch_host);
         patch_service_enabled = 1;
-        fprintf(stderr, "jx11: signed live patch service active socket=%s generation=1\n", patch_socket);
+        fprintf(stderr, "jx11: signed executable live patch service active socket=%s generation=1\n", patch_socket);
     }
 
     int rc = jx11_core_main(core_argc, core_argv);
