@@ -4,10 +4,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define JX_SECURITY_VERSION 1u
+#define JX_SECURITY_VERSION 2u
 #define JX_SECURITY_PATTERN_MAX 64u
+#define JX_SECURITY_DIGEST_MAX 32u
 #define JX_SECURITY_NAME_MAX 63u
 #define JX_SECURITY_OFFSET_ANY UINT64_MAX
+#define JX_SECURITY_SIZE_ANY UINT64_MAX
 #define JX_SECURITY_RESULT_SLOT_DIRECT_MAX 63u
 #define JX_SECURITY_RESULT_SLOT_EXTENDED_MAX 16383u
 
@@ -20,18 +22,28 @@ typedef enum {
 
 typedef enum {
     JX_SECURITY_SIG_BYTES = 1,
-    JX_SECURITY_SIG_BYTES_MASKED = 2
+    JX_SECURITY_SIG_BYTES_MASKED = 2,
+    JX_SECURITY_SIG_HASH = 3
 } jx_security_signature_type;
+
+typedef enum {
+    JX_SECURITY_HASH_NONE = 0,
+    JX_SECURITY_HASH_MD5 = 1,
+    JX_SECURITY_HASH_SHA1 = 2,
+    JX_SECURITY_HASH_SHA256 = 3
+} jx_security_hash_algorithm;
 
 typedef struct {
     uint32_t id;
     uint8_t type;
     uint8_t verdict;
     uint8_t length;
-    uint8_t reserved;
+    uint8_t hash_algorithm;
     uint64_t offset; /* JX_SECURITY_OFFSET_ANY scans the whole object. */
+    uint64_t file_size; /* JX_SECURITY_SIZE_ANY permits any size for hash rules. */
     uint8_t bytes[JX_SECURITY_PATTERN_MAX];
     uint8_t mask[JX_SECURITY_PATTERN_MAX]; /* 0xff = compare; 0x00 = wildcard. */
+    uint8_t digest[JX_SECURITY_DIGEST_MAX];
     char name[JX_SECURITY_NAME_MAX + 1u];
 } jx_security_signature;
 
@@ -46,13 +58,16 @@ typedef struct {
 } jx_security_result;
 
 /* Scan a caller-owned buffer in place. The scanner never takes ownership and
- * never copies the payload. First highest-severity match wins; ties keep the
+ * never copies the payload. Hashes are computed lazily and at most once per
+ * algorithm for an object. First highest-severity match wins; ties keep the
  * earliest signature in canonical signature order. */
 int jx_security_scan_buffer(const uint8_t *data,
                             size_t length,
                             const jx_security_signature *signatures,
                             size_t signature_count,
                             jx_security_result *result);
+
+size_t jx_security_hash_digest_length(jx_security_hash_algorithm algorithm);
 
 /* SECURITY bus result code. Direct slots use one byte: vvssssss.
  * Extended slots use two bytes: vvssssssssssssss. Verdict occupies the top
