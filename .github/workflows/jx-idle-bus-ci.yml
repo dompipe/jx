@@ -5,9 +5,11 @@ on:
     paths:
       - 'host/common/jx-idle-bus.*'
       - 'host/common/jx-idle-collect.*'
+      - 'host/common/jx-idle-bitmap.*'
       - 'host/linux/jx-idle-shared.*'
       - 'tests/jx-idle-bus.c'
       - 'tests/jx-idle-collect.c'
+      - 'tests/jx-idle-bitmap.c'
       - 'tests/jx-idle-shared.c'
       - '.github/workflows/jx-idle-bus-ci.yml'
   workflow_dispatch:
@@ -23,6 +25,12 @@ jobs:
             tests/jx-idle-bus.c host/common/jx-idle-bus.c \
             -o /tmp/jx-idle-bus
           /tmp/jx-idle-bus
+      - name: Build and test ordered atomic bitstring bus
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Werror -pthread \
+            tests/jx-idle-bitmap.c host/common/jx-idle-bitmap.c \
+            -o /tmp/jx-idle-bitmap
+          /tmp/jx-idle-bitmap
       - name: Build and test atomic second collection bus
         run: |
           cc -std=c11 -O2 -Wall -Wextra -Werror -pthread \
