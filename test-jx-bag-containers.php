@@ -22,6 +22,14 @@ $record->put('health', 7)->restore();
 same($record->get('health'), 100, 'record checkpoint restore');
 same($record->slot('phi'), 1, 'record dense slot');
 
+$multiCheckpoint = BagContainers::vector(4096, 'int');
+$multiCheckpoint->append(10)->checkpoint('a')->checkpoint('b');
+$multiCheckpoint->put(0, 20)->checkpoint('b');
+$multiCheckpoint->restore('a');
+same($multiCheckpoint->get(0), 10, 'checkpoint revisions are tracked per node');
+$multiCheckpoint->restore('b');
+same($multiCheckpoint->get(0), 20, 'second checkpoint node keeps its own latest revision');
+
 $vector = BagContainers::vector(4096, 'int');
 $vector->append(1)->append(3)->emplace(1,2);
 same($vector->toArray(), [1,2,3], 'vector emplace packs tail');
@@ -51,6 +59,10 @@ same($map->emplace('a', 99), 1, 'map emplace returns existing');
 same($map->get('a'), 1, 'map emplace does not replace');
 same($map->emplace('b', 2), 2, 'map emplace inserts absent');
 same($map->get('b'), 2, 'map emplace stored absent');
+$map->put('nullable', null);
+same($map->has('nullable'), true, 'map null key exists');
+same($map->get('nullable', 'fallback'), null, 'map preserves stored null over default');
+same($map->get('missing', 'fallback'), 'fallback', 'map default only applies to missing key');
 
 $set = BagContainers::set(4096, 'string');
 same($set->emplace('x'), 'x', 'set emplace inserts');
@@ -58,6 +70,11 @@ same($set->emplace('x'), 'x', 'set emplace existing');
 $set->add('x')->add('y');
 same(count($set), 2, 'set uniqueness');
 same($set->contains('y'), true, 'set contains');
+$putBlocked = false;
+try { $set->put('arbitrary', 'z'); } catch (LogicException) { $putBlocked = true; }
+same($putBlocked, true, 'set blocks inherited arbitrary-key put');
+same(count($set), 2, 'blocked set put does not corrupt count');
+same($set->contains('z'), false, 'blocked set put cannot create unreachable value');
 
 $canonical = $deque->canonical();
 same($canonical['abi'], 'jx.bag.container/1', 'canonical ABI');
