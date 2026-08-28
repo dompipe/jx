@@ -8,6 +8,7 @@ $Out = Join-Path $Root $OutDir
 $Exe = Join-Path $Out "jx.exe"
 $NativeExe = Join-Path $Out "jx-native-window.exe"
 $Source = Join-Path $Root "tools/windows/jx-windows.c"
+$HotSource = Join-Path $Root "host/common/jx-asm-call.c"
 $SourceCs = Join-Path $Root "tools/windows/jx-windows.cs"
 $NativeSourceCs = Join-Path $Root "tools/windows/jx-native-window.cs"
 
@@ -18,7 +19,7 @@ $define = "/DJX_ROOT_COMPILED=`"$escapedRoot`""
 
 $cl = Get-Command cl.exe -ErrorAction SilentlyContinue
 if ($cl) {
-    & cl.exe /nologo /O2 /W4 $define /Fe:$Exe $Source
+    & cl.exe /nologo /O2 /W4 $define /Fe:$Exe $Source $HotSource
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Write-Output $Exe
     exit 0
@@ -26,7 +27,7 @@ if ($cl) {
 
 $gcc = Get-Command gcc.exe -ErrorAction SilentlyContinue
 if ($gcc) {
-    & gcc.exe -std=c11 -O2 -Wall -Wextra -pedantic "-DJX_ROOT_COMPILED=`"$Root`"" -o $Exe $Source
+    & gcc.exe -std=c11 -O2 -Wall -Wextra -pedantic "-DJX_ROOT_COMPILED=`"$Root`"" -o $Exe $Source $HotSource
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Write-Output $Exe
     exit 0
@@ -34,7 +35,7 @@ if ($gcc) {
 
 $clang = Get-Command clang.exe -ErrorAction SilentlyContinue
 if ($clang) {
-    & clang.exe -std=c11 -O2 -Wall -Wextra "-DJX_ROOT_COMPILED=`"$Root`"" -o $Exe $Source
+    & clang.exe -std=c11 -O2 -Wall -Wextra "-DJX_ROOT_COMPILED=`"$Root`"" -o $Exe $Source $HotSource
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     Write-Output $Exe
     exit 0
