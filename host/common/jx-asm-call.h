@@ -18,6 +18,9 @@
  *   - one promoted byte 0x80..0xFF, or
  *   - two bytes: family (0x00..0x7F), slot (0x00..0xFF).
  *
+ * Call tables are generation-scoped: hot swap prepares a replacement table
+ * and switches the table root atomically with the program generation.
+ *
  * The function receives an already-prepared register/frame pointer. It does
  * not receive names, capability strings, or lookup metadata.
  */
@@ -62,5 +65,23 @@ int jx_asm_call_invoke(const jx_asm_call_table *table,
                        void *frame,
                        uint64_t *result,
                        uint8_t *bytes_used);
+
+/*
+ * Fastest promoted path: one opcode byte indexes the prelinked target and
+ * immediately enters native/ASM code. The compiler can inline this into the
+ * bytecode/shadow loop; no decoder, canonical lookup, hashing, or auth runs.
+ */
+static inline int jx_asm_call_hot(const jx_asm_call_table *table,
+                                  uint8_t opcode,
+                                  void *frame,
+                                  uint64_t *result) {
+    if (!table || table->version != JX_ASM_CALL_VERSION || opcode < JX_ASM_CALL_PROMOTED_BASE)
+        return -1;
+    jx_asm_call_target target = table->promoted[(uint8_t)(opcode - JX_ASM_CALL_PROMOTED_BASE)];
+    if (!target.fn) return -2;
+    uint64_t value = target.fn(frame, target.context);
+    if (result) *result = value;
+    return 0;
+}
 
 #endif
