@@ -11,17 +11,23 @@
 #include <openssl/evp.h>
 #include "jx11-live-patch.h"
 #include "jx11-patch-service.h"
+#include "jx11-task-manager.h"
 #include "../common/jx-host-trace.h"
 /* jx11-runtime.c is intentionally the composition translation unit for the
- * canonical JX11 core, so pull the tiny common trace implementation in here
- * just as the wrapper below pulls in jx11.c. */
+ * canonical JX11 core, so pull the tiny common implementations in here just
+ * as the wrapper below pulls in jx11.c. */
 #include "../common/jx-host-trace.c"
+#include "../common/jx-task-manager.c"
+#include "../common/jx-task-control.c"
+#include "jx11-task-manager.c"
 
 static jx11_live_patch patch_manager;
 static jx11_patch_service patch_service;
 static int patch_service_enabled = 0;
 static jx_host_trace runtime_trace;
 static uint64_t runtime_generation = 1u;
+static jx11_task_manager runtime_tasks;
+static int runtime_tasks_bound = 0;
 
 /* The executable patch endpoint is deliberately authorized for executable
  * module replacement only. Numeric routes and a signed transport never imply
@@ -49,6 +55,7 @@ static void trace_generation_if_changed(void) {
     uint64_t generation = patch_service_enabled ? patch_manager.active.generation : runtime_generation;
     if (generation == runtime_generation) return;
     runtime_generation = generation;
+    runtime_tasks.generation = generation;
     trace_emit(JX_TRACE_GENERATION, 0u, generation);
 }
 
@@ -123,46 +130,133 @@ static int hash_running_image(uint8_t out[JX_PATCH_DIGEST_BYTES]) {
     return ok ? 0 : -1;
 }
 
-static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connection) {
-    patch_safe_point();
-    if (!patch_service_enabled) {
-        for (;;) {
-            xcb_generic_event_t *event = xcb_poll_for_event(connection);
-            if (event) { trace_x_event(event); return event; }
-            if (xcb_connection_has_error(connection)) return NULL;
-            struct pollfd p = { xcb_get_file_descriptor(connection), POLLIN, 0 };
-            int rc = poll(&p, 1u, -1);
-            if (rc < 0 && errno == EINTR) continue;
-            if (rc < 0) return NULL;
+static int task_pid_registered(pid_t pid) {
+    for (size_t i = 0; i < JX11_TASK_PROCESS_MAX; ++i)
+        if (runtime_tasks.processes[i].in_use && runtime_tasks.processes[i].pid == pid) return 1;
+    return 0;
+}
+
+static void task_program_name(pid_t pid, char *out, size_t capacity) {
+    if (!out || capacity == 0u) return;
+    out[0] = '\0';
+    char path[64];
+    snprintf(path, sizeof path, "/proc/%ld/comm", (long)pid);
+    FILE *fp = fopen(path, "r");
+    if (fp) {
+        if (fgets(out, (int)capacity, fp)) {
+            size_t n = strlen(out);
+            while (n && (out[n - 1u] == '\n' || out[n - 1u] == '\r')) out[--n] = '\0';
+        }
+        fclose(fp);
+    }
+    if (!out[0]) snprintf(out, capacity, "pid-%ld", (long)pid);
+}
+
+static void task_discover_children(void) {
+    char path[96];
+    pid_t self = getpid();
+    snprintf(path, sizeof path, "/proc/%ld/task/%ld/children", (long)self, (long)self);
+    FILE *fp = fopen(path, "r");
+    if (!fp) return;
+    long raw_pid = 0;
+    while (fscanf(fp, "%ld", &raw_pid) == 1) {
+        if (raw_pid <= 0) continue;
+        pid_t pid = (pid_t)raw_pid;
+        if (task_pid_registered(pid)) continue;
+        char program[JX_TASK_NAME_MAX + 1u];
+        task_program_name(pid, program, sizeof program);
+        if (jx11_task_manager_register(&runtime_tasks, pid, program) == 0)
+            fprintf(stderr, "jx11: task manager registered %s pid=%ld\n", program, (long)pid);
+    }
+    fclose(fp);
+}
+
+static void task_bind_if_ready(void) {
+    if (runtime_tasks_bound || !connection || !screen) return;
+}
+
+static void task_bind_runtime(xcb_connection_t *connection) {
+    if (runtime_tasks_bound || !connection || !screen) return;
+    if (jx11_task_manager_bind_x11(&runtime_tasks, connection, screen) != 0) return;
+    /* F10 is keycode 76 on the standard Xorg evdev map. The Task Manager also
+     * has mouse controls, and its own window accepts the same key once open. */
+    xcb_grab_key(connection, 1, screen->root, XCB_MOD_MASK_ANY, 76u,
+                 XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+    xcb_flush(connection);
+    runtime_tasks_bound = 1;
+    fprintf(stderr, "jx11: live Task Manager attached (F10)\n");
+}
+
+static int task_consume_event(xcb_generic_event_t *event) {
+    if (!event) return 0;
+    uint8_t type = event->response_type & 0x7fu;
+    if (type == XCB_KEY_PRESS) {
+        xcb_key_press_event_t *key = (xcb_key_press_event_t *)event;
+        if (key->detail == 76u && key->event != runtime_tasks.window) {
+            jx11_task_manager_toggle(&runtime_tasks);
+            return 1;
         }
     }
+    return jx11_task_manager_handle_event(&runtime_tasks, event);
+}
 
+static void task_refresh_runtime(void) {
+    task_discover_children();
+    jx11_task_manager_refresh(&runtime_tasks);
+}
+
+static xcb_generic_event_t *next_runtime_event(xcb_connection_t *connection) {
     for (;;) {
         xcb_generic_event_t *event = poll_filtered_x_event(connection);
-        if (event) { trace_x_event(event); return event; }
+        if (!event) return NULL;
+        if (task_consume_event(event)) {
+            free(event);
+            continue;
+        }
+        trace_x_event(event);
+        return event;
+    }
+}
+
+static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connection) {
+    patch_safe_point();
+    task_bind_runtime(connection);
+    task_refresh_runtime();
+
+    for (;;) {
+        xcb_generic_event_t *event = next_runtime_event(connection);
+        if (event) return event;
         if (xcb_connection_has_error(connection)) return NULL;
 
         struct pollfd fds[2];
+        nfds_t count = 1u;
         fds[0].fd = xcb_get_file_descriptor(connection);
         fds[0].events = POLLIN;
         fds[0].revents = 0;
-        fds[1].fd = jx11_patch_service_fd(&patch_service);
-        fds[1].events = POLLIN;
-        fds[1].revents = 0;
+        if (patch_service_enabled) {
+            fds[1].fd = jx11_patch_service_fd(&patch_service);
+            fds[1].events = POLLIN;
+            fds[1].revents = 0;
+            count = 2u;
+        }
 
-        int rc = poll(fds, 2u, -1);
+        int rc = poll(fds, count, 500);
         if (rc < 0 && errno == EINTR) continue;
         if (rc < 0) return NULL;
 
-        if ((fds[1].revents & POLLIN) != 0) {
+        task_refresh_runtime();
+        patch_safe_point();
+
+        if (patch_service_enabled && (fds[1].revents & POLLIN) != 0) {
             int prc = jx11_patch_service_process_one(&patch_service);
             if (prc < 0) fprintf(stderr, "jx11: patch service transaction failed (%d)\n", prc);
             trace_generation_if_changed();
             patch_safe_point();
         }
+        if (rc == 0) continue;
         if ((fds[0].revents & (POLLIN | POLLERR | POLLHUP)) != 0) {
-            event = poll_filtered_x_event(connection);
-            if (event) { trace_x_event(event); return event; }
+            event = next_runtime_event(connection);
+            if (event) return event;
             if (xcb_connection_has_error(connection)) return NULL;
         }
     }
@@ -170,6 +264,7 @@ static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connec
 
 static void print_runtime_help(void) {
     puts("jx11 [--nested] [--desktop FILE] [--launch PROGRAM] [--patch-socket PATH --patch-pubkey PEM]");
+    puts("  F10                   open/close the live JX Task Manager");
     puts("  --patch-socket PATH   enable local JXP1 executable live-patch service");
     puts("  --patch-pubkey PEM    Ed25519 public key used to authorize signed native-code patches");
     puts("  patch capability      native-code only; other capabilities are not pre-authorized");
@@ -179,6 +274,7 @@ int main(int argc, char **argv) {
     const char *patch_socket = NULL;
     const char *patch_pubkey = NULL;
     jx_host_trace_init(&runtime_trace, JX_HOST_LINUX_X11);
+    jx11_task_manager_init(&runtime_tasks, runtime_generation);
     trace_emit(JX_TRACE_PROGRAM_START, 0u, 0u);
 
     char **core_argv = calloc((size_t)argc + 1u, sizeof *core_argv);
@@ -228,6 +324,7 @@ int main(int argc, char **argv) {
     }
 
     int rc = jx11_core_main(core_argc, core_argv);
+    jx11_task_manager_dispose(&runtime_tasks);
     if (patch_service_enabled) {
         jx11_patch_service_close(&patch_service);
         patch_service_enabled = 0;
