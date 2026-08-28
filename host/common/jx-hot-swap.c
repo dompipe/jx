@@ -31,6 +31,7 @@ int jx_hot_swap_prepare(jx_hot_swap_gate *gate,
     gate->candidate = *candidate;
     gate->candidate_ready = 1u;
     gate->cutover_requested = 0u;
+    gate->takeover_proven = 0u;
     return JX_HOT_SWAP_OK;
 }
 
@@ -42,6 +43,7 @@ int jx_hot_swap_button_cutover(jx_hot_swap_gate *gate,
     if (!gate->candidate_ready) return JX_HOT_SWAP_ERR_NOT_READY;
 
     gate->cutover_requested = 1u;
+    gate->takeover_proven = 0u;
     jx_channel_bus_pause(bus);
 
     if (gate->candidate.start && gate->candidate.start(gate->shared_state, gate->candidate.context) != 0) {
@@ -57,15 +59,28 @@ int jx_hot_swap_button_cutover(jx_hot_swap_gate *gate,
         return JX_HOT_SWAP_ERR_CHANNEL;
     }
 
+    if (gate->candidate.power_probe && gate->candidate.power_probe(gate->shared_state, gate->candidate.context) != 0) {
+        (void)jx_channel_bus_switch_program(bus, new_program_endpoint, old_program_endpoint);
+        if (gate->candidate.stop) gate->candidate.stop(gate->shared_state, gate->candidate.context);
+        gate->cutover_requested = 0u;
+        (void)jx_channel_bus_resume(bus);
+        return JX_HOT_SWAP_ERR_POWER_PROBE;
+    }
+
     jx_hot_swap_program old = gate->active;
     gate->active = gate->candidate;
     memset(&gate->candidate, 0, sizeof gate->candidate);
     gate->candidate_ready = 0u;
     gate->cutover_requested = 0u;
+    gate->takeover_proven = 1u;
 
     if (old.stop) old.stop(gate->shared_state, old.context);
     if (jx_channel_bus_resume(bus) < 0) return JX_HOT_SWAP_ERR_CHANNEL;
     return JX_HOT_SWAP_OK;
+}
+
+int jx_hot_swap_takeover_proven(const jx_hot_swap_gate *gate) {
+    return gate && gate->takeover_proven != 0u;
 }
 
 int jx_hot_swap_call(jx_hot_swap_gate *gate, uint32_t event, void *payload) {
