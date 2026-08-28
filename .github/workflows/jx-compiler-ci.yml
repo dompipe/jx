@@ -56,10 +56,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install XCB Cairo and OpenSSL development libraries
         run: sudo apt-get update && sudo apt-get install -y libxcb1-dev libcairo2-dev libssl-dev pkg-config
-      - name: Build jx11
+      - name: Build patch-aware jx11
         run: >-
-          cc -O2 -Wall -Wextra -Werror -o /tmp/jx11
-          host/linux/jx11.c
+          cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11
+          host/linux/jx11-runtime.c
           host/linux/jx11-register.c
           host/linux/jx11-shadow.c
           host/linux/jx11-window-hot.c
@@ -67,8 +67,11 @@ jobs:
           host/linux/jx11-ewmh.c
           host/linux/jx11-workspace.c
           host/linux/jx11-live-patch.c
+          host/linux/jx11-patch-service.c
           host/common/jx-live-patch.c
-          $(pkg-config --cflags --libs xcb cairo-xcb)
+          host/common/jx-patch-wire.c
+          host/common/jx-patch-ipc.c
+          $(pkg-config --cflags --libs xcb cairo-xcb openssl)
       - name: Verify native generic hot-event ABI
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx-hot-event-abi tests/jx-hot-event-abi.c && /tmp/jx-hot-event-abi
       - name: Verify native API dispatch ABI
@@ -83,13 +86,21 @@ jobs:
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx-patch-receiver host/linux/jx-patch-receiver.c host/common/jx-patch-ssh.c host/common/jx-patch-ipc.c
       - name: Compile canonical patch wire and Ed25519 JX11 service
         run: >-
-          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common -Ihost/linux -c
-          host/common/jx-live-patch-wire.c host/linux/jx11-patch-service.c
+          cc -O2 -std=c11 -Wall -Wextra -Werror -c
+          host/common/jx-patch-wire.c
+          host/common/jx-patch-ipc.c
+          host/linux/jx11-patch-service.c
+          $(pkg-config --cflags openssl)
       - name: Link JX11 patch service proof
         run: >-
-          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common -Ihost/linux -o /tmp/jx11-patch-service-proof
-          tests/jx11-live-patch.c host/linux/jx11-live-patch.c host/linux/jx11-patch-service.c
-          host/common/jx-live-patch.c host/common/jx-live-patch-wire.c host/common/jx-patch-ipc.c -lcrypto
+          cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-patch-service-proof
+          tests/jx11-patch-service-proof.c
+          host/linux/jx11-patch-service.c
+          host/linux/jx11-live-patch.c
+          host/common/jx-live-patch.c
+          host/common/jx-patch-wire.c
+          host/common/jx-patch-ipc.c
+          $(pkg-config --cflags --libs openssl)
       - name: Verify JX11 safe-point patch generations
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-live-patch tests/jx11-live-patch.c host/linux/jx11-live-patch.c host/common/jx-live-patch.c && /tmp/jx11-live-patch
       - name: Verify native register ABI
@@ -102,8 +113,10 @@ jobs:
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-ewmh-clients tests/jx11-ewmh-clients.c host/linux/jx11-ewmh.c -lxcb && /tmp/jx11-ewmh-clients
       - name: Verify workspace visibility semantics
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-workspace tests/jx11-workspace.c host/linux/jx11-workspace.c && /tmp/jx11-workspace
-      - name: Verify jx11 CLI
-        run: /tmp/jx11 --help
+      - name: Verify patch-aware jx11 CLI
+        run: |
+          /tmp/jx11 --help | grep -- '--patch-socket'
+          /tmp/jx11 --help | grep -- '--patch-pubkey'
 
   linux-native-store:
     runs-on: ubuntu-latest
@@ -163,7 +176,7 @@ jobs:
       - name: Package and rename Windows 64B Book
         shell: pwsh
         run: |
-          php examples/store/package-native.php windows-pe examples/store/build/jx-store.exe examples/store/build/jx-store.64B
-          Copy-Item examples/store/build/jx-store.64B examples/store/build/store.payload
+          php examples/store/package-native.php windows-pe examples/store/build/jx-store.exe examples/store/build/jx-store-windows.64B
+          Copy-Item examples/store/build/jx-store-windows.64B examples/store/build/store.payload
           $probe = (& examples/store/build/jx-store.exe --probe examples/store/build/store.payload).Trim()
           if ($probe -notmatch '^JX64/1\.0 sections=4$') { throw "Windows native JX64 probe failed: $probe" }
