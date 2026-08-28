@@ -7,6 +7,7 @@
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -110,7 +111,8 @@ static int child_request(const char *socket_path, const jx_patch_ipc_header *hea
     if (header->patch_length && write_all(fd,patch,header->patch_length)!=0) { close(fd); return 25; }
     shutdown(fd,SHUT_WR);
     char response[256]; ssize_t n=recv(fd,response,sizeof response-1u,0); close(fd);
-    if (n<=0) return 26; response[n]='\0';
+    if (n<=0) return 26;
+    response[n]='\0';
     return strncmp(response,"OK",2u)==0 ? 0 : 27;
 }
 
