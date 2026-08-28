@@ -11,19 +11,30 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build Win32 desktop host with trace, power and live Task Manager
+      - name: Build Win32 desktop host with applied idle bus, trace, power and live Task Manager
         shell: pwsh
         run: >-
           clang -O2 -Wall -Wextra -Werror
           -Ihost/common -Ihost/windows
           -o $env:TEMP/jx-win32-host.exe
-          host/windows/jx-win32-host.c
+          host/windows/jx-win32-bus-host.c
+          host/windows/jx-idle-shared.c
           host/common/jx-host-trace.c
           host/common/jx-global-power.c
           host/common/jx-task-manager.c
           host/common/jx-task-control.c
           -luser32 -lgdi32 -lshell32
           -Xlinker /subsystem:windows
+      - name: Build and test Win32 WaitOnAddress applied idle bus ABI
+        shell: pwsh
+        run: |
+          clang -O2 -Wall -Wextra -Werror `
+            -Ihost/common -Ihost/windows `
+            -o $env:TEMP/jx-win32-idle-shared.exe `
+            tests/jx-win32-idle-shared.c `
+            host/windows/jx-idle-shared.c `
+            host/common/jx-idle-bus.c
+          & $env:TEMP/jx-win32-idle-shared.exe
       - name: Build Win32 executable tether helper
         shell: pwsh
         run: >-
