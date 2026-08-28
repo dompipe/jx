@@ -16,6 +16,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#define JX11_PATCH_SIGNATURE_MAX 4096u
+
 static int read_exact(int fd, uint8_t *out, size_t length) {
     size_t at = 0u;
     while (at < length) {
@@ -124,10 +126,12 @@ int jx11_patch_service_process_one(jx11_patch_service *service) {
         int r=jx11_live_patch_rollback(service->manager);
         write_text(client,r==JX_PATCH_OK?"OK rollback\n":"ERR rollback\n"); close(client); return r==JX_PATCH_OK?1:-3;
     }
-    if (h.operation != JX_PATCH_IPC_OP_PUSH || h.manifest_length != JX_PATCH_MANIFEST_WIRE_BYTES) {
-        write_text(client,"ERR operation\n"); close(client); return -4;
+    if (h.operation != JX_PATCH_IPC_OP_PUSH ||
+        h.manifest_length != JX_PATCH_MANIFEST_WIRE_BYTES ||
+        h.signature_length > JX11_PATCH_SIGNATURE_MAX ||
+        h.patch_length > JX_PATCH_MAX_BYTES) {
+        write_text(client,"ERR lengths\n"); close(client); return -4;
     }
-    if (jx_patch_ipc_validate_lengths(&h)!=0) { write_text(client,"ERR lengths\n"); close(client); return -4; }
     uint8_t manifest_raw[JX_PATCH_MANIFEST_WIRE_BYTES];
     uint8_t *signature=malloc(h.signature_length), *patch=malloc(h.patch_length);
     if (!signature || !patch) { free(signature); free(patch); write_text(client,"ERR memory\n"); close(client); return -5; }
