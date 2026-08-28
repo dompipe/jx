@@ -1,4 +1,5 @@
 #include "jx11-live-patch.h"
+#include <dlfcn.h>
 #include <string.h>
 
 void jx11_live_patch_init(jx11_live_patch *manager,
@@ -18,10 +19,7 @@ void jx11_live_patch_init(jx11_live_patch *manager,
 
 void jx11_generation_release(jx11_generation *generation) {
     if (!generation) return;
-    if (generation->native_handle) {
-        jx11_loaded_patch_module loaded = { generation->native_handle, generation->native_module };
-        jx11_patch_module_unload(&loaded);
-    }
+    if (generation->native_handle) dlclose(generation->native_handle);
     memset(generation, 0, sizeof *generation);
 }
 
