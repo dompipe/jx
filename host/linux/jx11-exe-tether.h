@@ -13,7 +13,8 @@ typedef enum {
     JX11_EXE_TETHER_ERR_PATH = -3,
     JX11_EXE_TETHER_ERR_IO = -4,
     JX11_EXE_TETHER_ERR_RENAME = -5,
-    JX11_EXE_TETHER_ERR_SYNC = -6
+    JX11_EXE_TETHER_ERR_SYNC = -6,
+    JX11_EXE_TETHER_ERR_FORMAT = -7
 } jx11_exe_tether_result;
 
 typedef struct {
@@ -23,15 +24,6 @@ typedef struct {
     const uint8_t *expected_sha256;
 } jx11_exe_tether_install;
 
-/*
- * Persist a replacement only after the live candidate has taken power.
- * Linux keeps the already-running old inode alive while rename() atomically
- * changes the path used by the next launch.
- *
- * On success:
- *   install_path          = verified replacement
- *   install_path.previous = prior executable image (when one existed)
- */
 int jx11_exe_tether_persist(const jx11_exe_tether_install *install);
 
 #endif
