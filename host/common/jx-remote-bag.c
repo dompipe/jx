@@ -15,9 +15,14 @@ int jx_remote_bag_authorize(const jx_remote_bag_source *source,
     if (!source->enabled || !source->source_id[0] ||
         !text_equal(source->source_id, request->source_id, JX_REMOTE_BAG_SOURCE_MAX + 1u))
         return JX_REMOTE_BAG_ERR_SOURCE;
-    if ((source->transport != JX_REMOTE_BAG_TRANSPORT_HTTPS && source->transport != JX_REMOTE_BAG_TRANSPORT_SSH) ||
+
+    /* Remote mutation is deliberately SSH-only. HTTPS may be used by a separate
+     * read/status surface, but it is never authority to change live Bags. */
+    if (source->transport != JX_REMOTE_BAG_TRANSPORT_SSH ||
+        request->transport != JX_REMOTE_BAG_TRANSPORT_SSH ||
         request->transport != source->transport)
         return JX_REMOTE_BAG_ERR_TRANSPORT;
+
     if (!(source->capability_mask & JX_REMOTE_BAG_CAP_WRITE) ||
         !(request->requested_capabilities & JX_REMOTE_BAG_CAP_WRITE) ||
         (request->requested_capabilities & ~source->capability_mask))
