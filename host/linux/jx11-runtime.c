@@ -29,9 +29,6 @@ static uint64_t runtime_generation = 1u;
 static jx11_task_manager runtime_tasks;
 static int runtime_tasks_bound = 0;
 
-/* The executable patch endpoint is deliberately authorized for executable
- * module replacement only. Numeric routes and a signed transport never imply
- * permission for unrelated hot tables, assets, reactions, or configuration. */
 #define JX11_RUNTIME_PATCH_CAPABILITIES JX_PATCH_CAP_NATIVE_CODE
 
 static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connection);
@@ -171,15 +168,9 @@ static void task_discover_children(void) {
     fclose(fp);
 }
 
-static void task_bind_if_ready(void) {
-    if (runtime_tasks_bound || !connection || !screen) return;
-}
-
 static void task_bind_runtime(xcb_connection_t *connection) {
     if (runtime_tasks_bound || !connection || !screen) return;
     if (jx11_task_manager_bind_x11(&runtime_tasks, connection, screen) != 0) return;
-    /* F10 is keycode 76 on the standard Xorg evdev map. The Task Manager also
-     * has mouse controls, and its own window accepts the same key once open. */
     xcb_grab_key(connection, 1, screen->root, XCB_MOD_MASK_ANY, 76u,
                  XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
     xcb_flush(connection);
