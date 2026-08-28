@@ -11,6 +11,22 @@ static uint32_t popcount64(uint64_t x) {
 #endif
 }
 
+static int locate(jx_idle_bitmap *bitmap,
+                  uint64_t epoch,
+                  uint32_t program_ordinal,
+                  uint32_t *word_out,
+                  uint64_t *mask_out) {
+    if (!bitmap || bitmap->version != JX_IDLE_BITMAP_VERSION) return -1;
+    if (epoch != atomic_load_explicit(&bitmap->epoch, memory_order_acquire)) return -2;
+    uint32_t count = atomic_load_explicit(&bitmap->program_count, memory_order_acquire);
+    if (program_ordinal >= count) return -3;
+    uint32_t word = program_ordinal / JX_IDLE_BITMAP_WORD_BITS;
+    uint32_t bit = program_ordinal % JX_IDLE_BITMAP_WORD_BITS;
+    if (word_out) *word_out = word;
+    if (mask_out) *mask_out = UINT64_C(1) << bit;
+    return 0;
+}
+
 void jx_idle_bitmap_init(jx_idle_bitmap *bitmap) {
     if (!bitmap) return;
     memset(bitmap, 0, sizeof *bitmap);
@@ -48,25 +64,32 @@ int jx_idle_bitmap_begin(jx_idle_bitmap *bitmap,
     return 0;
 }
 
-int jx_idle_bitmap_reply(jx_idle_bitmap *bitmap,
+int jx_idle_bitmap_claim(jx_idle_bitmap *bitmap,
                          uint64_t epoch,
-                         uint32_t program_ordinal,
-                         uint8_t has_data) {
-    if (!bitmap || bitmap->version != JX_IDLE_BITMAP_VERSION || has_data > 1u)
-        return -1;
-    if (epoch != atomic_load_explicit(&bitmap->epoch, memory_order_acquire)) return -2;
-    uint32_t count = atomic_load_explicit(&bitmap->program_count, memory_order_acquire);
-    if (program_ordinal >= count) return -3;
+                         uint32_t program_ordinal) {
+    uint32_t word = 0u;
+    uint64_t mask = 0u;
+    int rc = locate(bitmap, epoch, program_ordinal, &word, &mask);
+    if (rc < 0) return rc;
+    uint64_t prior = atomic_fetch_or_explicit(&bitmap->claimed[word], mask,
+                                               memory_order_acq_rel);
+    return (prior & mask) ? -4 : 0;
+}
 
-    uint32_t word = program_ordinal / JX_IDLE_BITMAP_WORD_BITS;
-    uint32_t bit = program_ordinal % JX_IDLE_BITMAP_WORD_BITS;
-    uint64_t mask = UINT64_C(1) << bit;
+int jx_idle_bitmap_commit_claimed(jx_idle_bitmap *bitmap,
+                                  uint64_t epoch,
+                                  uint32_t program_ordinal,
+                                  uint8_t has_data) {
+    if (has_data > 1u) return -1;
+    uint32_t word = 0u;
+    uint64_t mask = 0u;
+    int rc = locate(bitmap, epoch, program_ordinal, &word, &mask);
+    if (rc < 0) return rc;
 
-    /* CLAIMED reserves the reply slot without making the reply visible to the
-     * completion test. This lets a 1 publish DATA before ANSWERED is committed. */
-    uint64_t prior_claimed = atomic_fetch_or_explicit(&bitmap->claimed[word], mask,
-                                                       memory_order_acq_rel);
-    if (prior_claimed & mask) return -4;
+    uint64_t claimed = atomic_load_explicit(&bitmap->claimed[word], memory_order_acquire);
+    if (!(claimed & mask)) return -5;
+    uint64_t answered = atomic_load_explicit(&bitmap->answered[word], memory_order_acquire);
+    if (answered & mask) return -4;
 
     int armed = 0;
     if (has_data) {
@@ -79,10 +102,18 @@ int jx_idle_bitmap_reply(jx_idle_bitmap *bitmap,
             armed = 1;
     }
 
-    /* ANSWERED is published last. An acquire load that observes the completed
-     * mask is therefore guaranteed to observe every earlier DATA publication. */
     atomic_fetch_or_explicit(&bitmap->answered[word], mask, memory_order_release);
     return has_data ? (armed ? 2 : 1) : 0;
+}
+
+int jx_idle_bitmap_reply(jx_idle_bitmap *bitmap,
+                         uint64_t epoch,
+                         uint32_t program_ordinal,
+                         uint8_t has_data) {
+    if (has_data > 1u) return -1;
+    int rc = jx_idle_bitmap_claim(bitmap, epoch, program_ordinal);
+    if (rc < 0) return rc;
+    return jx_idle_bitmap_commit_claimed(bitmap, epoch, program_ordinal, has_data);
 }
 
 int jx_idle_bitmap_complete(const jx_idle_bitmap *bitmap) {
