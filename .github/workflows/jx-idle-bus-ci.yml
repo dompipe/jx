@@ -1,0 +1,29 @@
+name: JX idle bus CI
+
+on:
+  push:
+    paths:
+      - 'host/common/jx-idle-bus.*'
+      - 'host/linux/jx-idle-shared.*'
+      - 'tests/jx-idle-bus.c'
+      - 'tests/jx-idle-shared.c'
+      - '.github/workflows/jx-idle-bus-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  idle-bus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test three-byte idle permission bus
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Werror \
+            tests/jx-idle-bus.c host/common/jx-idle-bus.c \
+            -o /tmp/jx-idle-bus
+          /tmp/jx-idle-bus
+      - name: Build and test shared sleeping-process wake
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Werror \
+            tests/jx-idle-shared.c host/linux/jx-idle-shared.c \
+            -o /tmp/jx-idle-shared
+          /tmp/jx-idle-shared
