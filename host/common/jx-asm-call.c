@@ -1,10 +1,20 @@
 #include "jx-asm-call.h"
+#include <stdlib.h>
 #include <string.h>
 
 void jx_asm_call_table_init(jx_asm_call_table *table) {
     if (!table) return;
     memset(table, 0, sizeof *table);
     table->version = JX_ASM_CALL_VERSION;
+}
+
+void jx_asm_call_table_dispose(jx_asm_call_table *table) {
+    if (!table) return;
+    for (size_t i = 0; i < JX_ASM_CALL_FAMILY_COUNT; ++i) {
+        free(table->families[i]);
+        table->families[i] = NULL;
+    }
+    memset(table, 0, sizeof *table);
 }
 
 int jx_asm_call_bind(jx_asm_call_table *table,
@@ -14,6 +24,11 @@ int jx_asm_call_bind(jx_asm_call_table *table,
                      void *context) {
     if (!table || table->version != JX_ASM_CALL_VERSION || !fn || family >= JX_ASM_CALL_FAMILY_COUNT)
         return -1;
+    if (!table->families[family]) {
+        table->families[family] = (jx_asm_call_target *)calloc(
+            JX_ASM_CALL_SLOT_COUNT, sizeof(jx_asm_call_target));
+        if (!table->families[family]) return -2;
+    }
     table->families[family][slot].fn = fn;
     table->families[family][slot].context = context;
     return 0;
@@ -26,9 +41,9 @@ int jx_asm_call_promote(jx_asm_call_table *table,
     if (!table || table->version != JX_ASM_CALL_VERSION ||
         opcode < JX_ASM_CALL_PROMOTED_BASE || family >= JX_ASM_CALL_FAMILY_COUNT)
         return -1;
-    jx_asm_call_target target = table->families[family][slot];
-    if (!target.fn) return -2;
-    table->promoted[(uint8_t)(opcode - JX_ASM_CALL_PROMOTED_BASE)] = target;
+    jx_asm_call_target *page = table->families[family];
+    if (!page || !page[slot].fn) return -2;
+    table->promoted[(uint8_t)(opcode - JX_ASM_CALL_PROMOTED_BASE)] = page[slot];
     return 0;
 }
 
@@ -50,7 +65,9 @@ int jx_asm_call_decode(const jx_asm_call_table *table,
     }
 
     if (length < 2u || first >= JX_ASM_CALL_FAMILY_COUNT) return -3;
-    out->target = table->families[first][code[1]];
+    jx_asm_call_target *page = table->families[first];
+    if (!page) return -2;
+    out->target = page[code[1]];
     if (!out->target.fn) return -2;
     out->bytes = 2u;
     return 0;
