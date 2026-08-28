@@ -68,10 +68,16 @@ jobs:
           host/linux/jx11-workspace.c
           host/linux/jx11-live-patch.c
           host/linux/jx11-patch-service.c
+          host/linux/jx11-patch-module.c
           host/common/jx-live-patch.c
           host/common/jx-live-patch-wire.c
           host/common/jx-patch-ipc.c
-          $(pkg-config --cflags --libs xcb cairo-xcb openssl)
+          $(pkg-config --cflags --libs xcb cairo-xcb openssl) -ldl
+      - name: Verify executable patch module load and hooks
+        run: |
+          cc -O2 -std=c11 -Wall -Wextra -Werror -fPIC -shared -o /tmp/jx11-sample-patch.so tests/jx11-patch-module-sample.c
+          cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-patch-module tests/jx11-patch-module.c host/linux/jx11-patch-module.c -ldl
+          /tmp/jx11-patch-module /tmp/jx11-sample-patch.so
       - name: Verify native generic hot-event ABI
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx-hot-event-abi tests/jx-hot-event-abi.c && /tmp/jx-hot-event-abi
       - name: Verify native API dispatch ABI
@@ -89,6 +95,7 @@ jobs:
           cc -O2 -std=c11 -Wall -Wextra -Werror -c
           host/common/jx-live-patch-wire.c
           host/common/jx-patch-ipc.c
+          host/linux/jx11-patch-module.c
           host/linux/jx11-patch-service.c
           $(pkg-config --cflags openssl)
       - name: Link JX11 patch service proof
@@ -96,11 +103,12 @@ jobs:
           cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-patch-service-proof
           tests/jx11-patch-service-proof.c
           host/linux/jx11-patch-service.c
+          host/linux/jx11-patch-module.c
           host/linux/jx11-live-patch.c
           host/common/jx-live-patch.c
           host/common/jx-live-patch-wire.c
           host/common/jx-patch-ipc.c
-          $(pkg-config --cflags --libs openssl)
+          $(pkg-config --cflags --libs openssl) -ldl
       - name: Verify JX11 safe-point patch generations
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-live-patch tests/jx11-live-patch.c host/linux/jx11-live-patch.c host/common/jx-live-patch.c && /tmp/jx11-live-patch
       - name: Verify native register ABI
