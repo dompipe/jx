@@ -18,6 +18,7 @@ final class JxbBook
     public const INTERNAL_MAGIC = JxlBook64::MAGIC;
     public const CODE_PATH = JxlBook64::CODE_PATH;
     public const PREPARED_PATH = JxlBook64::PREPARED_PATH;
+    public const PREPARED_FORMAT = 'jx.prepared-metadata/1';
 
     /** @return array{bytes:string,manifest:array<string,mixed>,content_sha256:string,file_sha256:string} */
     public static function compile(string $source, string $name = 'program'): array
@@ -62,17 +63,57 @@ final class JxbBook
         return self::validate($bytes);
     }
 
-    /** Execute the admitted prepared JXL carried by a compiled Book. */
-    public static function run(string $bytes): int
+    /**
+     * Admission binds the target and prepared type table once before execution.
+     * Repeated execution therefore does not rediscover representation meaning.
+     *
+     * @param array{manifest:array<string,mixed>,entries:array<string,string>} $book
+     */
+    public static function admit(array $book): string
     {
-        $book = self::validate($bytes);
         $target = (string)($book['manifest']['native_target'] ?? '');
         if ($target !== 'jxl') {
             throw new SemanticException("JXB target {$target} is not executable by the JXL host", 'jxb-admission');
         }
+
+        $preparedBytes = $book['entries'][self::PREPARED_PATH] ?? null;
+        if (!is_string($preparedBytes)) {
+            throw new SemanticException('JXB is missing prepared metadata', 'jxb-admission');
+        }
+        try {
+            $prepared = json_decode($preparedBytes, true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new SemanticException('JXB prepared metadata is not valid JSON', 'jxb-admission');
+        }
+        if (!is_array($prepared) || ($prepared['format'] ?? null) !== self::PREPARED_FORMAT) {
+            throw new SemanticException('JXB prepared metadata format mismatch', 'jxb-admission');
+        }
+        $typeIds = $prepared['type_ids'] ?? null;
+        if (!is_array($typeIds)) {
+            throw new SemanticException('JXB prepared type table is missing', 'jxb-admission');
+        }
+        foreach (PreparedType::table() as $name => $id) {
+            if (($typeIds[$name] ?? null) !== $id) {
+                throw new SemanticException("JXB prepared type mismatch for {$name}", 'jxb-admission');
+            }
+        }
+        if (($typeIds['<user-type>'] ?? null) !== PreparedType::USER) {
+            throw new SemanticException('JXB prepared user-type ID mismatch', 'jxb-admission');
+        }
+        if (!is_array($prepared['functions'] ?? null) || !is_array($prepared['classes'] ?? null) || !is_array($prepared['source_map'] ?? null)) {
+            throw new SemanticException('JXB prepared metadata tables are malformed', 'jxb-admission');
+        }
+
         $code = $book['entries'][self::CODE_PATH] ?? null;
         if (!is_string($code)) throw new SemanticException('JXB is missing prepared JXL code', 'jxb-admission');
-        return (new JxlVm())->run($code);
+        return $code;
+    }
+
+    /** Execute the admitted prepared JXL carried by a compiled Book. */
+    public static function run(string $bytes): int
+    {
+        $book = self::validate($bytes);
+        return (new JxlVm())->run(self::admit($book));
     }
 
     public static function runFile(string $path): int
