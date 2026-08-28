@@ -89,3 +89,13 @@ jobs:
           host/common/jx-maintainer-ssh.c
           host/common/jx-maintainer-ipc.c
           host/common/jx-remote-bag-wire.c
+      - name: Verify private maintainer Bag service transaction
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common
+          -o /tmp/jx-maintainer-service
+          tests/jx-maintainer-service.c
+          host/common/jx-maintainer-service.c
+          host/common/jx-remote-bag.c
+          host/common/jx-bag-listener.c
+          host/common/jx-bag-patch.c
+          && /tmp/jx-maintainer-service
