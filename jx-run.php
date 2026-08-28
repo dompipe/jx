@@ -15,12 +15,12 @@ namespace jx;
 
 $root = __DIR__;
 require_once $root . '/jx-lang.php';
-require_once $root . '/jx-semantic.php';
+require_once $root . '/jx-jxl-compiler.php';
 require_once $root . '/jx-jxl-book64.php';
 require_once $root . '/jx-bytecode-page-report.php';
 require_once $root . '/jx/AppliedBytecode.php';
 
-use jx\semantic\Compiler as SemanticCompiler;
+use jx\semantic\PreparedCompiler;
 use jx\semantic\JxlBook64;
 use jx\semantic\JxlVm;
 use jx\semantic\SemanticException;
@@ -188,7 +188,7 @@ try {
 
     $jx = new JxEngine($optimize, $verbose);
     $pasl = new PaslEngine($optimize, $verbose);
-    $semantic = new SemanticCompiler();
+    $semantic = new PreparedCompiler();
 
     if ($inline !== null) {
         if ($jxlMode || $book64Mode) {
