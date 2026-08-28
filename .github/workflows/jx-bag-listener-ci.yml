@@ -28,3 +28,10 @@ jobs:
           host/common/jx-bag-listener.c
           host/common/jx-bag-patch.c
           && /tmp/jx-exec-branch
+      - name: Verify zero-migration hot shadow swap
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common
+          -o /tmp/jx-hot-swap
+          tests/jx-hot-swap.c
+          host/common/jx-hot-swap.c
+          && /tmp/jx-hot-swap
