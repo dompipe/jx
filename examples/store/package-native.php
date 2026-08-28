@@ -5,7 +5,7 @@ require_once dirname(__DIR__, 2) . '/jx/bootstrap.php';
 use jx\NativeBook64;
 
 if ($argc !== 4) {
-    fwrite(STDERR, "usage: php examples/store/package-native.php <target> <native-binary> <output.64B>\n");
+    fwrite(STDERR, "usage: php examples/store/package-native.php <target> <native-binary> <output.jxb>\n");
     exit(2);
 }
 
@@ -26,6 +26,7 @@ if ($manifest === false) {
 }
 
 $codeName = $target === 'linux-elf' ? 'CODE/program.elf' : 'CODE/program.pe';
+// NativeBook64 is the internal v1 JX64B001 packer; .jxb is the public Book name.
 $result = NativeBook64::build($output, [
     'BOOK/pages.json' => $manifest,
     $codeName => $native,
