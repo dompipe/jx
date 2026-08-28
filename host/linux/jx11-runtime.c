@@ -11,22 +11,37 @@
 #include <openssl/evp.h>
 #include "jx11-live-patch.h"
 #include "jx11-patch-service.h"
+#include "../common/jx-host-trace.h"
 
 static jx11_live_patch patch_manager;
 static jx11_patch_service patch_service;
 static int patch_service_enabled = 0;
+static jx_host_trace runtime_trace;
+static uint64_t runtime_generation = 1u;
 
 static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connection);
 
-/* Compile the existing JX11 core into this translation unit, but route its
- * blocking wait through the dual-FD runtime below. This leaves all X event
- * semantics in one canonical core while making the produced jx11 binary
- * patch-aware. */
 #define xcb_wait_for_event jx11_runtime_wait_for_event
 #define main jx11_core_main
 #include "jx11.c"
 #undef main
 #undef xcb_wait_for_event
+
+static void trace_emit(uint16_t kind, uint64_t subject, uint64_t value) {
+    (void)jx_host_trace_emit(&runtime_trace, kind, runtime_generation, subject, value);
+}
+
+static void trace_x_event(const xcb_generic_event_t *event) {
+    if (!event) return;
+    trace_emit(JX_TRACE_INPUT, (uint64_t)(event->response_type & 0x7fu), 0u);
+}
+
+static void trace_generation_if_changed(void) {
+    uint64_t generation = patch_service_enabled ? patch_manager.active.generation : runtime_generation;
+    if (generation == runtime_generation) return;
+    runtime_generation = generation;
+    trace_emit(JX_TRACE_GENERATION, 0u, generation);
+}
 
 static void patch_host_log(int level, const char *message) {
     fprintf(stderr, "jx11: patch[%d]: %s\n", level, message ? message : "");
@@ -35,10 +50,12 @@ static void patch_host_log(int level, const char *message) {
 static void patch_host_set_background_rgb(uint32_t rgb) {
     background_pixel = rgb & 0x00ffffffu;
     invalidate(DIRTY_ROOT);
+    trace_emit(JX_TRACE_RENDER_INVALIDATE, DIRTY_ROOT, background_pixel);
 }
 
 static void patch_host_invalidate_desktop(void) {
     invalidate(DIRTY_ROOT | DIRTY_TASKBAR);
+    trace_emit(JX_TRACE_RENDER_INVALIDATE, DIRTY_ROOT | DIRTY_TASKBAR, 1u);
 }
 
 static uint64_t patch_host_active_generation(void) {
@@ -102,7 +119,7 @@ static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connec
     if (!patch_service_enabled) {
         for (;;) {
             xcb_generic_event_t *event = xcb_poll_for_event(connection);
-            if (event) return event;
+            if (event) { trace_x_event(event); return event; }
             if (xcb_connection_has_error(connection)) return NULL;
             struct pollfd p = { xcb_get_file_descriptor(connection), POLLIN, 0 };
             int rc = poll(&p, 1u, -1);
@@ -113,7 +130,7 @@ static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connec
 
     for (;;) {
         xcb_generic_event_t *event = poll_filtered_x_event(connection);
-        if (event) return event;
+        if (event) { trace_x_event(event); return event; }
         if (xcb_connection_has_error(connection)) return NULL;
 
         struct pollfd fds[2];
@@ -128,18 +145,15 @@ static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connec
         if (rc < 0 && errno == EINTR) continue;
         if (rc < 0) return NULL;
 
-        /* Patch work is handled only here: the core reaches this function
-         * after finishing its previous X event batch. Therefore PUSH and
-         * ROLLBACK activation happen at a quiescent boundary. Limit each wake
-         * to one transaction so X cannot be starved by patch traffic. */
         if ((fds[1].revents & POLLIN) != 0) {
             int prc = jx11_patch_service_process_one(&patch_service);
             if (prc < 0) fprintf(stderr, "jx11: patch service transaction failed (%d)\n", prc);
+            trace_generation_if_changed();
             patch_safe_point();
         }
         if ((fds[0].revents & (POLLIN | POLLERR | POLLHUP)) != 0) {
             event = poll_filtered_x_event(connection);
-            if (event) return event;
+            if (event) { trace_x_event(event); return event; }
             if (xcb_connection_has_error(connection)) return NULL;
         }
     }
@@ -154,6 +168,9 @@ static void print_runtime_help(void) {
 int main(int argc, char **argv) {
     const char *patch_socket = NULL;
     const char *patch_pubkey = NULL;
+    jx_host_trace_init(&runtime_trace, JX_HOST_LINUX_X11);
+    trace_emit(JX_TRACE_PROGRAM_START, 0u, 0u);
+
     char **core_argv = calloc((size_t)argc + 1u, sizeof *core_argv);
     if (!core_argv) return 70;
     int core_argc = 0;
@@ -205,6 +222,7 @@ int main(int argc, char **argv) {
         jx11_patch_service_close(&patch_service);
         patch_service_enabled = 0;
     }
+    trace_emit(JX_TRACE_PROGRAM_STOP, 0u, (uint64_t)(unsigned int)rc);
     free(core_argv);
     return rc;
 }
