@@ -9,6 +9,7 @@ on:
       - 'host/common/jx-idle-domains.*'
       - 'host/common/jx-idle-codebus.*'
       - 'host/common/jx-bus-clock.*'
+      - 'host/common/jx-security.*'
       - 'host/linux/jx-idle-shared.*'
       - 'tests/jx-idle-bus.c'
       - 'tests/jx-idle-collect.c'
@@ -17,6 +18,7 @@ on:
       - 'tests/jx-idle-codebus.c'
       - 'tests/jx-bus-clock.c'
       - 'tests/jx-idle-shared.c'
+      - 'tests/jx-security.c'
       - '.github/workflows/jx-idle-bus-ci.yml'
   workflow_dispatch:
 
@@ -37,7 +39,7 @@ jobs:
             tests/jx-idle-bitmap.c host/common/jx-idle-bitmap.c \
             -o /tmp/jx-idle-bitmap
           /tmp/jx-idle-bitmap
-      - name: Build and test split core/window idle domains
+      - name: Build and test split core/window/security idle domains
         run: |
           cc -std=c11 -O2 -Wall -Wextra -Werror -pthread \
             tests/jx-idle-domains.c host/common/jx-idle-bitmap.c \
