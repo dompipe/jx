@@ -81,3 +81,11 @@ jobs:
           host/common/jx-bag-listener.c
           host/common/jx-bag-patch.c
           && /tmp/jx-maintainer-ssh
+      - name: Build installer-only SSH maintainer receiver
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common
+          -o /tmp/jx-maintainer-receiver
+          host/linux/jx-maintainer-receiver.c
+          host/common/jx-maintainer-ssh.c
+          host/common/jx-maintainer-ipc.c
+          host/common/jx-remote-bag-wire.c
