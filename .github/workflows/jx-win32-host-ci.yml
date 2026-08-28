@@ -35,3 +35,17 @@ jobs:
           -Ihost/windows
           host/windows/jx-win32-exe-tether.c
           -o $env:TEMP/jx-win32-exe-tether.obj
+      - name: Compile Win32 proven-takeover power tether
+        shell: pwsh
+        run: >-
+          clang -O2 -Wall -Wextra -Werror -c
+          -Ihost/common -Ihost/windows
+          host/windows/jx-win32-power-tether.c
+          -o $env:TEMP/jx-win32-power-tether.obj
+      - name: Compile shared hot-swap and channel bus for Win32
+        shell: pwsh
+        run: >-
+          clang -O2 -Wall -Wextra -Werror -c
+          -Ihost/common
+          host/common/jx-hot-swap.c
+          host/common/jx-channel-bus.c
