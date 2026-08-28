@@ -1,0 +1,20 @@
+name: JX ASM call CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  asm-call:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify one-byte promoted ASM calls
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common
+          -o /tmp/jx-asm-call
+          tests/jx-asm-call.c
+          host/common/jx-asm-call.c
+          && /tmp/jx-asm-call
