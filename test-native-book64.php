@@ -24,9 +24,9 @@ try {
         'compiler' => 'jx-test',
     ];
 
-    $a = $dir . '/desktop.64B';
+    $a = $dir . '/desktop.jxb';
     $b = $dir . '/renamed.anything';
-    $c = $dir . '/desktop-second.64B';
+    $c = $dir . '/desktop-second.jxb';
 
     $buildA = NativeBook64::build($a, $sections, $meta);
     $buildC = NativeBook64::build($c, array_reverse($sections, true), array_reverse($meta, true));
@@ -62,13 +62,13 @@ try {
         }
     }
 
-    $fake = $dir . '/fake.64B';
+    $fake = $dir . '/fake.jxb';
     file_put_contents($fake, 'not a compiled JX book');
     if (NativeBook64::recognizes($fake)) {
-        throw new RuntimeException('JX64 loader trusted extension instead of package identity');
+        throw new RuntimeException('JX64 loader trusted .jxb extension instead of package identity');
     }
 
-    echo 'jx-native-book64: ok content=', $buildA['content_sha256'],
+    echo 'jx-native-book64 (.jxb public extension): ok content=', $buildA['content_sha256'],
          ' file=', $buildA['file_sha256'], "\n";
 } finally {
     foreach (glob($dir . '/*') ?: [] as $file) @unlink($file);
