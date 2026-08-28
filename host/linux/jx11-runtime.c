@@ -23,6 +23,11 @@ static int patch_service_enabled = 0;
 static jx_host_trace runtime_trace;
 static uint64_t runtime_generation = 1u;
 
+/* The executable patch endpoint is deliberately authorized for executable
+ * module replacement only. Numeric routes and a signed transport never imply
+ * permission for unrelated hot tables, assets, reactions, or configuration. */
+#define JX11_RUNTIME_PATCH_CAPABILITIES JX_PATCH_CAP_NATIVE_CODE
+
 static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connection);
 
 #define xcb_wait_for_event jx11_runtime_wait_for_event
@@ -166,7 +171,8 @@ static xcb_generic_event_t *jx11_runtime_wait_for_event(xcb_connection_t *connec
 static void print_runtime_help(void) {
     puts("jx11 [--nested] [--desktop FILE] [--launch PROGRAM] [--patch-socket PATH --patch-pubkey PEM]");
     puts("  --patch-socket PATH   enable local JXP1 executable live-patch service");
-    puts("  --patch-pubkey PEM    Ed25519 public key used to authorize signed patches");
+    puts("  --patch-pubkey PEM    Ed25519 public key used to authorize signed native-code patches");
+    puts("  patch capability      native-code only; other capabilities are not pre-authorized");
 }
 
 int main(int argc, char **argv) {
@@ -209,7 +215,7 @@ int main(int argc, char **argv) {
             free(core_argv);
             return 78;
         }
-        jx11_live_patch_init(&patch_manager, 1u, base_digest, JX_PATCH_CAP_ALL);
+        jx11_live_patch_init(&patch_manager, 1u, base_digest, JX11_RUNTIME_PATCH_CAPABILITIES);
         int rc = jx11_patch_service_open(&patch_service, patch_socket, patch_pubkey, &patch_manager);
         if (rc != 0) {
             fprintf(stderr, "jx11: cannot open patch service (%d)\n", rc);
@@ -218,7 +224,7 @@ int main(int argc, char **argv) {
         }
         jx11_patch_service_set_host(&patch_service, &patch_host);
         patch_service_enabled = 1;
-        fprintf(stderr, "jx11: signed executable live patch service active socket=%s generation=1\n", patch_socket);
+        fprintf(stderr, "jx11: signed native-code live patch service active socket=%s generation=1\n", patch_socket);
     }
 
     int rc = jx11_core_main(core_argc, core_argv);
