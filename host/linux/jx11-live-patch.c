@@ -16,6 +16,42 @@ void jx11_live_patch_init(jx11_live_patch *manager,
     }
 }
 
+void jx11_generation_release(jx11_generation *generation) {
+    if (!generation) return;
+    if (generation->native_handle) {
+        jx11_loaded_patch_module loaded = { generation->native_handle, generation->native_module };
+        jx11_patch_module_unload(&loaded);
+    }
+    memset(generation, 0, sizeof *generation);
+}
+
+void jx11_live_patch_discard_pending(jx11_live_patch *manager) {
+    if (!manager) return;
+    if (manager->pending_ready) jx11_generation_release(&manager->pending);
+    else memset(&manager->pending, 0, sizeof manager->pending);
+    manager->pending_ready = 0u;
+}
+
+void jx11_live_patch_dispose(jx11_live_patch *manager) {
+    if (!manager) return;
+    void *active_handle = manager->active.native_handle;
+    void *previous_handle = manager->previous.native_handle;
+    void *pending_handle = manager->pending.native_handle;
+
+    if (pending_handle && pending_handle != active_handle && pending_handle != previous_handle)
+        jx11_generation_release(&manager->pending);
+    else memset(&manager->pending, 0, sizeof manager->pending);
+
+    if (previous_handle && previous_handle != active_handle)
+        jx11_generation_release(&manager->previous);
+    else memset(&manager->previous, 0, sizeof manager->previous);
+
+    jx11_generation_release(&manager->active);
+    memset(&manager->security, 0, sizeof manager->security);
+    manager->pending_ready = 0u;
+    manager->previous_valid = 0u;
+}
+
 int jx11_live_patch_stage(jx11_live_patch *manager,
                           const jx_patch_manifest *manifest,
                           const jx11_generation *staged) {
@@ -26,6 +62,7 @@ int jx11_live_patch_stage(jx11_live_patch *manager,
         !jx_patch_digest_equal(manifest->target_digest, staged->digest)) {
         return JX_PATCH_ERR_BASE_DIGEST;
     }
+    if (manager->pending_ready) jx11_live_patch_discard_pending(manager);
     manager->pending = *staged;
     manager->pending_ready = 1u;
     return JX_PATCH_OK;
@@ -41,6 +78,15 @@ int jx11_live_patch_commit_pending(jx11_live_patch *manager,
     }
     int committed = jx_patch_commit(&manager->security, manifest);
     if (committed != JX_PATCH_OK) return committed;
+
+    if (manager->previous_valid && manager->previous.native_handle &&
+        manager->previous.native_handle != manager->active.native_handle &&
+        manager->previous.native_handle != manager->pending.native_handle) {
+        jx11_generation_release(&manager->previous);
+    } else {
+        memset(&manager->previous, 0, sizeof manager->previous);
+    }
+
     manager->previous = manager->active;
     manager->previous_valid = 1u;
     manager->active = manager->pending;
