@@ -8,12 +8,14 @@ on:
       - 'host/common/jx-idle-bitmap.*'
       - 'host/common/jx-idle-domains.*'
       - 'host/common/jx-idle-codebus.*'
+      - 'host/common/jx-bus-clock.*'
       - 'host/linux/jx-idle-shared.*'
       - 'tests/jx-idle-bus.c'
       - 'tests/jx-idle-collect.c'
       - 'tests/jx-idle-bitmap.c'
       - 'tests/jx-idle-domains.c'
       - 'tests/jx-idle-codebus.c'
+      - 'tests/jx-bus-clock.c'
       - 'tests/jx-idle-shared.c'
       - '.github/workflows/jx-idle-bus-ci.yml'
   workflow_dispatch:
@@ -48,6 +50,12 @@ jobs:
             host/common/jx-idle-codebus.c host/common/jx-idle-bitmap.c \
             -o /tmp/jx-idle-codebus
           /tmp/jx-idle-codebus
+      - name: Build and test adaptive logical bus clock
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Werror \
+            tests/jx-bus-clock.c host/common/jx-bus-clock.c \
+            -o /tmp/jx-bus-clock
+          /tmp/jx-bus-clock
       - name: Build and test atomic second collection bus
         run: |
           cc -std=c11 -O2 -Wall -Wextra -Werror -pthread \
