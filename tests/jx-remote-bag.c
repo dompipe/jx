@@ -23,6 +23,12 @@ int main(void) {
     uint8_t json_digest[JX_BAG_PATCH_DIGEST_BYTES];
     fill(json_digest, 0x44u);
 
+    jx_maintainer_plane plane = {0};
+    plane.version = JX_REMOTE_BAG_VERSION;
+    plane.provisioned = 1u;
+    strcpy(plane.installation_id, "corp-prod-01");
+    fill(plane.maintainer_trust_digest, 0xa5u);
+
     jx_bag_patch_current current = {0};
     current.bag_name = "Weather";
     current.discipline = JX_BAG_DISCIPLINE_RECORD;
@@ -34,16 +40,21 @@ int main(void) {
     source.version = JX_REMOTE_BAG_VERSION;
     source.transport = JX_REMOTE_BAG_TRANSPORT_SSH;
     source.capability_mask = JX_REMOTE_BAG_CAP_WRITE;
-    strcpy(source.source_id, "weather-feed.example");
+    strcpy(source.source_id, "maintainer-key-17");
+    strcpy(source.installation_id, "corp-prod-01");
+    memcpy(source.maintainer_trust_digest, plane.maintainer_trust_digest,
+           sizeof source.maintainer_trust_digest);
     strcpy(source.bag_name, "Weather");
     source.last_sequence = 100u;
     source.enabled = 1u;
+    source.maintainer = 1u;
 
     jx_remote_bag_request req = {0};
     req.version = JX_REMOTE_BAG_VERSION;
     req.transport = JX_REMOTE_BAG_TRANSPORT_SSH;
     req.requested_capabilities = JX_REMOTE_BAG_CAP_WRITE;
-    strcpy(req.source_id, "weather-feed.example");
+    strcpy(req.source_id, "maintainer-key-17");
+    strcpy(req.installation_id, "corp-prod-01");
     req.sequence = 101u;
     req.issued_at = 1000u;
     req.expires_at = 1100u;
@@ -62,53 +73,65 @@ int main(void) {
     jx_bag_listener_registry_init(&listeners);
     assert(jx_bag_listener_add(&listeners, "Weather", JX_BAG_CHANGE_ALL, listener_ok, NULL) == 0);
 
-    assert(jx_remote_bag_authorize(&source, &req, 1050u) == JX_REMOTE_BAG_OK);
-    assert(jx_remote_bag_prepare(&source, &req, 1050u, &current, json, sizeof json - 1u,
+    assert(jx_remote_bag_authorize(&plane, &source, &req, 1050u) == JX_REMOTE_BAG_OK);
+    assert(jx_remote_bag_prepare(&plane, &source, &req, 1050u, &current, json, sizeof json - 1u,
                                  json_digest, &listeners, NULL) == JX_REMOTE_BAG_OK);
     assert(listener_calls == 1);
     assert(source.last_sequence == 100u);
-    jx_remote_bag_mark_committed(&source, &req);
-    assert(source.last_sequence == 101u);
-    assert(jx_remote_bag_authorize(&source, &req, 1050u) == JX_REMOTE_BAG_ERR_REPLAY);
 
-    /* HTTPS is never mutation authority. */
-    jx_remote_bag_request bad = req;
-    bad.sequence = 102u;
-    bad.transport = JX_REMOTE_BAG_TRANSPORT_HTTPS;
-    assert(jx_remote_bag_authorize(&source, &bad, 1050u) == JX_REMOTE_BAG_ERR_TRANSPORT);
+    jx_maintainer_plane disabled = plane;
+    disabled.provisioned = 0u;
+    assert(jx_remote_bag_authorize(&disabled, &source, &req, 1050u) == JX_REMOTE_BAG_ERR_NOT_PROVISIONED);
+
+    jx_remote_bag_source ordinary = source;
+    ordinary.maintainer = 0u;
+    assert(jx_remote_bag_authorize(&plane, &ordinary, &req, 1050u) == JX_REMOTE_BAG_ERR_NOT_MAINTAINER);
+
+    jx_remote_bag_source wrong_root = source;
+    wrong_root.maintainer_trust_digest[0] ^= 0xffu;
+    assert(jx_remote_bag_authorize(&plane, &wrong_root, &req, 1050u) == JX_REMOTE_BAG_ERR_TRUST);
+
+    jx_remote_bag_request wrong_install = req;
+    strcpy(wrong_install.installation_id, "other-install");
+    assert(jx_remote_bag_authorize(&plane, &source, &wrong_install, 1050u) == JX_REMOTE_BAG_ERR_INSTALLATION);
+
+    jx_remote_bag_request https = req;
+    https.transport = JX_REMOTE_BAG_TRANSPORT_HTTPS;
+    assert(jx_remote_bag_authorize(&plane, &source, &https, 1050u) == JX_REMOTE_BAG_ERR_TRANSPORT);
 
     jx_remote_bag_source https_source = source;
     https_source.transport = JX_REMOTE_BAG_TRANSPORT_HTTPS;
-    bad = req;
-    bad.sequence = 102u;
-    bad.transport = JX_REMOTE_BAG_TRANSPORT_HTTPS;
-    assert(jx_remote_bag_authorize(&https_source, &bad, 1050u) == JX_REMOTE_BAG_ERR_TRANSPORT);
+    https.transport = JX_REMOTE_BAG_TRANSPORT_HTTPS;
+    assert(jx_remote_bag_authorize(&plane, &https_source, &https, 1050u) == JX_REMOTE_BAG_ERR_TRANSPORT);
 
-    bad = req; bad.sequence = 102u;
+    jx_remote_bag_mark_committed(&source, &req);
+    assert(source.last_sequence == 101u);
+    assert(jx_remote_bag_authorize(&plane, &source, &req, 1050u) == JX_REMOTE_BAG_ERR_REPLAY);
+
+    jx_remote_bag_request bad = req;
+    bad.sequence = 102u;
     strcpy(bad.qualifier.bag_name, "Prices");
-    assert(jx_remote_bag_authorize(&source, &bad, 1050u) == JX_REMOTE_BAG_ERR_SCOPE);
+    assert(jx_remote_bag_authorize(&plane, &source, &bad, 1050u) == JX_REMOTE_BAG_ERR_SCOPE);
 
     bad = req; bad.sequence = 102u; bad.expires_at = 1049u;
-    assert(jx_remote_bag_authorize(&source, &bad, 1050u) == JX_REMOTE_BAG_ERR_TIME);
+    assert(jx_remote_bag_authorize(&plane, &source, &bad, 1050u) == JX_REMOTE_BAG_ERR_TIME);
 
     bad = req; bad.sequence = 102u;
     bad.qualifier.target_schema_digest[0] ^= 0xffu;
-    assert(jx_remote_bag_authorize(&source, &bad, 1050u) == JX_REMOTE_BAG_ERR_CAPABILITY);
+    assert(jx_remote_bag_authorize(&plane, &source, &bad, 1050u) == JX_REMOTE_BAG_ERR_CAPABILITY);
 
     source.capability_mask |= JX_REMOTE_BAG_CAP_SCHEMA;
     bad.requested_capabilities |= JX_REMOTE_BAG_CAP_SCHEMA;
-    assert(jx_remote_bag_authorize(&source, &bad, 1050u) == JX_REMOTE_BAG_OK);
+    assert(jx_remote_bag_authorize(&plane, &source, &bad, 1050u) == JX_REMOTE_BAG_OK);
 
     jx_bag_listener_registry vetoes;
     jx_bag_listener_registry_init(&vetoes);
     assert(jx_bag_listener_add(&vetoes, "Weather", JX_BAG_CHANGE_ALL, listener_veto, NULL) == 0);
-    assert(jx_remote_bag_prepare(&source, &req, 1050u, &current, json, sizeof json - 1u,
-                                 json_digest, &vetoes, NULL) == JX_REMOTE_BAG_ERR_REPLAY);
 
     req.sequence = 103u;
-    assert(jx_remote_bag_prepare(&source, &req, 1050u, &current, json, sizeof json - 1u,
+    assert(jx_remote_bag_prepare(&plane, &source, &req, 1050u, &current, json, sizeof json - 1u,
                                  json_digest, &vetoes, NULL) == JX_REMOTE_BAG_ERR_LISTENER);
 
-    puts("jx-remote-bag: SSH-only mutation, scope, freshness, capability and listener gates passed");
+    puts("jx-maintainer-bag: installer-provisioned SSH maintainer plane only");
     return 0;
 }
