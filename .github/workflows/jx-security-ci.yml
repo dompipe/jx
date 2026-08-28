@@ -11,6 +11,7 @@ on:
       - 'host/common/jx-idle-codebus.*'
       - 'tests/jx-security.c'
       - 'tests/jx-security-import.c'
+      - 'docs/JX-SECURITY.md'
       - '.github/workflows/jx-security-ci.yml'
   workflow_dispatch:
 
