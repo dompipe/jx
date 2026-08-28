@@ -32,7 +32,7 @@ The domain uses the same fixed-position bitstring discipline as the other buses.
 
 ## Verdicts
 
-The first ABI defines four two-bit verdicts:
+The ABI defines four two-bit verdicts:
 
 | Bits | Verdict | Meaning |
 |---|---|---|
@@ -97,21 +97,81 @@ SecuritySignature {
 }
 ```
 
+Whole-file hashes remain equally readable:
+
+```jx
+SecuritySignature {
+    id: 12016
+    name: "Example.SHA256"
+    type: hash
+    verdict: malware
+    hash: sha256
+    size: 12345
+    digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+}
+```
+
 Canonical source is never replaced by native tables. At load/prelink time JX may prepare faster match structures from those signatures.
 
-## Current native matcher
+## Current native matcher: version 2
 
-Version 1 supports:
+Version 2 supports:
 
 - exact byte signatures at a fixed offset;
 - exact byte signatures anywhere in an object;
 - masked byte signatures with byte-level wildcards;
+- whole-file MD5 signatures;
+- whole-file SHA-1 signatures;
+- whole-file SHA-256 signatures;
+- exact or wildcard file-size constraints for imported hash rules;
 - deterministic highest-severity result selection;
 - zero-copy scanning of caller-owned buffers;
 - compact SECURITY result-slot encoding;
 - ordered SECURITY-domain collection.
 
-The scanner currently performs straightforward matching. Future prepared generations can replace the search implementation with hash tables, direct offset groups, multi-pattern automatons, SIMD/native scanning, or other optimized structures without changing canonical signature syntax.
+Digest computation is lazy. During one object scan, MD5, SHA-1, or SHA-256 is calculated only if a configured rule needs it, and each required algorithm is calculated at most once for that object regardless of how many rules use the same digest family.
+
+The byte matcher currently performs straightforward matching. Future prepared generations can replace the search implementation with hash tables, direct offset groups, multi-pattern automatons, SIMD/native scanning, or other optimized structures without changing canonical signature syntax.
+
+## ClamAV and phpMussel whole-file hash import
+
+JX currently provides **whole-file hash format compatibility**, not complete engine compatibility.
+
+The importer accepts the common form:
+
+```text
+HASH:FILESIZE:NAME
+```
+
+and the optional numeric fourth field used by ClamAV hash databases:
+
+```text
+HASH:FILESIZE:NAME:73
+```
+
+`FILESIZE` may be a decimal byte count or `*` for any size. The hash algorithm is determined without an extra tag:
+
+| Hex characters | Algorithm |
+|---:|---|
+| 32 | MD5 |
+| 40 | SHA-1 |
+| 64 | SHA-256 |
+
+When the hash importer is used on a phpMussel Hash signature file, a leading framing/header line beginning with `phpMussel` is skipped before signature records are parsed.
+
+Imported records are normalized into ordinary `jx_security_signature` objects with deterministic JX IDs. JX does not execute third-party scanner source or keep external rule syntax in the hot scan path.
+
+Malformed records fail closed at import time: invalid hexadecimal digests, unsupported digest lengths, invalid or overflowing sizes, overlong names, unexpected extra fields, and invalid numeric compatibility fields are rejected and counted in the import report rather than activated as signatures. Capacity exhaustion and JX signature-ID overflow are hard importer errors.
+
+### Compatibility boundary
+
+The current importer does **not** claim complete phpMussel or ClamAV compatibility. It does not yet import:
+
+- phpMussel Standard, Regex, Normalised, HTML, PE, Complex Extended, or URL rules;
+- ClamAV NDB, LDB, YARA, bytecode, PE-section, or other structural signature databases;
+- archive recursion or embedded-object rules.
+
+Those formats require their own explicit adapters and tests. Unsupported rule types must never be silently interpreted as simpler hash rules.
 
 ## Admission path
 
@@ -131,19 +191,23 @@ SECURITY scan
 
 The scanner result does not itself grant execution permission. Security scanning and authorization remain separate checks.
 
-## Planned compatibility layers
+## Compatibility and growth path
 
-The implementation should grow by adapters, not by copying third-party engines:
+Completed foundations:
 
-1. canonical JX signature files;
-2. hash signatures (SHA-256 first);
-3. ClamAV-compatible signature import where licensing/format requirements permit;
-4. archive-entry inspection with bounded recursion and decompression limits;
-5. MIME/file-type rules;
-6. URL/download admission;
-7. executable launch admission;
-8. quarantine Bag and signed scan provenance;
-9. signature-generation hot swap through the existing JX generation model.
+1. canonical JX byte/masked signatures;
+2. native MD5, SHA-1, and SHA-256 whole-file matching;
+3. ClamAV/phpMussel whole-file hash import into canonical JX records.
+
+Next adapters should be added independently and tested by format:
+
+1. body/hex signature import;
+2. archive-entry inspection with bounded recursion and decompression limits;
+3. MIME/file-type rules;
+4. URL/download admission;
+5. executable launch admission;
+6. quarantine Bag and signed scan provenance;
+7. signature-generation hot swap through the existing JX generation model.
 
 A compatibility importer converts external formats into canonical JX signatures. Prepared/native generations are then produced from that canonical representation.
 
