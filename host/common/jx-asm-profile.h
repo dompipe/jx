@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include "jx-asm-call.h"
 
-#define JX_ASM_PROFILE_VERSION 1u
+#define JX_ASM_PROFILE_VERSION 2u
 #define JX_ASM_PROFILE_MAX_CANDIDATES 64u
 #define JX_ASM_PROFILE_STABLE_EPOCHS 2u
 
@@ -31,8 +31,9 @@ typedef struct {
 } jx_asm_profile;
 
 /*
- * Profiling never edits a live call table. It only accumulates observations.
- * A completed profile is consumed while preparing the NEXT generation's table.
+ * Profiling never edits a live call map. Execution only increments local
+ * saturating counters beside prelinked targets. Harvesting aggregates those
+ * counters by source family/slot and resets them between epochs.
  */
 void jx_asm_profile_init(jx_asm_profile *profile, uint64_t minimum_epoch_hits);
 int jx_asm_profile_register(jx_asm_profile *profile,
@@ -45,6 +46,8 @@ int jx_asm_profile_hit(jx_asm_profile *profile,
                        uint8_t family,
                        uint8_t slot,
                        uint64_t count);
+int jx_asm_profile_harvest_table(jx_asm_profile *profile,
+                                 jx_asm_call_table *table);
 void jx_asm_profile_finish_epoch(jx_asm_profile *profile);
 
 /*
