@@ -1,4 +1,5 @@
 #include "jx-security.h"
+#include "jx-security-hash.h"
 #include <string.h>
 
 static int pattern_matches(const uint8_t *data,
@@ -11,10 +12,19 @@ static int pattern_matches(const uint8_t *data,
     return 1;
 }
 
-static int scan_signature(const uint8_t *data,
-                          size_t length,
-                          const jx_security_signature *sig,
-                          uint64_t *match_offset) {
+size_t jx_security_hash_digest_length(jx_security_hash_algorithm algorithm) {
+    switch (algorithm) {
+        case JX_SECURITY_HASH_MD5: return JX_SECURITY_MD5_BYTES;
+        case JX_SECURITY_HASH_SHA1: return JX_SECURITY_SHA1_BYTES;
+        case JX_SECURITY_HASH_SHA256: return JX_SECURITY_SHA256_BYTES;
+        default: return 0u;
+    }
+}
+
+static int scan_byte_signature(const uint8_t *data,
+                               size_t length,
+                               const jx_security_signature *sig,
+                               uint64_t *match_offset) {
     size_t offset;
     if (!data || !sig || !match_offset) return -1;
     if (sig->length == 0u || sig->length > JX_SECURITY_PATTERN_MAX) return -2;
@@ -43,6 +53,68 @@ static int scan_signature(const uint8_t *data,
     return 0;
 }
 
+typedef struct {
+    uint8_t ready_md5;
+    uint8_t ready_sha1;
+    uint8_t ready_sha256;
+    uint8_t md5[JX_SECURITY_MD5_BYTES];
+    uint8_t sha1[JX_SECURITY_SHA1_BYTES];
+    uint8_t sha256[JX_SECURITY_SHA256_BYTES];
+} hash_cache;
+
+static int cached_digest(hash_cache *cache,
+                         jx_security_hash_algorithm algorithm,
+                         const uint8_t *data,
+                         size_t length,
+                         const uint8_t **digest) {
+    if (!cache || !digest || (!data && length != 0u)) return -1;
+    switch (algorithm) {
+        case JX_SECURITY_HASH_MD5:
+            if (!cache->ready_md5) {
+                if (jx_security_md5(data, length, cache->md5) != 0) return -2;
+                cache->ready_md5 = 1u;
+            }
+            *digest = cache->md5;
+            return 0;
+        case JX_SECURITY_HASH_SHA1:
+            if (!cache->ready_sha1) {
+                if (jx_security_sha1(data, length, cache->sha1) != 0) return -2;
+                cache->ready_sha1 = 1u;
+            }
+            *digest = cache->sha1;
+            return 0;
+        case JX_SECURITY_HASH_SHA256:
+            if (!cache->ready_sha256) {
+                if (jx_security_sha256(data, length, cache->sha256) != 0) return -2;
+                cache->ready_sha256 = 1u;
+            }
+            *digest = cache->sha256;
+            return 0;
+        default:
+            return -3;
+    }
+}
+
+static int scan_hash_signature(const uint8_t *data,
+                               size_t length,
+                               const jx_security_signature *sig,
+                               hash_cache *cache,
+                               uint64_t *match_offset) {
+    const uint8_t *digest = NULL;
+    size_t digest_length;
+    int rc;
+    if (!sig || !cache || !match_offset) return -1;
+    if (sig->type != JX_SECURITY_SIG_HASH || sig->verdict > JX_SECURITY_ERROR) return -2;
+    digest_length = jx_security_hash_digest_length((jx_security_hash_algorithm)sig->hash_algorithm);
+    if (digest_length == 0u) return -3;
+    if (sig->file_size != JX_SECURITY_SIZE_ANY && sig->file_size != (uint64_t)length) return 0;
+    rc = cached_digest(cache, (jx_security_hash_algorithm)sig->hash_algorithm, data, length, &digest);
+    if (rc != 0) return rc;
+    if (memcmp(digest, sig->digest, digest_length) != 0) return 0;
+    *match_offset = 0u;
+    return 1;
+}
+
 int jx_security_scan_buffer(const uint8_t *data,
                             size_t length,
                             const jx_security_signature *signatures,
@@ -53,18 +125,25 @@ int jx_security_scan_buffer(const uint8_t *data,
     uint8_t best_verdict = JX_SECURITY_CLEAN;
     uint64_t best_offset = 0u;
     const jx_security_signature *best = NULL;
+    hash_cache cache;
 
     if ((!data && length != 0u) || (!signatures && signature_count != 0u) || !result)
         return -1;
 
     memset(result, 0, sizeof *result);
+    memset(&cache, 0, sizeof cache);
     result->version = JX_SECURITY_VERSION;
     result->verdict = JX_SECURITY_CLEAN;
     result->bytes_scanned = (uint64_t)length;
 
     for (i = 0u; i < signature_count; ++i) {
         uint64_t offset = 0u;
-        int rc = scan_signature(data, length, &signatures[i], &offset);
+        int rc;
+        if (signatures[i].type == JX_SECURITY_SIG_HASH) {
+            rc = scan_hash_signature(data, length, &signatures[i], &cache, &offset);
+        } else {
+            rc = scan_byte_signature(data, length, &signatures[i], &offset);
+        }
         if (rc < 0) {
             result->verdict = JX_SECURITY_ERROR;
             return rc;
