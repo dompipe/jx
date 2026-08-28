@@ -1,0 +1,20 @@
+name: JX task manager CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  task-manager:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify common task registry and accounting
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common
+          -o /tmp/jx-task-manager
+          tests/jx-task-manager.c
+          host/common/jx-task-manager.c
+          && /tmp/jx-task-manager
