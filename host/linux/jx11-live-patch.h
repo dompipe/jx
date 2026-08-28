@@ -31,6 +31,15 @@ void jx11_live_patch_init(jx11_live_patch *manager,
                           const uint8_t digest[JX_PATCH_DIGEST_BYTES],
                           uint32_t allowed_capabilities);
 
+/** Release resources owned by one generation and clear it. */
+void jx11_generation_release(jx11_generation *generation);
+
+/** Drop a staged generation that will not be committed. */
+void jx11_live_patch_discard_pending(jx11_live_patch *manager);
+
+/** Release active/pending/rollback generations during host shutdown. */
+void jx11_live_patch_dispose(jx11_live_patch *manager);
+
 int jx11_live_patch_stage(jx11_live_patch *manager,
                           const jx_patch_manifest *manifest,
                           const jx11_generation *staged);
