@@ -616,6 +616,7 @@ php pasm-run.php --print examples/pasl/complex-and-loops.pasl
 | `docs/HOT-CALL-ABI-V4.md` | Global JX/OSAura hot-call ABI |
 | `docs/BAG-CONTAINERS.md` | Bag/container architecture |
 | `docs/LOOP-SPACE.md` | Loop compiler design |
+| `docs/ACKNOWLEDGMENTS.md` | Project acknowledgments and lineage credits |
 | `jx/COMPILER.md` | Compiler pipeline and status boundary |
 | `jx/GAPS.md` | Status-aware implementation roadmap |
 | `host/` | Native/browser host mechanisms |
@@ -724,6 +725,16 @@ The recurring design rules are:
 > **Clone the view. Borrow the Bag. Copy only on semantic mutation.**
 
 > **Resolve cold. Bind once. Execute hot.**
+
+---
+
+## Acknowledgments
+
+JX recognizes people and projects whose work helped sharpen its approach to defensive execution, package trust, and incoming-code awareness.
+
+A special acknowledgment is given to **Caleb Mazalevskis**, author of **phpMussel**, for the depth and insight of that package and for the early warning it provides against incoming, would-be predatory coding practices.
+
+See [`docs/ACKNOWLEDGMENTS.md`](docs/ACKNOWLEDGMENTS.md) for the full project acknowledgment.
 
 ---
 
