@@ -43,3 +43,14 @@ jobs:
           tests/jx-global-power.c
           host/common/jx-global-power.c
           && /tmp/jx-global-power
+      - name: Verify proven takeover persists replacement jx11 executable
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common -Ihost/linux
+          -o /tmp/jx11-power-tether
+          tests/jx11-power-tether.c
+          host/linux/jx11-power-tether.c
+          host/linux/jx11-exe-tether.c
+          host/common/jx-hot-swap.c
+          host/common/jx-channel-bus.c
+          $(pkg-config --cflags --libs openssl)
+          && /tmp/jx11-power-tether
