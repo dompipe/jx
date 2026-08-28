@@ -30,6 +30,6 @@ static const jx11_patch_module_v1 module = {
     filter_x_event
 };
 
-const jx11_patch_module_v1 *jx11_patch_module_v1(void) {
+const jx11_patch_module_v1 *jx11_patch_module_entry_v1(void) {
     return &module;
 }
