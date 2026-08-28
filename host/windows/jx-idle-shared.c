@@ -4,6 +4,23 @@
 #include <string.h>
 #include "jx-idle-shared.h"
 
+typedef BOOL (WINAPI *jx_wait_on_address_fn)(volatile VOID *, PVOID, SIZE_T, DWORD);
+typedef VOID (WINAPI *jx_wake_by_address_all_fn)(PVOID);
+
+static jx_wait_on_address_fn jx_wait_on_address = NULL;
+static jx_wake_by_address_all_fn jx_wake_by_address_all = NULL;
+
+static int jx_win32_idle_sync_load(void) {
+    HMODULE module;
+    if (jx_wait_on_address && jx_wake_by_address_all) return 0;
+    module = GetModuleHandleW(L"kernelbase.dll");
+    if (!module) module = GetModuleHandleW(L"kernel32.dll");
+    if (!module) return -1;
+    jx_wait_on_address = (jx_wait_on_address_fn)(uintptr_t)GetProcAddress(module, "WaitOnAddress");
+    jx_wake_by_address_all = (jx_wake_by_address_all_fn)(uintptr_t)GetProcAddress(module, "WakeByAddressAll");
+    return (jx_wait_on_address && jx_wake_by_address_all) ? 0 : -1;
+}
+
 static void jx_win32_idle_shared_zero(jx_win32_idle_shared *shared) {
     if (!shared) return;
     memset(shared, 0, sizeof *shared);
@@ -24,7 +41,7 @@ int jx_win32_idle_shared_host_open(jx_win32_idle_shared *shared) {
     HANDLE mapping;
     DWORD pid;
     ULONGLONG tick;
-    if (!shared) return -1;
+    if (!shared || jx_win32_idle_sync_load() != 0) return -1;
     jx_win32_idle_shared_zero(shared);
     pid = GetCurrentProcessId();
     tick = GetTickCount64();
@@ -54,7 +71,7 @@ int jx_win32_idle_shared_host_open(jx_win32_idle_shared *shared) {
 int jx_win32_idle_shared_child_open(jx_win32_idle_shared *shared) {
     HANDLE mapping;
     DWORD n;
-    if (!shared) return -1;
+    if (!shared || jx_win32_idle_sync_load() != 0) return -1;
     jx_win32_idle_shared_zero(shared);
     n = GetEnvironmentVariableW(JX_WIN32_IDLE_SHARED_ENV, shared->name,
                                 JX_WIN32_IDLE_SHARED_NAME_MAX + 1u);
@@ -92,12 +109,12 @@ int jx_win32_idle_shared_set_program_count(jx_win32_idle_shared *shared, uint32_
 int jx_win32_idle_shared_broadcast(jx_win32_idle_shared *shared,
                                    uint64_t epoch,
                                    uint64_t monotonic_ms) {
-    if (!shared || !shared->page || epoch > 0x7fffffffffffffffULL ||
-        monotonic_ms > 0x7fffffffffffffffULL) return -1;
+    if (!shared || !shared->page || !jx_wake_by_address_all ||
+        epoch > 0x7fffffffffffffffULL || monotonic_ms > 0x7fffffffffffffffULL) return -1;
     InterlockedExchange64(&shared->page->monotonic_ms, (LONG64)monotonic_ms);
     InterlockedExchange64(&shared->page->epoch, (LONG64)epoch);
     InterlockedIncrement(&shared->page->wake_word);
-    WakeByAddressAll((PVOID)&shared->page->wake_word);
+    jx_wake_by_address_all((PVOID)&shared->page->wake_word);
     return 0;
 }
 
@@ -131,12 +148,12 @@ int jx_win32_idle_shared_wait(jx_win32_idle_shared *shared,
     LONG observed;
     uint64_t epoch = 0u;
     uint64_t ms = 0u;
-    if (!shared || !shared->page) return -1;
+    if (!shared || !shared->page || !jx_wait_on_address) return -1;
     if (jx_win32_idle_shared_snapshot(shared, &epoch, &ms, NULL) != 0) return -1;
     if (epoch <= last_seen_epoch) {
         observed = (LONG)observed_wake_word;
-        if (!WaitOnAddress((volatile VOID *)&shared->page->wake_word,
-                           &observed, sizeof observed, INFINITE)) return -1;
+        if (!jx_wait_on_address((volatile VOID *)&shared->page->wake_word,
+                                &observed, sizeof observed, INFINITE)) return -1;
         if (jx_win32_idle_shared_snapshot(shared, &epoch, &ms, NULL) != 0) return -1;
     }
     if (epoch <= last_seen_epoch) return 0;
