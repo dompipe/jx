@@ -4,9 +4,12 @@
 #include <errno.h>
 #include <process.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "../../host/common/jx-asm-call.h"
 
 #ifndef JX_ROOT_COMPILED
 #define JX_ROOT_COMPILED ""
@@ -117,6 +120,59 @@ static void exec_php(int argc, char **argv, const char *script)
     exit(1);
 }
 
+static uint64_t hot_abi_probe(void *frame, void *context)
+{
+    (void)frame;
+    return context ? *(const uint64_t *)context : 0u;
+}
+
+/*
+ * This gate executes inside jx.exe itself. It proves the Windows executable is
+ * linked to the same v4 native hot engine as the other native hosts, rather
+ * than testing a PHP imitation of the encoding.
+ */
+static int hot_abi_check(void)
+{
+    jx_asm_call_table table;
+    jx_asm_call_table_init(&table);
+
+    uint64_t expected = 0x4a585634u;
+    uint64_t result = 0u;
+    uint8_t used = 0u;
+
+    if (table.version != JX_ASM_CALL_VERSION || JX_ASM_CALL_VERSION != 4u ||
+        jx_asm_call_bind(&table, 0u, 1u, hot_abi_probe, &expected) != 0 ||
+        jx_asm_call_promote_hot(&table, 15u, 7u, 0u, 1u) != 0) {
+        jx_asm_call_table_dispose(&table);
+        fputs("jx.exe: hot ABI v4 bind failed\n", stderr);
+        return 1;
+    }
+
+    const uint8_t hot[] = { 0xffu };
+    if (jx_asm_call_invoke(&table, hot, sizeof hot, NULL, &result, &used) != 0 ||
+        used != 1u || result != expected) {
+        jx_asm_call_table_dispose(&table);
+        fputs("jx.exe: one-byte hot dispatch failed\n", stderr);
+        return 1;
+    }
+
+    const uint8_t extended[] = { 0x00u, 0x01u };
+    result = 0u;
+    used = 0u;
+    if (jx_asm_call_invoke(&table, extended, sizeof extended, NULL, &result, &used) != 0 ||
+        used != 2u || result != expected) {
+        jx_asm_call_table_dispose(&table);
+        fputs("jx.exe: two-byte extended dispatch failed\n", stderr);
+        return 1;
+    }
+
+    jx_asm_call_table_dispose(&table);
+    puts("JX HOT ABI V4: NATIVE");
+    puts("1xxxxxxx: 1 BYTE / 16 BANKS x 8 SHADOWS");
+    puts("0xxxxxxx xxxxxxxx: 2 BYTE EXTENDED");
+    return 0;
+}
+
 static void usage(void)
 {
     puts("jx.exe - JX compiler / runtime");
@@ -125,6 +181,9 @@ static void usage(void)
     puts("  jx.exe [-O0|-O1] [-o out.pbc] [--report[=compact|verbose|json]|--quiet] file.jx");
     puts("  jx.exe --print file.jx");
     puts("  jx.exe -c \"$a = 1; $result = $a * 2;\"");
+    puts("");
+    puts("Native hot engine:");
+    puts("  jx.exe --hot-abi");
     puts("");
     puts("Hosts:");
     puts("  jx.exe window-server <start|stop|status|open> [...]");
@@ -137,6 +196,7 @@ static void usage(void)
     puts("Examples:");
     puts("  jx.exe -O1 -o app.pbc --report=verbose app.jx");
     puts("  jx.exe --print examples\\hello.jx");
+    puts("  jx.exe --hot-abi");
     puts("  jx.exe window-server status localhost:8766");
     puts("  jx.exe xi localhost:8766 status");
     puts("  jx.exe book open language localhost:8766");
@@ -144,16 +204,17 @@ static void usage(void)
 
 int main(int argc, char **argv)
 {
+    if (argc <= 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+        usage();
+        return 0;
+    }
+
+    if (strcmp(argv[1], "--hot-abi") == 0) return hot_abi_check();
+
     char *root = find_root(argv[0]);
     char *jx_run = join2(root, "jx-run.php");
     char *window_server = join2(root, "jx-window-server.php");
     char *xi = join2(root, "pasl\\xi\\xi.php");
-
-    if (argc <= 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
-        usage();
-        free(root); free(jx_run); free(window_server); free(xi);
-        return 0;
-    }
 
     if (strcmp(argv[1], "window-server") == 0 || strcmp(argv[1], "windows") == 0) {
         exec_php(argc - 2, argv + 2, window_server);
