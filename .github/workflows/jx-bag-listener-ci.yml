@@ -61,3 +61,12 @@ jobs:
           tests/jx-host-trace.c
           host/common/jx-host-trace.c
           && /tmp/jx-host-trace
+      - name: Verify provenance-gated HTTPS SSH remote Bag control
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common
+          -o /tmp/jx-remote-bag
+          tests/jx-remote-bag.c
+          host/common/jx-remote-bag.c
+          host/common/jx-bag-listener.c
+          host/common/jx-bag-patch.c
+          && /tmp/jx-remote-bag
