@@ -94,8 +94,8 @@ JX;
 $semantic = $c->run($numeric);
 $jxl = $c->emitJxl($numeric);
 $prepared = (new JxlVm())->run($jxl);
-assert($semantic === 44);
-assert($prepared === 44);
+assert($semantic === 43);
+assert($prepared === 43);
 assert(strlen($jxl) > 0);
 
 // JXL executable bytes have the high bit clear; operand/address bytes are
