@@ -1,0 +1,21 @@
+name: JX Bag listener CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  bag-listener:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Bag listener prepare commit rollback
+        run: >-
+          cc -O2 -std=c11 -Wall -Wextra -Werror -Ihost/common
+          -o /tmp/jx-bag-listener
+          tests/jx-bag-listener.c
+          host/common/jx-bag-listener.c
+          host/common/jx-bag-patch.c
+          && /tmp/jx-bag-listener
