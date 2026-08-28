@@ -21,7 +21,21 @@ jobs:
         run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php language
       - name: Semantic numeric control flow
         run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php numeric
-      - name: JXL numeric parity
+      - name: JXL basic mutation
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php jxl-basic
+      - name: JXL function call
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php jxl-call
+      - name: JXL while
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php jxl-while
+      - name: JXL continue
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php jxl-continue
+      - name: JXL break
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php jxl-break
+      - name: JXL do-while
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php jxl-do
+      - name: JXL repeat
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php jxl-repeat
+      - name: JXL combined numeric parity
         run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php jxl
       - name: JXL attachment byte law
         run: php -d zend.assertions=1 -d assert.exception=1 test-jx-semantic.php attachment
