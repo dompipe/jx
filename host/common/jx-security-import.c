@@ -142,7 +142,12 @@ int jx_security_import_hash_text(const uint8_t *text,
             if (report) *report = local;
             return -2;
         }
-        if (import_line(text + start, end - start, &out[count], first_id + (uint32_t)count) != 0) {
+        if (count > (size_t)(UINT32_MAX - first_id)) {
+            if (report) *report = local;
+            return -3;
+        }
+        if (import_line(text + start, end - start, &out[count],
+                        first_id + (uint32_t)count) != 0) {
             ++local.errors;
             continue;
         }
