@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JX Anatomy Designer</title>
+<style>
+html,body{height:100%;margin:0;font:14px system-ui;background:#11151b;color:#e8edf5}*{box-sizing:border-box}
+#app{height:100%;display:grid;grid-template-columns:260px 1fr 310px;grid-template-rows:48px 1fr 30px}
+header{grid-column:1/4;display:flex;align-items:center;gap:14px;padding:0 14px;background:#181e27;border-bottom:1px solid #2c3542}header b{font-size:16px}.pill{padding:5px 9px;border:1px solid #3a4657;border-radius:8px;background:#202834}
+aside{padding:12px;background:#161b23;overflow:auto}.left{border-right:1px solid #2c3542}.right{border-left:1px solid #2c3542}
+#view{position:relative;min-width:0;min-height:0;background:radial-gradient(circle at 50% 40%,#27303c,#12161d 68%)}#view canvas{width:100%;height:100%;display:block}
+footer{grid-column:1/4;padding:5px 12px;background:#181e27;border-top:1px solid #2c3542;color:#9ca9ba;font-size:12px}
+h2{font-size:12px;letter-spacing:.11em;color:#8ea0b7;text-transform:uppercase;margin:14px 0 8px}.list button,button.action{width:100%;padding:8px 9px;margin:3px 0;border:1px solid #364255;border-radius:6px;background:#202833;color:#e8edf5;text-align:left;cursor:pointer}.list button.active{outline:2px solid #50a5ff;background:#24364b}.row{display:grid;grid-template-columns:1fr 80px;align-items:center;gap:8px;margin:7px 0}.row input[type=number]{width:100%;background:#0f141b;border:1px solid #354153;color:#fff;border-radius:5px;padding:5px}.row input[type=range]{grid-column:1/3;width:100%}select{width:100%;background:#0f141b;border:1px solid #354153;color:#fff;border-radius:5px;padding:6px}.tabs{display:grid;grid-template-columns:1fr 1fr;gap:5px}.tabs button{text-align:center}.hint{font-size:12px;color:#8f9cae;line-height:1.4}.drop{border:1px dashed #43536a;border-radius:7px;padding:10px;text-align:center;color:#a8b6c7;cursor:pointer}.drop input{display:none}
+</style>
+</head>
+<body>
+<div id="app">
+<header><b>JX Anatomy Designer</b><span class="pill">Skeleton + Surface</span><span class="pill">Texture Align</span><span class="pill">CPU-fit ready</span></header>
+<aside class="left">
+<h2>Parts</h2><div class="list" id="parts"></div>
+<h2>Add archetype</h2>
+<select id="archetype"><option>head</option><option>skull</option><option>torso</option><option>human-arm</option><option>human-leg</option><option>animal-front-leg</option><option>animal-rear-leg</option><option>duck-beak</option><option>platypus-bill</option><option>pig-snout</option><option>dragon-snout</option></select>
+<button class="action" id="addPart">+ Add part</button>
+<h2>Reference texture</h2>
+<label class="drop">Choose image<input id="textureFile" type="file" accept="image/*"></label>
+<p class="hint">Attach the image to the selected part, align it there, then move the entire part while the texture stays pinned to it.</p>
+</aside>
+<main id="view"></main>
+<aside class="right">
+<div class="tabs"><button class="action active" data-mode="part">Move Part</button><button class="action" data-mode="texture">Align Texture</button></div>
+<h2 id="panelTitle">Part transform</h2>
+<div id="partPanel">
+<div class="row"><label>X</label><input id="px" type="number" step=".01"></div><div class="row"><label>Y</label><input id="py" type="number" step=".01"></div><div class="row"><label>Z</label><input id="pz" type="number" step=".01"></div>
+<div class="row"><label>Rotate X</label><input id="rx" type="number" step=".02"></div><div class="row"><label>Rotate Y</label><input id="ry" type="number" step=".02"></div><div class="row"><label>Rotate Z</label><input id="rz" type="number" step=".02"></div>
+<h2>Anatomy</h2><div class="row"><label>Length</label><input id="length" type="number" min=".02" step=".05"></div><div class="row"><label>Thickness</label><input id="radius" type="number" min=".01" step=".02"></div><div class="row"><label>Muscle / pumped</label><input id="pumped" type="number" min="0" max="2" step=".05"></div>
+</div>
+<div id="texturePanel" hidden>
+<div class="row"><label>Texture X</label><input id="tu" type="number" step=".01"></div><div class="row"><label>Texture Y</label><input id="tv" type="number" step=".01"></div><div class="row"><label>Texture scale X</label><input id="tsx" type="number" step=".02"></div><div class="row"><label>Texture scale Y</label><input id="tsy" type="number" step=".02"></div><div class="row"><label>Texture rotation</label><input id="tr" type="number" step=".02"></div>
+<button class="action" id="centerTexture">Center texture</button><p class="hint">Texture alignment changes UV placement only. Switching back to Move Part carries this aligned texture with the body part.</p>
+</div>
+<h2>Export</h2><button class="action" id="export">Download descriptor JSON</button>
+</aside>
+<footer id="status">Select a part. Move it in XYZ or switch to Texture Align.</footer>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.min.js"></script>
+<script src="../host/browser/jx-anatomy-host.js"></script>
+<script>
+const descriptor={kind:'model',model:'anatomy',plugin:'anatomy',version:'jx.anatomy/1',id:'designer-model',species:'generic',parts:[
+{id:'torso',type:'torso',parent:null,params:{},transform:{position:[0,0.8,0],rotation:[0,0,0],scale:[1,1.35,.75]},textures:[]},
+{id:'neck',type:'pipe',parent:null,params:{length:.38,radius:.12,pumpedness:.2},transform:{position:[0,1.55,0],rotation:[0,0,0],scale:[1,1,1]},textures:[]},
+{id:'head',type:'head',parent:null,params:{},transform:{position:[0,1.92,0],rotation:[0,0,0],scale:[1,1.08,.94]},textures:[]},
+{id:'left-upper-arm',type:'human-arm',parent:null,params:{length:.72,radius:.105,pumpedness:.45},transform:{position:[-.72,1.08,0],rotation:[0,0,-.18],scale:[1,1,1]},textures:[]},
+{id:'right-upper-arm',type:'human-arm',parent:null,params:{length:.72,radius:.105,pumpedness:.45},transform:{position:[.72,1.08,0],rotation:[0,0,.18],scale:[1,1,1]},textures:[]}
+]};
+const view=document.getElementById('view'); const host=JXAnatomyHost.mount(descriptor,view,{}); let selected='head',mode='part',objectUrl=null;
+function renderLoop(){host.render();requestAnimationFrame(renderLoop)}renderLoop();
+function p(){return host.parts.get(selected)}
+function rebuildList(){const list=document.getElementById('parts');list.innerHTML='';host.parts.forEach((part,id)=>{const b=document.createElement('button');b.textContent=id+' · '+part.type;b.className=id===selected?'active':'';b.onclick=()=>{selected=id;host.select(id);rebuildList();sync()};list.appendChild(b)})}
+function val(id,v){const e=document.getElementById(id);if(v!==undefined)e.value=Number(v).toFixed(3);return Number(e.value)}
+function sync(){const part=p();if(!part)return;const t=part.transform||{},pos=t.position||[0,0,0],rot=t.rotation||[0,0,0],q=part.params||{};val('px',pos[0]);val('py',pos[1]);val('pz',pos[2]);val('rx',rot[0]);val('ry',rot[1]);val('rz',rot[2]);val('length',q.length||1);val('radius',q.radius||q.thickness||.1);val('pumped',q.pumpedness||q.muscle||0);const tx=(part.textures||[])[0],tt=tx&&tx.with&&tx.with.transform||{};val('tu',(tt.offset||[0,0])[0]);val('tv',(tt.offset||[0,0])[1]);val('tsx',(tt.scale||[1,1])[0]);val('tsy',(tt.scale||[1,1])[1]);val('tr',tt.rotation||0);document.getElementById('status').textContent=mode==='part'?`Moving ${selected}: texture follows the part.`:`Aligning texture on ${selected}: geometry stays fixed.`}
+function updatePart(){host.movePart(selected,{position:[val('px'),val('py'),val('pz')],rotation:[val('rx'),val('ry'),val('rz')],scale:p().transform.scale||[1,1,1]});host.setShape(selected,{length:val('length'),radius:val('radius'),pumpedness:val('pumped')})}
+function updateTexture(){const tx=(p().textures||[])[0];if(!tx)return;host.alignTexture(selected,tx.id,{offset:[val('tu'),val('tv')],scale:[val('tsx'),val('tsy')],rotation:val('tr'),pivot:[.5,.5]})}
+['px','py','pz','rx','ry','rz','length','radius','pumped'].forEach(id=>document.getElementById(id).addEventListener('input',updatePart));['tu','tv','tsx','tsy','tr'].forEach(id=>document.getElementById(id).addEventListener('input',updateTexture));
+document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{mode=b.dataset.mode;document.querySelectorAll('[data-mode]').forEach(x=>x.classList.toggle('active',x===b));document.getElementById('partPanel').hidden=mode!=='part';document.getElementById('texturePanel').hidden=mode!=='texture';document.getElementById('panelTitle').textContent=mode==='part'?'Part transform':'Texture transform';sync()});
+document.getElementById('centerTexture').onclick=()=>{val('tu',0);val('tv',0);val('tsx',1);val('tsy',1);val('tr',0);updateTexture()};
+document.getElementById('textureFile').onchange=e=>{const f=e.target.files[0];if(!f||!selected)return;if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=URL.createObjectURL(f);const part=p();part.textures=[{id:selected+'-texture',mode:'uv',source:objectUrl,with:{space:'part',transform:{offset:[0,0],scale:[1,1],rotation:0,pivot:[.5,.5]}}}];const old=host.objects.get(selected);const loader=new THREE.TextureLoader();const tex=loader.load(objectUrl,()=>host.render());tex.wrapS=tex.wrapT=THREE.RepeatWrapping;old.material.map=tex;old.material.color.set(0xffffff);old.material.needsUpdate=true;sync()};
+document.getElementById('addPart').onclick=()=>{const type=document.getElementById('archetype').value,id=type+'-'+(host.parts.size+1);const part={id,type,parent:null,params:{length:.7,radius:.1,pumpedness:.25},transform:{position:[0,1,0],rotation:[0,0,0],scale:[1,1,1]},textures:[]};host.parts.set(id,part);const mesh=new THREE.Mesh((type.includes('beak')||type.includes('snout')?new THREE.ConeGeometry(.2,.55,20):new THREE.CylinderGeometry(.09,.11,.7,20)),new THREE.MeshStandardMaterial({color:0xe4d2b7,roughness:.72}));host.root.add(mesh);host.objects.set(id,mesh);selected=id;host.select(id);host.setShape(id,part.params);rebuildList();sync()};
+document.getElementById('export').onclick=()=>{const blob=new Blob([JSON.stringify(host.exportDescriptor(),null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='jx-anatomy-model.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
+host.select(selected);rebuildList();sync();
+</script>
+</body></html>
