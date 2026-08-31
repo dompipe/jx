@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JX Designer Semantic Arm Demo</title>
+<style>
+html,body{height:100%;margin:0;background:#10151c;color:#e8edf5;font:14px system-ui}*{box-sizing:border-box}
+#app{height:100%;display:grid;grid-template-columns:270px minmax(420px,1fr) 310px;grid-template-rows:48px 1fr 32px}
+header{grid-column:1/4;display:flex;align-items:center;gap:10px;padding:0 14px;background:#181e27;border-bottom:1px solid #2d3745}
+header b{font-size:16px}.pill{padding:5px 8px;border:1px solid #3a4657;border-radius:8px;background:#202834}
+aside{padding:12px;background:#161b23;overflow:auto}.left{border-right:1px solid #2d3745}.right{border-left:1px solid #2d3745}
+main{min-width:0;min-height:0;display:flex;align-items:center;justify-content:center;background:#0b1016;overflow:auto}
+#stage{position:relative;width:min(900px,100%);aspect-ratio:4/3}canvas{display:block;width:100%;height:100%;touch-action:none;cursor:crosshair;border:1px solid #2d3745;background:#d8d2c5}
+footer{grid-column:1/4;padding:6px 12px;background:#181e27;border-top:1px solid #2d3745;color:#9ba9ba;font-size:12px}
+h2{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#91a3b8;margin:14px 0 8px}.action{width:100%;padding:8px;margin:3px 0;border:1px solid #364255;border-radius:6px;background:#202833;color:#eef3fb;cursor:pointer}.action:disabled{opacity:.45;cursor:not-allowed}.action.primary{background:#24405e}.row{display:grid;grid-template-columns:1fr 84px;gap:8px;align-items:center;margin:8px 0}.row input{width:100%;background:#10151c;border:1px solid #364255;border-radius:5px;color:#fff;padding:5px}.hint{font-size:12px;line-height:1.45;color:#99a8ba}.box{padding:9px;border:1px solid #334154;border-radius:7px;background:#111820}.good{color:#8bd698}.warn{color:#f0c66d}.tag{display:inline-block;padding:3px 6px;border:1px solid #405067;border-radius:5px;margin:2px 2px 2px 0;font-size:11px}
+</style>
+</head>
+<body>
+<div id="app">
+<header><b>JX Designer · Semantic Arm</b><span class="pill">Arm ≠ generic chain</span><span class="pill">CPU image fit</span><span class="pill">IK wrist target</span></header>
+<aside class="left">
+<h2>Semantic part</h2>
+<div class="box"><b>Arm</b><p class="hint">This is one anatomy object. Its ports are shoulder → elbow → wrist. Its segments are upper-arm → forearm.</p></div>
+<h2>Demo workflow</h2>
+<button id="reset" class="action">1. Reset rough Arm</button>
+<button id="fit" class="action primary">2. Fit Arm to image</button>
+<button id="lock" class="action">3. Lock Arm</button>
+<p class="hint">The rough vector starts intentionally off-center. Fit searches a bounded corridor for the most likely arm centerline without changing the object type.</p>
+<h2>Surface controls</h2>
+<div class="row"><label>Muscle tone</label><input id="tone" type="number" min="0" max="1" step=".05" value=".45"></div>
+<div class="row"><label>Pumpedness</label><input id="pump" type="number" min="0" max="2" step=".05" value=".55"></div>
+<div class="row"><label>Mass</label><input id="mass" type="number" min=".2" max="3" step=".05" value="1"></div>
+</aside>
+<main><div id="stage"><canvas id="canvas" width="900" height="675" aria-label="Reference arm with semantic skeleton"></canvas></div></main>
+<aside class="right">
+<h2>Arm object</h2><div id="summary" class="box"></div>
+<h2>IK</h2><p class="hint">After fitting, drag the <b>wrist</b> port. Shoulder stays anchored; elbow solves automatically while upper-arm and forearm lengths remain fixed.</p>
+<div class="row"><label>Elbow bend bias</label><input id="pole" type="number" min="-1" max="1" step=".05" value=".55"></div>
+<button id="home" class="action">Return wrist to fitted pose</button>
+<h2>Export preview</h2><div id="json" class="box hint" style="white-space:pre-wrap;max-height:260px;overflow:auto"></div>
+</aside>
+<footer id="status">Rough semantic Arm loaded. Press “Fit Arm to image”.</footer>
+</div>
+<script src="../host/browser/jx-anatomy-image-fit.js"></script>
+<script src="../host/browser/jx-anatomy-semantics.js"></script>
+<script>
+(function(){
+'use strict';
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
+const $=id=>document.getElementById(id); let analysis=null,locked=false,drag=false,fittedHome=null;
+const placement=JXAnatomySemantics.newPlacement('arm','demo-arm',{side:'right',pass:'arm-pass'});
+let skeleton;
+function initialSkeleton(){
+  const joints=[
+    {id:'shoulder',x:253,y:226,z:0,locked:false,port:true},
+    {id:'elbow',x:442,y:335,z:0,locked:false,port:true},
+    {id:'wrist',x:661,y:399,z:0,locked:false,port:true}
+  ];
+  placement.portIds=[];placement.boneIds=[];placement.complete=false;
+  joints.forEach((j,i)=>{JXAnatomySemantics.annotateJoint(placement,j,i,canvas.width);placement.portIds.push(j.id)});
+  const bones=[
+    {id:'upper-arm',a:'shoulder',b:'elbow',pass:'arm-pass',locked:false},
+    {id:'forearm',a:'elbow',b:'wrist',pass:'arm-pass',locked:false}
+  ];
+  bones.forEach((b,i)=>{JXAnatomySemantics.annotateBone(placement,b,i);placement.boneIds.push(b.id)});
+  JXAnatomySemantics.finalizePlacement(placement);
+  return {joints,bones,passes:[{id:'arm-pass',kind:'arms',locked:false}]};
+}
+function drawReference(){
+  ctx.fillStyle='#d8d2c5';ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#bbb5a9';ctx.beginPath();ctx.ellipse(177,210,96,128,-.12,0,Math.PI*2);ctx.fill();
+  ctx.lineCap='round';
+  ctx.strokeStyle='#9d968a';ctx.lineWidth=92;ctx.beginPath();ctx.moveTo(245,231);ctx.lineTo(438,314);ctx.stroke();
+  ctx.lineWidth=72;ctx.beginPath();ctx.moveTo(438,314);ctx.lineTo(675,377);ctx.stroke();
+  ctx.fillStyle='#9d968a';ctx.beginPath();ctx.ellipse(704,386,52,35,.2,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='#827b70';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(244,230);ctx.lineTo(438,314);ctx.lineTo(676,377);ctx.stroke();
+  ctx.fillStyle='#766f66';ctx.font='13px system-ui';ctx.fillText('synthetic reference arm',38,42);
+}
+function buildAnalysis(){drawReference();analysis=JXAnatomyImageFit.analyze(ctx.getImageData(0,0,canvas.width,canvas.height),{maxSide:900})}
+function byId(){return new Map(skeleton.joints.map(j=>[j.id,j]))}
+function draw(){
+  drawReference();const map=byId();
+  for(const b of skeleton.bones){const a=map.get(b.a),c=map.get(b.b);ctx.save();if(b.fit&&b.fit.width){ctx.strokeStyle='rgba(68,142,207,.22)';ctx.lineWidth=Math.max(10,b.fit.width*2);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(c.x,c.y);ctx.stroke()}ctx.strokeStyle=locked?'#4f9b61':'#2e84c6';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(c.x,c.y);ctx.stroke();ctx.fillStyle='#183148';ctx.font='12px system-ui';ctx.fillText(b.semantic,(a.x+c.x)/2+8,(a.y+c.y)/2-8);ctx.restore()}
+  skeleton.joints.forEach(j=>{ctx.beginPath();ctx.arc(j.x,j.y,j.semantic==='wrist'?9:7,0,Math.PI*2);ctx.fillStyle=j.semantic==='wrist'?'#e9b64f':locked?'#78c889':'#62a9e8';ctx.fill();ctx.strokeStyle='#14202b';ctx.lineWidth=2;ctx.stroke();ctx.fillStyle='#1d2d3d';ctx.font='12px system-ui';ctx.fillText(j.semantic,j.x+11,j.y-8)});
+  updateSummary();
+}
+function fit(){if(!analysis||locked)return;const next=JXAnatomyImageFit.refineSkeleton(analysis,skeleton,{passes:3,corridor:42,snapStrength:.86,jointSnap:.18,maxAngleDeg:16});skeleton.joints=next.joints;skeleton.bones=next.bones;fittedHome=skeleton.joints.find(j=>j.semantic==='wrist');fittedHome=fittedHome?{x:fittedHome.x,y:fittedHome.y}:null;draw();$('status').textContent='Arm fitted. It is still one semantic Arm. Drag the wrist to test IK.'}
+function lock(){locked=true;skeleton.joints.forEach(j=>j.locked=true);skeleton.bones.forEach(b=>b.locked=true);draw();$('status').textContent='Arm locked. Semantic identity, ports, segment lengths, and surface profile are retained.'}
+function reset(){locked=false;skeleton=initialSkeleton();fittedHome=null;draw();$('status').textContent='Rough semantic Arm reset. Press “Fit Arm to image”.'}
+function solveArm(target){
+  const m=byId(),S=m.get('shoulder'),E=m.get('elbow'),W=m.get('wrist');if(!S||!E||!W)return;
+  const L1=Math.hypot(E.x-S.x,E.y-S.y),L2=Math.hypot(W.x-E.x,W.y-E.y),dx=target.x-S.x,dy=target.y-S.y,d0=Math.max(.001,Math.hypot(dx,dy)),d=Math.min(L1+L2-.001,Math.max(Math.abs(L1-L2)+.001,d0)),ux=dx/d0,uy=dy/d0;
+  const a=(L1*L1-L2*L2+d*d)/(2*d),h=Math.sqrt(Math.max(0,L1*L1-a*a)),px=S.x+ux*a,py=S.y+uy*a,pole=Number($('pole').value)||0,sign=pole>=0?1:-1,nx=-uy*sign,ny=ux*sign;
+  E.x=px+nx*h;E.y=py+ny*h;W.x=S.x+ux*d;W.y=S.y+uy*d;draw();
+}
+function point(ev){const r=canvas.getBoundingClientRect();return{x:(ev.clientX-r.left)*canvas.width/r.width,y:(ev.clientY-r.top)*canvas.height/r.height}}
+canvas.addEventListener('pointerdown',ev=>{const W=byId().get('wrist'),p=point(ev);if(!W||Math.hypot(p.x-W.x,p.y-W.y)>28)return;drag=true;canvas.setPointerCapture(ev.pointerId)});
+canvas.addEventListener('pointermove',ev=>{if(!drag)return;solveArm(point(ev))});
+canvas.addEventListener('pointerup',ev=>{if(!drag)return;drag=false;try{canvas.releasePointerCapture(ev.pointerId)}catch(_){}});
+function updateSummary(){
+  const grouped=JXAnatomySemantics.groupBodyParts(skeleton),arm=grouped[0]||{};arm.anatomy={type:'arm',side:'right',surface:placement.surface,controls:{mass:Number($('mass').value),muscleTone:Number($('tone').value),pumpedness:Number($('pump').value)}};
+  $('summary').innerHTML='<b>'+arm.label+'</b><br><span class="tag">type: '+arm.type+'</span><span class="tag">side: '+arm.side+'</span><span class="tag">IK: '+String(arm.ik)+'</span><br><br><span class="good">Ports:</span> '+(arm.joints||[]).map(j=>j.semantic).join(' → ')+'<br><span class="good">Segments:</span> '+(arm.segments||[]).map(s=>s.semantic).join(' → ');
+  $('json').textContent=JSON.stringify({bodyPart:arm},null,2);
+}
+['tone','pump','mass','pole'].forEach(id=>$(id).addEventListener('input',()=>{draw()}));
+$('fit').addEventListener('click',fit);$('lock').addEventListener('click',lock);$('reset').addEventListener('click',reset);$('home').addEventListener('click',()=>{if(fittedHome)solveArm(fittedHome)});
+buildAnalysis();reset();
+})();
+</script>
+</body>
+</html>
