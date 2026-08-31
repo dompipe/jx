@@ -24,6 +24,7 @@ function installDesignerFamily(){
   loadSibling('jx-anatomy-preview.js',()=>!!global.JXAnatomyPreview);
   loadSibling('jx-anatomy-texture-bake.js',()=>!!global.JXAnatomyTextureBake);
   loadSibling('jx-anatomy-json-project.js',()=>!!global.JXAnatomyJsonProject);
+  loadSibling('jx-anatomy-torso-tool.js',()=>!!global.JXAnatomyTorsoTool);
 }
 
 /* The image Designer already loads this file last. Use that point to bridge
