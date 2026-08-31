@@ -1,0 +1,32 @@
+name: Package anatomy branch
+
+on:
+  push:
+    branches:
+      - feature/anatomy-modeler
+    paths:
+      - '.github/workflows/package-anatomy-branch.yml'
+      - '.package-anatomy-trigger'
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prepare clean source tree
+        run: |
+          mkdir -p artifact/jx-feature-anatomy-modeler
+          rsync -a --exclude='.git' --exclude='artifact' ./ artifact/jx-feature-anatomy-modeler/
+          printf '%s\n' "branch=feature/anatomy-modeler" > artifact/jx-feature-anatomy-modeler/BUILD-SOURCE.txt
+          printf '%s\n' "commit=${GITHUB_SHA}" >> artifact/jx-feature-anatomy-modeler/BUILD-SOURCE.txt
+      - name: Upload complete project
+        uses: actions/upload-artifact@v4
+        with:
+          name: jx-feature-anatomy-modeler
+          path: artifact/jx-feature-anatomy-modeler
+          if-no-files-found: error
+          compression-level: 6
