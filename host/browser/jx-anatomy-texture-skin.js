@@ -9,6 +9,23 @@
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,Number.isFinite(Number(v))?Number(v):a));
 const hypot=(x,y)=>Math.sqrt(x*x+y*y);
 
+function siblingSource(name){
+  const mine=document.currentScript&&document.currentScript.src;
+  return mine?mine.replace(/jx-anatomy-texture-skin\.js(?:\?.*)?$/,name):'../host/browser/'+name;
+}
+function loadSibling(name,test){
+  if(typeof document==='undefined'||(test&&test()))return;
+  if([...document.scripts].some(s=>s.src&&s.src.includes('/'+name)))return;
+  const s=document.createElement('script');s.src=siblingSource(name);s.async=true;document.head.appendChild(s);
+}
+function installDesignerFamily(){
+  if(typeof document==='undefined')return;
+  const designer=document.getElementById('exportGLB')||/anatomy-image-skeleton-designer/i.test(location.pathname);if(!designer)return;
+  loadSibling('jx-anatomy-preview.js',()=>!!global.JXAnatomyPreview);
+  loadSibling('jx-anatomy-texture-bake.js',()=>!!global.JXAnatomyTextureBake);
+  loadSibling('jx-anatomy-json-project.js',()=>!!global.JXAnatomyJsonProject);
+}
+
 /* The image Designer already loads this file last. Use that point to bridge
  * the live 2D JX anatomy state into the optional 3D JX preview without making
  * the editor's private state global. */
@@ -24,11 +41,6 @@ function installPreviewBridge(){
     };
     global.JXAnatomySurface.__previewBridge=true;
   }
-  if(document.getElementById('exportGLB')||/anatomy-image-skeleton-designer/i.test(location.pathname)){
-    const mine=document.currentScript&&document.currentScript.src;
-    const src=mine?mine.replace(/jx-anatomy-texture-skin\.js(?:\?.*)?$/,'jx-anatomy-preview.js'):'../host/browser/jx-anatomy-preview.js';
-    if(![...document.scripts].some(s=>/jx-anatomy-preview\.js(?:\?|$)/.test(s.src))){const s=document.createElement('script');s.src=src;s.async=true;document.head.appendChild(s)}
-  }
 }
 
 /* Preserve the exact GLB returned by the JX/PHP exporter, then expose it to
@@ -38,8 +50,7 @@ function installGLBViewerBridge(){
   if(typeof document==='undefined'||global.__JXGLBViewerBridgeInstalled)return;
   const exportBtn=document.getElementById('exportGLB');if(!exportBtn)return;
   global.__JXGLBViewerBridgeInstalled=true;
-  const mine=document.currentScript&&document.currentScript.src;
-  const storeSrc=mine?mine.replace(/jx-anatomy-texture-skin\.js(?:\?.*)?$/,'jx-glb-store.js'):'../host/browser/jx-glb-store.js';
+  const storeSrc=siblingSource('jx-glb-store.js');
   const storeReady=new Promise((resolve,reject)=>{
     if(global.JXGLBStore)return resolve(global.JXGLBStore);
     const existing=[...document.scripts].find(s=>/jx-glb-store\.js(?:\?|$)/.test(s.src));
@@ -132,7 +143,9 @@ function drawTextures(ctx,parts,joints,bones,surfaceApi,textures,opts){
 
 function textureDescriptor(partId,texture){
   if(!texture)return null;
-  return {bodyPart:partId,mode:'png-skinned-mesh',source:texture.name||null,mime:texture.mime||'image/png',uv:{axis:'chain',u:'root-to-tip',v:'across-envelope'},flipU:!!texture.flipU,flipV:!!texture.flipV,opacity:clamp(texture.opacity??1,0,1)};
+  const desc={bodyPart:partId,mode:'png-skinned-mesh',source:texture.name||null,mime:texture.mime||'image/png',uv:{axis:'chain',u:'root-to-tip',v:'across-envelope'},flipU:!!texture.flipU,flipV:!!texture.flipV,opacity:clamp(texture.opacity??1,0,1)};
+  if(texture.generated){desc.generated=true;desc.bake=texture.bake||null;desc.source='reference-image'}
+  return desc;
 }
 
 const api={triangleTransform,drawTriangle,partMesh,drawPartTexture,drawTextures,textureDescriptor};
@@ -140,4 +153,5 @@ if(typeof module!=='undefined'&&module.exports)module.exports=api;
 global.JXAnatomyTextureSkin=api;
 installPreviewBridge();
 installGLBViewerBridge();
+installDesignerFamily();
 })(typeof window!=='undefined'?window:globalThis);
