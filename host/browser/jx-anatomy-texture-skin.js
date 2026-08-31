@@ -9,6 +9,28 @@
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,Number.isFinite(Number(v))?Number(v):a));
 const hypot=(x,y)=>Math.sqrt(x*x+y*y);
 
+/* The image Designer already loads this file last. Use that point to bridge
+ * the live 2D JX anatomy state into the optional 3D JX preview without making
+ * the editor's private state global. */
+function installPreviewBridge(){
+  if(typeof document==='undefined')return;
+  if(global.JXAnatomySurface&&!global.JXAnatomySurface.__previewBridge){
+    const original=global.JXAnatomySurface.drawSurfaces;
+    global.JXAnatomySurface.drawSurfaces=function(ctx,parts,joints,bones,opts){
+      const out=original.apply(this,arguments);
+      global.__JXAnatomyPreviewState={parts,joints,bones,opts};
+      if(global.JXAnatomyPreview)global.JXAnatomyPreview.update(parts,joints,bones,opts);
+      return out;
+    };
+    global.JXAnatomySurface.__previewBridge=true;
+  }
+  if(document.getElementById('exportGLB')||/anatomy-image-skeleton-designer/i.test(location.pathname)){
+    const mine=document.currentScript&&document.currentScript.src;
+    const src=mine?mine.replace(/jx-anatomy-texture-skin\.js(?:\?.*)?$/,'jx-anatomy-preview.js'):'../host/browser/jx-anatomy-preview.js';
+    if(![...document.scripts].some(s=>/jx-anatomy-preview\.js(?:\?|$)/.test(s.src))){const s=document.createElement('script');s.src=src;s.async=true;document.head.appendChild(s)}
+  }
+}
+
 function triangleTransform(s0,s1,s2,d0,d1,d2){
   const x0=s0.x,y0=s0.y,x1=s1.x,y1=s1.y,x2=s2.x,y2=s2.y;
   const den=x0*(y1-y2)+x1*(y2-y0)+x2*(y0-y1);
@@ -71,6 +93,8 @@ function drawPartTexture(ctx,part,jointsById,bonesById,surfaceApi,texture,opts){
 }
 
 function drawTextures(ctx,parts,joints,bones,surfaceApi,textures,opts){
+  global.__JXAnatomyPreviewTextures=textures;
+  if(global.JXAnatomyPreview)global.JXAnatomyPreview.setTextures(textures);
   const jointsById=new Map((joints||[]).map(j=>[j.id,j])),bonesById=new Map((bones||[]).map(b=>[b.id,b]));let tris=0;
   (parts||[]).forEach(part=>{const tex=textures instanceof Map?textures.get(part.id):textures&&textures[part.id];if(tex)tris+=drawPartTexture(ctx,part,jointsById,bonesById,surfaceApi,tex,opts);});
   return tris;
@@ -84,4 +108,5 @@ function textureDescriptor(partId,texture){
 const api={triangleTransform,drawTriangle,partMesh,drawPartTexture,drawTextures,textureDescriptor};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 global.JXAnatomyTextureSkin=api;
+installPreviewBridge();
 })(typeof window!=='undefined'?window:globalThis);
