@@ -1,0 +1,22 @@
+name: JX Anatomy Preview CI
+
+on:
+  push:
+    branches:
+      - feature/anatomy-modeler
+    paths:
+      - 'host/browser/jx-anatomy-preview.js'
+      - 'host/browser/jx-anatomy-texture-skin.js'
+      - '.github/workflows/anatomy-preview-ci.yml'
+
+jobs:
+  preview-js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check preview JavaScript syntax
+        run: |
+          node --check host/browser/jx-anatomy-preview.js
+          node --check host/browser/jx-anatomy-texture-skin.js
+      - name: Check texture module loads without browser DOM
+        run: node -e "const s=require('./host/browser/jx-anatomy-texture-skin.js'); if(typeof s.drawTextures!=='function') process.exit(1); console.log('PASS anatomy preview bridge');"
