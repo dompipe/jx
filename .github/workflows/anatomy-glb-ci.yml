@@ -18,5 +18,13 @@ jobs:
           php -l jx/plugins/AnatomyGLB.php
           php -l examples/anatomy-export-glb.php
           php -l test-anatomy-glb.php
+      - name: Lint JX anatomy texture pipeline
+        run: |
+          node --check host/browser/jx-anatomy-texture-skin.js
+          node --check host/browser/jx-anatomy-texture-bake.js
+          node --check host/browser/jx-glb-store.js
+          grep -q "installExportBakeBridge" host/browser/jx-anatomy-texture-bake.js
+          grep -q "mirror-back" host/browser/jx-anatomy-texture-bake.js
+          grep -q "jx-anatomy-texture-bake.js" host/browser/jx-glb-store.js
       - name: Run JX Anatomy GLB regression
         run: php test-anatomy-glb.php
