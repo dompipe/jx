@@ -23,11 +23,16 @@ jobs:
           node --check host/browser/jx-anatomy-texture-skin.js
           node --check host/browser/jx-anatomy-texture-bake.js
           node --check host/browser/jx-anatomy-json-project.js
+          node --check host/browser/jx-anatomy-torso-tool.js
           node --check host/browser/jx-glb-store.js
           grep -q "installExportBakeBridge" host/browser/jx-anatomy-texture-bake.js
           grep -q "mirror-back" host/browser/jx-anatomy-texture-bake.js
           grep -q "jx-anatomy-texture-bake.js" host/browser/jx-anatomy-texture-skin.js
           grep -q "jx-anatomy-json-project.js" host/browser/jx-anatomy-texture-skin.js
+          grep -q "jx-anatomy-torso-tool.js" host/browser/jx-anatomy-texture-skin.js
+          grep -q "four-corner-torso" host/browser/jx-anatomy-torso-tool.js
+          grep -q "left shoulder" host/browser/jx-anatomy-torso-tool.js
+          grep -q "right hip" host/browser/jx-anatomy-torso-tool.js
           grep -q "Load JX anatomy JSON" host/browser/jx-anatomy-json-project.js
           grep -q "Save reloadable JX project JSON" host/browser/jx-anatomy-json-project.js
           grep -q "textureAssets" host/browser/jx-anatomy-json-project.js
