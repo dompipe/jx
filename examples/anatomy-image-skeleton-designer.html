@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JX Image Skeleton Designer</title>
+<style>
+html,body{height:100%;margin:0;font:14px system-ui;background:#10151c;color:#e8edf5}*{box-sizing:border-box}
+#app{height:100%;display:grid;grid-template-columns:270px 1fr 310px;grid-template-rows:48px 1fr 31px}header{grid-column:1/4;display:flex;gap:10px;align-items:center;padding:0 13px;background:#181e27;border-bottom:1px solid #2c3542}header b{font-size:16px}.pill{padding:5px 8px;border:1px solid #3a4657;border-radius:8px;background:#202834}aside{padding:12px;background:#161b23;overflow:auto}.left{border-right:1px solid #2c3542}.right{border-left:1px solid #2c3542}main{position:relative;min-width:0;min-height:0;background:#0b1016;display:flex;align-items:center;justify-content:center;overflow:auto}#stage{position:relative;line-height:0}canvas{display:block;max-width:100%;height:auto;touch-action:none;cursor:crosshair;background:#070b10}footer{grid-column:1/4;padding:6px 12px;background:#181e27;border-top:1px solid #2c3542;color:#9ba9ba;font-size:12px}h2{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#8da0b7;margin:14px 0 8px}.action,select,input[type=number]{width:100%;padding:7px 8px;border:1px solid #364255;border-radius:6px;background:#202833;color:#eef3fb}.action{cursor:pointer;margin:3px 0}.action.active{outline:2px solid #53a8ff;background:#24364b}.action:disabled{opacity:.45;cursor:not-allowed}.drop{display:block;border:1px dashed #44556d;border-radius:7px;padding:10px;text-align:center;color:#b7c5d5;cursor:pointer}.drop input{display:none}.row{display:grid;grid-template-columns:1fr 82px;gap:8px;align-items:center;margin:8px 0}.row input[type=range]{grid-column:1/3;width:100%}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px}.hint{font-size:12px;line-height:1.45;color:#94a3b7}.box{padding:9px;border:1px solid #334154;border-radius:7px;background:#111820}.passes button{display:flex;justify-content:space-between;gap:8px}.confidence{font-variant-numeric:tabular-nums}.good{color:#89d895}.mid{color:#f2c66f}.low{color:#ef9098}.mini{font-size:11px;color:#91a0b2}.check{display:flex;gap:8px;align-items:center;margin:8px 0}.statusStrong{color:#cfe5ff}
+</style>
+</head>
+<body>
+<div id="app">
+<header><b>JX Image Skeleton Designer</b><span class="pill">Draw vectors</span><span class="pill">Multi-pass</span><span class="pill">CPU image fit</span><span class="pill">No AI API</span></header>
+<aside class="left">
+<h2>Reference image</h2><label class="drop">Choose image<input id="imageFile" type="file" accept="image/*"></label>
+<h2>Current pass</h2><select id="passKind"><option value="fundamental">Fundamental body</option><option value="arms">Arms</option><option value="legs">Legs</option><option value="wings">Wings</option><option value="tail">Tail</option><option value="head">Head / neck</option><option value="face">Beak / nose / snout</option><option value="extra-limbs">Extra limbs</option></select>
+<button class="action" id="newPass">+ New pass</button><div class="passes" id="passes"></div>
+<h2>Vector meaning</h2><select id="boneSemantic"><option>torso</option><option>neck</option><option>upper-arm</option><option>forearm</option><option>hand</option><option>thigh</option><option>shin</option><option>foot</option><option>wing-upper</option><option>wing-lower</option><option>wing-tip</option><option>tail</option><option>jaw</option><option>beak</option><option>snout</option><option>spine</option><option>bone</option></select>
+<select id="jointSemantic" style="margin-top:6px"><option>joint</option><option>torso-root</option><option>shoulder</option><option>elbow</option><option>wrist</option><option>hip</option><option>knee</option><option>ankle</option><option>wing-root</option><option>wing-joint</option><option>wing-tip</option><option>tail-root</option><option>tail-tip</option><option>neck-root</option><option>head</option><option>beak-root</option><option>beak-tip</option><option>snout-root</option><option>snout-tip</option></select>
+<div class="box" style="margin-top:8px"><b>Draw a chain</b><p class="hint" style="margin-bottom:0">Click the first body port, then click each next port. Every click creates a vector bone from the previous port. Click <b>End chain</b> before starting another limb.</p></div>
+<button class="action" id="endChain">End chain</button><button class="action" id="undo">Undo last vector</button>
+</aside>
+<main><div id="stage"><canvas id="canvas" width="960" height="640"></canvas></div></main>
+<aside class="right">
+<h2>Image-guided fit</h2>
+<div class="row"><label>Search corridor</label><input id="corridor" type="number" min="2" max="80" value="18"></div>
+<div class="row"><label>Snap strength</label><input id="snap" type="number" min="0" max="1" step=".05" value=".72"></div>
+<div class="row"><label>Joint snap</label><input id="jointSnap" type="number" min="0" max="1" step=".05" value=".28"></div>
+<div class="row"><label>Refine passes</label><input id="refinePasses" type="number" min="1" max="8" value="2"></div>
+<button class="action" id="fitPass" disabled>Fit current pass to image</button><button class="action" id="lockPass" disabled>Lock current pass</button>
+<label class="check"><input id="edges" type="checkbox"> Show edge evidence</label>
+<p class="hint">The fit searches near your vectors only. It favors two supporting edges around a likely limb centerline, consistent width, continuous shape, and strong endpoints.</p>
+<h2>Current structure</h2><div id="stats" class="box hint">Load an image and click a skeleton over it.</div>
+<h2>Selected / latest bone</h2><div id="boneInfo" class="box hint">None yet.</div>
+<h2>Export</h2><select id="species"><option>generic</option><option>human</option><option>bird</option><option>duck</option><option>dragon</option><option>pig</option><option>platypus</option><option>canine</option><option>feline</option><option>equine</option></select>
+<button class="action" id="export" disabled>Download anatomy + IK JSON</button>
+</aside>
+<footer id="status">Load a reference image. Then click body ports and vectors over it.</footer>
+</div>
+<script src="../host/browser/jx-anatomy-image-fit.js"></script>
+<script>
+(function(){
+'use strict';
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
+const state={image:null,imageUrl:null,analysis:null,joints:[],bones:[],passes:[],currentPass:null,chainStart:null,history:[],edgeCanvas:null,lastBone:null,counter:1,passCounter:1};
+const $=id=>document.getElementById(id),num=(id,f)=>{const v=Number($(id).value);return Number.isFinite(v)?v:f};
+function newPass(kind){const p={id:'pass-'+state.passCounter++,kind:kind||$('passKind').value,locked:false};state.passes.push(p);state.currentPass=p.id;state.chainStart=null;renderPasses();draw();status('Pass '+p.id+' ('+p.kind+') ready. Click a first body port.');return p}
+function pass(){return state.passes.find(p=>p.id===state.currentPass)||null}
+function renderPasses(){const root=$('passes');root.innerHTML='';state.passes.forEach(p=>{const b=document.createElement('button');b.className='action'+(p.id===state.currentPass?' active':'');b.innerHTML='<span>'+p.id+' · '+p.kind+'</span><span class="mini">'+(p.locked?'locked':'open')+'</span>';b.addEventListener('click',()=>{state.currentPass=p.id;state.chainStart=null;renderPasses();draw();syncButtons()});root.appendChild(b)})}
+function status(s){$('status').innerHTML=s}
+function canvasPoint(ev){const r=canvas.getBoundingClientRect();return{x:(ev.clientX-r.left)*canvas.width/r.width,y:(ev.clientY-r.top)*canvas.height/r.height}}
+function nearestJoint(p,radius){let best=null,bd=radius;for(const j of state.joints){const d=Math.hypot(j.x-p.x,j.y-p.y);if(d<bd){bd=d;best=j}}return best}
+function addJoint(p){const near=nearestJoint(p,12);if(near)return near;const j={id:'port-'+state.counter++,x:p.x,y:p.y,z:0,semantic:$('jointSemantic').value,pass:state.currentPass,locked:false,port:true};state.joints.push(j);return j}
+function addVector(p){if(!state.image||!pass()||pass().locked)return;state.history.push(JSON.stringify({joints:state.joints,bones:state.bones,chainStart:state.chainStart,lastBone:state.lastBone}));const j=addJoint(p);if(state.chainStart&&state.chainStart!==j.id){const b={id:'bone-'+state.counter++,a:state.chainStart,b:j.id,semantic:$('boneSemantic').value,pass:state.currentPass,locked:false};state.bones.push(b);state.lastBone=b.id}state.chainStart=j.id;draw();syncButtons();updateStats()}
+function undo(){const raw=state.history.pop();if(!raw)return;const v=JSON.parse(raw);state.joints=v.joints;state.bones=v.bones;state.chainStart=v.chainStart;state.lastBone=v.lastBone;draw();updateStats();syncButtons()}
+function fitCurrentPass(){if(!state.analysis||!pass()||pass().locked)return;const current=pass(),boneIds=new Set(state.bones.filter(b=>b.pass===current.id&&!b.locked).map(b=>b.id)),jointIds=new Set();state.bones.filter(b=>boneIds.has(b.id)).forEach(b=>{jointIds.add(b.a);jointIds.add(b.b)});if(!boneIds.size)return;
+  const subset={joints:state.joints.filter(j=>jointIds.has(j.id)).map(j=>Object.assign({},j)),bones:state.bones.filter(b=>boneIds.has(b.id)).map(b=>Object.assign({},b)),passes:[current]};
+  const fitted=JXAnatomyImageFit.refineSkeleton(state.analysis,subset,{passes:num('refinePasses',2),corridor:num('corridor',18),snapStrength:num('snap',.72),jointSnap:num('jointSnap',.28)}),fitJ=new Map(fitted.joints.map(j=>[j.id,j]));
+  for(const j of state.joints){if(j.locked||!fitJ.has(j.id))continue;const q=fitJ.get(j.id);j.x=q.x;j.y=q.y;j.saliency=q.saliency}
+  const fitB=new Map(fitted.bones.map(b=>[b.id,b]));for(const b of state.bones){if(!fitB.has(b.id))continue;b.fit=fitB.get(b.id).fit;state.lastBone=b.id}
+  draw();updateStats();showBone();status('<span class="statusStrong">Fitted '+boneIds.size+' vectors</span> in '+current.id+'. Review them, fit again if useful, then lock the pass.');
+}
+function lockCurrentPass(){const p=pass();if(!p)return;p.locked=true;for(const b of state.bones)if(b.pass===p.id)b.locked=true;const ids=new Set(state.bones.filter(b=>b.pass===p.id).flatMap(b=>[b.a,b.b]));for(const j of state.joints)if(ids.has(j.id))j.locked=true;state.chainStart=null;renderPasses();draw();syncButtons();status('Locked '+p.id+'. Add another pass for wings, extra limbs, tail, face details, or corrections.')}
+function loadImage(file){if(state.imageUrl)URL.revokeObjectURL(state.imageUrl);state.imageUrl=URL.createObjectURL(file);const img=new Image();img.onload=()=>{const maxW=1100,maxH=760,scale=Math.min(1,maxW/img.naturalWidth,maxH/img.naturalHeight);canvas.width=Math.max(2,Math.round(img.naturalWidth*scale));canvas.height=Math.max(2,Math.round(img.naturalHeight*scale));state.image=img;ctx.drawImage(img,0,0,canvas.width,canvas.height);const imageData=ctx.getImageData(0,0,canvas.width,canvas.height);state.analysis=JXAnatomyImageFit.analyze(imageData,{maxSide:Math.max(canvas.width,canvas.height)});makeEdgeCanvas();state.joints=[];state.bones=[];state.passes=[];state.history=[];state.currentPass=null;state.chainStart=null;state.lastBone=null;state.counter=1;state.passCounter=1;newPass('fundamental');syncButtons();draw();updateStats();status('Image analyzed on CPU. Draw the fundamental skeleton first; add wings or other structures in later passes.')};img.src=state.imageUrl}
+function makeEdgeCanvas(){const a=state.analysis,c=document.createElement('canvas');c.width=a.width;c.height=a.height;const cx=c.getContext('2d'),im=cx.createImageData(a.width,a.height);for(let i=0;i<a.edge.length;i++){const v=Math.round(Math.pow(a.edge[i],.65)*255),k=i*4;im.data[k]=v;im.data[k+1]=v;im.data[k+2]=v;im.data[k+3]=255}cx.putImageData(im,0,0);state.edgeCanvas=c}
+function draw(){ctx.clearRect(0,0,canvas.width,canvas.height);if(state.image)ctx.drawImage(state.image,0,0,canvas.width,canvas.height);if($('edges').checked&&state.edgeCanvas){ctx.save();ctx.globalAlpha=.36;ctx.globalCompositeOperation='screen';ctx.drawImage(state.edgeCanvas,0,0,canvas.width,canvas.height);ctx.restore()}
+  const byId=new Map(state.joints.map(j=>[j.id,j]));ctx.lineCap='round';ctx.lineJoin='round';
+  for(const b of state.bones){const a=byId.get(b.a),c=byId.get(b.b);if(!a||!c)continue;const current=b.pass===state.currentPass;ctx.strokeStyle=b.locked?'rgba(137,216,149,.95)':current?'rgba(83,168,255,.98)':'rgba(188,199,214,.72)';ctx.lineWidth=current?4:3;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(c.x,c.y);ctx.stroke();if(b.fit&&b.fit.width){ctx.save();ctx.strokeStyle=current?'rgba(83,168,255,.18)':'rgba(180,190,205,.12)';ctx.lineWidth=Math.max(2,b.fit.width*2);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(c.x,c.y);ctx.stroke();ctx.restore()}const mx=(a.x+c.x)/2,my=(a.y+c.y)/2;ctx.fillStyle='#dcecff';ctx.font='11px system-ui';ctx.fillText(b.semantic,mx+5,my-5)}
+  for(const j of state.joints){const current=j.pass===state.currentPass||state.bones.some(b=>b.pass===state.currentPass&&(b.a===j.id||b.b===j.id));ctx.beginPath();ctx.arc(j.x,j.y,j.id===state.chainStart?7:5,0,Math.PI*2);ctx.fillStyle=j.locked?'#89d895':current?'#ffd26e':'#d6dde8';ctx.fill();ctx.strokeStyle='#0c1118';ctx.lineWidth=2;ctx.stroke()}
+}
+function updateStats(){const p=pass(),pb=p?state.bones.filter(b=>b.pass===p.id):[],conf=pb.filter(b=>b.fit).map(b=>b.fit.confidence),avg=conf.length?conf.reduce((a,b)=>a+b,0)/conf.length:0;const cls=avg>.55?'good':avg>.32?'mid':'low';$('stats').innerHTML='<b>'+state.joints.length+'</b> body ports · <b>'+state.bones.length+'</b> vectors · <b>'+state.passes.length+'</b> passes<br>Current: '+(p?p.id+' / '+p.kind:'none')+(conf.length?'<br>Mean fit confidence: <span class="confidence '+cls+'">'+Math.round(avg*100)+'%</span>':'');showBone()}
+function showBone(){const b=state.bones.find(b=>b.id===state.lastBone);if(!b){$('boneInfo').textContent='None yet.';return}const fit=b.fit;let s='<b>'+b.id+'</b> · '+b.semantic+'<br>'+b.a+' → '+b.b+'<br>pass: '+b.pass;if(fit)s+='<br>confidence: '+Math.round(fit.confidence*100)+'%<br>estimated half-width: '+fit.width.toFixed(1)+' px';$('boneInfo').innerHTML=s}
+function syncButtons(){const p=pass(),ready=!!state.image&&!!p;$('fitPass').disabled=!ready||p.locked||!state.bones.some(b=>b.pass===p.id);$('lockPass').disabled=!ready||p.locked;$('export').disabled=!state.image||!state.bones.length}
+function exportModel(){const model=JXAnatomyImageFit.toAnatomyDescriptor({joints:state.joints,bones:state.bones,passes:state.passes},canvas.width,canvas.height,{id:'image-skeleton-model',species:$('species').value,modelScale:2.2});model.imageSkeleton.sourceName=$('imageFile').files[0]&&$('imageFile').files[0].name||null;const blob=new Blob([JSON.stringify(model,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='jx-image-anatomy.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+canvas.addEventListener('pointerdown',ev=>{if(ev.button!==0)return;canvas.setPointerCapture&&canvas.setPointerCapture(ev.pointerId);addVector(canvasPoint(ev))});canvas.addEventListener('contextmenu',ev=>{ev.preventDefault();state.chainStart=null;draw();status('Chain ended. Click a new root/body port to start another vector chain.')});
+$('imageFile').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(f)loadImage(f)});$('newPass').addEventListener('click',()=>newPass($('passKind').value));$('endChain').addEventListener('click',()=>{state.chainStart=null;draw();status('Chain ended. Start the next limb/wing/branch with a new click.')});$('undo').addEventListener('click',undo);$('fitPass').addEventListener('click',fitCurrentPass);$('lockPass').addEventListener('click',lockCurrentPass);$('edges').addEventListener('change',draw);$('export').addEventListener('click',exportModel);$('boneSemantic').addEventListener('change',()=>status('Next vector semantic: '+$('boneSemantic').value));
+newPass('fundamental');syncButtons();draw();updateStats();
+})();
+</script>
+</body></html>
