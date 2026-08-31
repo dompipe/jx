@@ -31,6 +31,36 @@ function installPreviewBridge(){
   }
 }
 
+/* Preserve the exact GLB returned by the JX/PHP exporter, then expose it to
+ * the first-class JX GLB Viewer. This avoids rebuilding or approximating the
+ * exported model in the viewer. */
+function installGLBViewerBridge(){
+  if(typeof document==='undefined'||global.__JXGLBViewerBridgeInstalled)return;
+  const exportBtn=document.getElementById('exportGLB');if(!exportBtn)return;
+  global.__JXGLBViewerBridgeInstalled=true;
+  const mine=document.currentScript&&document.currentScript.src;
+  const storeSrc=mine?mine.replace(/jx-anatomy-texture-skin\.js(?:\?.*)?$/,'jx-glb-store.js'):'../host/browser/jx-glb-store.js';
+  const storeReady=new Promise((resolve,reject)=>{
+    if(global.JXGLBStore)return resolve(global.JXGLBStore);
+    const existing=[...document.scripts].find(s=>/jx-glb-store\.js(?:\?|$)/.test(s.src));
+    if(existing){existing.addEventListener('load',()=>resolve(global.JXGLBStore),{once:true});existing.addEventListener('error',reject,{once:true});return;}
+    const s=document.createElement('script');s.src=storeSrc;s.async=true;s.onload=()=>resolve(global.JXGLBStore);s.onerror=reject;document.head.appendChild(s);
+  });
+  const viewBtn=document.createElement('button');viewBtn.type='button';viewBtn.id='openGLBViewer';viewBtn.className='action';viewBtn.disabled=true;viewBtn.textContent='Open exported GLB in JX Viewer';exportBtn.insertAdjacentElement('afterend',viewBtn);
+  viewBtn.onclick=()=>global.open('jx-glb-viewer.html?source=last','_blank','noopener');
+  storeReady.then(store=>store&&store.has('last')).then(has=>{viewBtn.disabled=!has}).catch(()=>{});
+  const originalFetch=global.fetch.bind(global);
+  global.fetch=async function(input,init){
+    const response=await originalFetch(input,init);
+    const url=typeof input==='string'?input:(input&&input.url)||'';
+    if(response.ok&&/anatomy-export-glb\.php(?:\?|$)/.test(url)){
+      const copy=response.clone();
+      Promise.all([storeReady,copy.blob()]).then(([store,blob])=>store.save('last',blob,{name:'jx-anatomy-model.glb',source:'JX Anatomy Designer'})).then(()=>{viewBtn.disabled=false}).catch(()=>{});
+    }
+    return response;
+  };
+}
+
 function triangleTransform(s0,s1,s2,d0,d1,d2){
   const x0=s0.x,y0=s0.y,x1=s1.x,y1=s1.y,x2=s2.x,y2=s2.y;
   const den=x0*(y1-y2)+x1*(y2-y0)+x2*(y0-y1);
@@ -109,4 +139,5 @@ const api={triangleTransform,drawTriangle,partMesh,drawPartTexture,drawTextures,
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 global.JXAnatomyTextureSkin=api;
 installPreviewBridge();
+installGLBViewerBridge();
 })(typeof window!=='undefined'?window:globalThis);
