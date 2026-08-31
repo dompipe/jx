@@ -1,0 +1,22 @@
+name: JX Anatomy GLB CI
+
+on:
+  push:
+    branches:
+      - feature/anatomy-modeler
+  workflow_dispatch:
+
+jobs:
+  anatomy-glb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP version
+        run: php -v
+      - name: Lint JX Anatomy GLB exporter
+        run: |
+          php -l jx/plugins/AnatomyGLB.php
+          php -l examples/anatomy-export-glb.php
+          php -l test-anatomy-glb.php
+      - name: Run JX Anatomy GLB regression
+        run: php test-anatomy-glb.php
