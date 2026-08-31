@@ -27,7 +27,7 @@ function loadScript(src){
   });
 }
 async function ensureDeps(){
-  if(!global.THREE)await loadScript('https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.min.js');
+  if(!global.THREE){const mod=await import('https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.module.min.js');global.THREE=mod;}
   if(!global.JXAnatomyHost)await loadScript(scriptBase()+'jx-anatomy-host.js');
 }
 
