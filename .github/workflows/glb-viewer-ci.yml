@@ -1,0 +1,31 @@
+name: JX GLB Viewer CI
+
+on:
+  push:
+    branches:
+      - feature/anatomy-modeler
+    paths:
+      - 'host/browser/jx-glb-store.js'
+      - 'host/browser/jx-glb-viewer.js'
+      - 'host/browser/jx-anatomy-texture-skin.js'
+      - 'examples/jx-glb-viewer.html'
+      - '.github/workflows/glb-viewer-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  viewer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shared GLB store syntax
+        run: node --check host/browser/jx-glb-store.js
+      - name: Check GLB viewer module syntax
+        run: cp host/browser/jx-glb-viewer.js /tmp/jx-glb-viewer.mjs && node --check /tmp/jx-glb-viewer.mjs
+      - name: Check Anatomy GLB handoff syntax
+        run: node --check host/browser/jx-anatomy-texture-skin.js
+      - name: Check viewer wiring
+        run: |
+          grep -q 'jx-glb-store.js' examples/jx-glb-viewer.html
+          grep -q 'jx-glb-viewer.js' examples/jx-glb-viewer.html
+          grep -q 'Open last JX export' examples/jx-glb-viewer.html
+          grep -q 'Open exported GLB in JX Viewer' host/browser/jx-anatomy-texture-skin.js
