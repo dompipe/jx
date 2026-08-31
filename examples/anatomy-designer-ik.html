@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JX Anatomy Designer IK</title>
+<style>
+html,body{height:100%;margin:0;font:14px system-ui;background:#11151b;color:#e8edf5}*{box-sizing:border-box}
+#app{height:100%;display:grid;grid-template-columns:250px 1fr 315px;grid-template-rows:48px 1fr 30px}
+header{grid-column:1/4;display:flex;align-items:center;gap:10px;padding:0 14px;background:#181e27;border-bottom:1px solid #2c3542}header b{font-size:16px}.pill{padding:5px 8px;border:1px solid #3b4655;border-radius:8px;background:#202834}
+aside{padding:12px;background:#161b23;overflow:auto}.left{border-right:1px solid #2c3542}.right{border-left:1px solid #2c3542}
+#view{position:relative;min-width:0;min-height:0;touch-action:none;background:radial-gradient(circle at 50% 40%,#27303c,#12161d 68%)}#view canvas{width:100%;height:100%;display:block;cursor:crosshair}
+footer{grid-column:1/4;padding:5px 12px;background:#181e27;border-top:1px solid #2c3542;color:#9ca9ba;font-size:12px}
+h2{font-size:12px;letter-spacing:.11em;color:#8ea0b7;text-transform:uppercase;margin:14px 0 8px}.action,select,input[type=number]{width:100%;padding:7px 8px;border:1px solid #364255;border-radius:6px;background:#202833;color:#eef3fb}.action{cursor:pointer;margin:3px 0}.action.active{outline:2px solid #50a5ff;background:#24364b}.action:disabled{opacity:.45;cursor:not-allowed}.row{display:grid;grid-template-columns:1fr 82px;gap:8px;align-items:center;margin:8px 0}.row input[type=range]{grid-column:1/3;width:100%}.hint{font-size:12px;color:#96a5b8;line-height:1.45}.value{color:#b9d8ff;font-variant-numeric:tabular-nums}.drop{display:block;border:1px dashed #43536a;border-radius:7px;padding:10px;text-align:center;color:#b5c2d2;cursor:pointer}.drop input{display:none}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px}.box{padding:9px;border:1px solid #334053;border-radius:7px;background:#121820}.legend{display:grid;grid-template-columns:12px 1fr;gap:7px;align-items:center;font-size:12px}.dot{width:10px;height:10px;border-radius:50%;background:#91a4ba}.dot.target{background:#f0bf63}.dot.path{background:#66b4ff}
+</style>
+</head>
+<body>
+<div id="app">
+<header><b>JX Anatomy Designer</b><span class="pill">FABRIK IK</span><span class="pill">Mouse Path</span><span class="pill">Texture-safe</span><span class="pill">CPU deterministic</span></header>
+<aside class="left">
+<h2>Joint chain</h2>
+<select id="chain"><option value="left-arm">Left arm</option><option value="right-arm">Right arm</option><option value="left-leg">Left leg</option><option value="right-leg">Right leg</option></select>
+<div class="box" style="margin-top:8px"><div class="legend"><span class="dot target"></span><span>Drag the end joint to pose the chain.</span><span class="dot path"></span><span>Blue line is the cleaned animation target path.</span></div></div>
+<h2>Drag plane</h2>
+<div class="grid2"><button class="action active" data-plane="xy">X / Y</button><button class="action" data-plane="xz">X / Z</button></div>
+<p class="hint">You can also hold <b>Shift</b> while dragging to temporarily use X/Z depth movement.</p>
+<h2>Texture selected part</h2>
+<select id="texturePart"></select>
+<label class="drop" style="margin-top:7px">Choose texture image<input id="textureFile" type="file" accept="image/*"></label>
+<div class="row"><label>Texture X</label><input id="tu" type="number" value="0" step=".01"></div><div class="row"><label>Texture Y</label><input id="tv" type="number" value="0" step=".01"></div><div class="row"><label>Texture scale</label><input id="ts" type="number" value="1" step=".02"></div><div class="row"><label>Texture rotate</label><input id="tr" type="number" value="0" step=".02"></div>
+<p class="hint">Texture coordinates stay on the part. IK moves/rotates the part and the texture follows.</p>
+</aside>
+<main id="view"></main>
+<aside class="right">
+<h2>IK solve</h2>
+<div class="row"><label>Iterations</label><input id="iterations" type="number" min="1" max="64" value="18"></div>
+<div class="row"><label>Tolerance</label><input id="tolerance" type="number" min=".00001" max=".1" step=".0001" value=".0004"></div>
+<p class="hint">Segment lengths are captured from the rig and preserved by the solver. If the target is unreachable, the chain extends toward it at its maximum length.</p>
+<h2>Animation path cleanup</h2>
+<div class="row"><label>Smooth <span class="value" id="smoothV">65%</span></label><span></span><input id="smooth" type="range" min="0" max="1" step=".01" value=".65"></div>
+<div class="row"><label>Linearize <span class="value" id="linearV">0%</span></label><span></span><input id="linearize" type="range" min="0" max="1" step=".01" value="0"></div>
+<div class="row"><label>Passes</label><input id="passes" type="number" min="0" max="16" value="3"></div>
+<div class="row"><label>Playback speed</label><input id="speed" type="number" min=".05" max="8" step=".05" value="1"></div>
+<label style="display:flex;gap:8px;align-items:center"><input id="loop" type="checkbox"> Loop</label>
+<div class="grid2" style="margin-top:8px"><button class="action" id="play" disabled>▶ Play</button><button class="action" id="stop">■ Stop</button></div>
+<p id="stats" class="hint">Drag an end joint to create a motion.</p>
+<h2>Export</h2><button class="action" id="export">Download JX anatomy JSON</button>
+</aside>
+<footer id="status">Drag the left hand. Shoulder and elbow solve automatically.</footer>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.min.js"></script>
+<script src="../host/browser/jx-anatomy-host.js"></script>
+<script src="../host/browser/jx-anatomy-ik.js"></script>
+<script src="../host/browser/jx-anatomy-ik-motion.js"></script>
+<script>
+(function(){
+'use strict';
+const V=(x,y,z)=>[x,y,z], T=(p)=>({position:p,rotation:[0,0,0],scale:[1,1,1]});
+const parts=[];
+function joint(id,p,r=.09){parts.push({id,type:'joint',parent:null,params:{radius:r,segments:20,rings:14},transform:T(p),textures:[]})}
+function bone(id,p,len=.65,r=.065){parts.push({id,type:'bone',parent:null,params:{length:len,radius:r,radialSegments:18,lengthSegments:5},transform:T(p),textures:[]})}
+function solid(id,type,p,scale){parts.push({id,type,parent:null,params:{},transform:{position:p,rotation:[0,0,0],scale:scale||[1,1,1]},textures:[]})}
+solid('torso','torso',V(0,.75,0),[.72,1.15,.54]); solid('head','head',V(0,1.86,0),[1,1.08,.94]);
+joint('left-shoulder',V(-.56,1.28,0)); bone('left-upper-arm',V(-.82,1.13,0)); joint('left-elbow',V(-1.05,.98,0)); bone('left-forearm',V(-1.28,.82,0)); joint('left-hand',V(-1.52,.66,0),.105);
+joint('right-shoulder',V(.56,1.28,0)); bone('right-upper-arm',V(.82,1.13,0)); joint('right-elbow',V(1.05,.98,0)); bone('right-forearm',V(1.28,.82,0)); joint('right-hand',V(1.52,.66,0),.105);
+joint('left-hip',V(-.30,.28,0),.11); bone('left-thigh',V(-.31,-.08,0),.72,.085); joint('left-knee',V(-.32,-.45,.02),.10); bone('left-shin',V(-.34,-.82,.02),.72,.07); joint('left-foot',V(-.36,-1.18,.16),.11);
+joint('right-hip',V(.30,.28,0),.11); bone('right-thigh',V(.31,-.08,0),.72,.085); joint('right-knee',V(.32,-.45,.02),.10); bone('right-shin',V(.34,-.82,.02),.72,.07); joint('right-foot',V(.36,-1.18,.16),.11);
+const descriptor={kind:'model',model:'anatomy',plugin:'anatomy',version:'jx.anatomy/2',id:'ik-designer-model',species:'human',parts,animations:[],ik:[]};
+const view=document.getElementById('view');
+const host=JXAnatomyHost.mount(descriptor,view,{}); host.camera.position.set(0,.35,5.1);
+const chainSpecs=[
+{id:'left-arm',joints:['left-shoulder','left-elbow','left-hand'],bones:['left-upper-arm','left-forearm'],pole:[0,1.05,1.0]},
+{id:'right-arm',joints:['right-shoulder','right-elbow','right-hand'],bones:['right-upper-arm','right-forearm'],pole:[0,1.05,1.0]},
+{id:'left-leg',joints:['left-hip','left-knee','left-foot'],bones:['left-thigh','left-shin'],pole:[-.3,-.45,1.1]},
+{id:'right-leg',joints:['right-hip','right-knee','right-foot'],bones:['right-thigh','right-shin'],pole:[.3,-.45,1.1]}
+];
+const ik=JXAnatomyIK.attach(host,chainSpecs), motion=JXAnatomyIKMotion.attach(ik);
+chainSpecs.forEach(s=>{const c=ik.get(s.id);c.solve(c.endWorldPosition())});
+let activeChain='left-arm',dragPlane='xy',drag=null,lastClip=null,pathLine=null,textureUrl=null;
+const ray=new THREE.Raycaster(),mouse=new THREE.Vector2(),plane=new THREE.Plane(),hit=new THREE.Vector3();
+function $(id){return document.getElementById(id)} function number(id,f){const v=Number($(id).value);return Number.isFinite(v)?v:f}
+function current(){return ik.get(activeChain)}
+function setStatus(s){$('status').textContent=s}
+function populateTextureParts(){const sel=$('texturePart');sel.innerHTML='';host.parts.forEach((p,id)=>{const o=document.createElement('option');o.value=id;o.textContent=id;sel.appendChild(o)});sel.value='head'}populateTextureParts();
+function pointerRay(e){const r=host.canvas.getBoundingClientRect();mouse.x=((e.clientX-r.left)/Math.max(1,r.width))*2-1;mouse.y=-((e.clientY-r.top)/Math.max(1,r.height))*2+1;ray.setFromCamera(mouse,host.camera)}
+function planeFor(e,origin){const useXZ=e.shiftKey||dragPlane==='xz';if(useXZ)plane.set(new THREE.Vector3(0,1,0),-origin.y);else plane.set(new THREE.Vector3(0,0,1),-origin.z);return useXZ?'X/Z':'X/Y'}
+function intersect(e,origin){pointerRay(e);planeFor(e,origin);return ray.ray.intersectPlane(plane,hit)?hit.clone():null}
+function solveTarget(p){const c=current();if(!c)return;c.iterations=Math.max(1,Math.min(64,number('iterations',18)));c.tolerance=Math.max(.00001,number('tolerance',.0004));c.solve(p);}
+function removePath(){if(pathLine){pathLine.parent&&pathLine.parent.remove(pathLine);pathLine.geometry.dispose();pathLine.material.dispose();pathLine=null}}
+function drawPath(){removePath();if(!lastClip)return;const c=motion.get(lastClip);if(!c||c.keyframes.length<2)return;const pts=c.keyframes.map(f=>new THREE.Vector3(...f.position));pathLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:0x66b4ff,transparent:true,opacity:.9}));host.scene.add(pathLine);$('stats').textContent=`${c.rawKeyframes.length} raw targets → ${c.keyframes.length} cleaned targets · ${c.duration.toFixed(2)} s`; $('play').disabled=false}
+function cleanup(){if(!lastClip)return;motion.resmooth(lastClip,number('smooth',.65),number('linearize',0),number('passes',3));drawPath()}
+$('smooth').oninput=()=>{$('smoothV').textContent=Math.round(number('smooth',0)*100)+'%';cleanup()}; $('linearize').oninput=()=>{$('linearV').textContent=Math.round(number('linearize',0)*100)+'%';cleanup()}; $('passes').oninput=cleanup;
+$('chain').onchange=e=>{activeChain=e.target.value;lastClip=null;removePath();$('play').disabled=true;setStatus('Drag the '+activeChain+' end joint; its parent joints will solve behind it.')};
+document.querySelectorAll('[data-plane]').forEach(b=>b.onclick=()=>{dragPlane=b.dataset.plane;document.querySelectorAll('[data-plane]').forEach(x=>x.classList.toggle('active',x===b))});
+host.canvas.addEventListener('pointerdown',e=>{if(e.button!==0)return;const c=current(),origin=c.endWorldPosition(),p=intersect(e,origin);if(!p)return;host.canvas.setPointerCapture(e.pointerId);drag={id:e.pointerId,origin};motion.begin(activeChain,{id:'motion-'+activeChain+'-'+Date.now()});solveTarget(p);motion.record(activeChain,p);setStatus('Recording '+activeChain+' target path on '+planeFor(e,origin)+' plane…')});
+host.canvas.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;const p=intersect(e,drag.origin);if(!p)return;solveTarget(p);motion.record(activeChain,p)});
+function finishDrag(e){if(!drag||drag.id!==e.pointerId)return;try{host.canvas.releasePointerCapture(e.pointerId)}catch(_){ }const clip=motion.finish({smooth:number('smooth',.65),linearize:number('linearize',0),passes:number('passes',3),loop:$('loop').checked});drag=null;if(clip){lastClip=clip.id;drawPath();setStatus('Path recorded. Smooth or linearize it, then play it back; IK is re-solved every frame.')}}host.canvas.addEventListener('pointerup',finishDrag);host.canvas.addEventListener('pointercancel',e=>{if(drag&&drag.id===e.pointerId){motion.cancel();drag=null;setStatus('Path recording cancelled.')}});
+$('play').onclick=()=>{if(lastClip)motion.play(lastClip,{speed:Math.max(.05,number('speed',1)),loop:$('loop').checked})}; $('stop').onclick=()=>motion.stop();
+function applyTextureAlign(){const id=$('texturePart').value,part=host.parts.get(id);if(!part||!part.textures||!part.textures[0])return;host.alignTexture(id,part.textures[0].id,{offset:[number('tu',0),number('tv',0)],scale:[number('ts',1),number('ts',1)],rotation:number('tr',0),pivot:[.5,.5]})}
+['tu','tv','ts','tr'].forEach(id=>$(id).addEventListener('input',applyTextureAlign));
+$('textureFile').onchange=e=>{const f=e.target.files&&e.target.files[0],id=$('texturePart').value;if(!f||!id)return;if(textureUrl)URL.revokeObjectURL(textureUrl);textureUrl=URL.createObjectURL(f);const part=host.parts.get(id),obj=host.objects.get(id);part.textures=[{id:id+'-texture',mode:'uv',source:textureUrl,with:{space:'part',transform:{offset:[0,0],scale:[1,1],rotation:0,pivot:[.5,.5]}}}];const tex=new THREE.TextureLoader().load(textureUrl);tex.wrapS=tex.wrapT=THREE.RepeatWrapping;obj.material.map=tex;obj.material.color.set(0xffffff);obj.material.needsUpdate=true;setStatus('Texture attached to '+id+'. It will follow every IK solve.')};
+$('export').onclick=()=>{const out=host.exportDescriptor();out.ik=ik.describe();out.ikMotions=motion.list();const blob=new Blob([JSON.stringify(out,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='jx-anatomy-ik-model.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
+function loop(now){motion.update(now);host.render(now);requestAnimationFrame(loop)}requestAnimationFrame(loop);
+})();
+</script>
+</body></html>
