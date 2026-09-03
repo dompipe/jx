@@ -42,7 +42,7 @@ $program = $compiler->parse($source);
 
 // The canonical Bag blocks are now accepted through the prepared semantic
 // compiler and become ordinary typed Bag declarations in semantic IR.
-assert(count($program->statements) === 9);
+assert(count($program->statements) === 10);
 assert($program->statements[0]->op === 'decl' && $program->statements[0]->type === Type::BAG);
 assert($program->statements[1]->op === 'decl' && $program->statements[1]->type === Type::BAG);
 assert($program->statements[2]->op === 'decl' && $program->statements[2]->type === Type::BAG);
