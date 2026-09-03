@@ -10,24 +10,25 @@ use ZipArchive;
  * Native source may be PHP-backed during authoring/compilation, but installed
  * native programs consume this package rather than reparsing PHP source.
  *
- * The filename extension is descriptive only. A loader recognizes the package
- * from the mandatory JX64/header.bin magic entry and validates the canonical
- * content digest before using any compiled section.
+ * New packages use the public .jxb extension. The internal JX64B001 magic and
+ * jx.64B/1 format identifier remain unchanged so historical .64B packages stay
+ * byte-compatible and readable by the same loader.
  */
 final class NativeBook64
 {
     public const VERSION = 'jx.64B/1';
-    public const DEFAULT_EXTENSION = '.64B';
+    public const DEFAULT_EXTENSION = '.jxb';
+    public const LEGACY_EXTENSION = '.64B';
     public const HEADER_ENTRY = 'JX64/header.bin';
     public const MANIFEST_ENTRY = 'JX64/manifest.json';
-    public const MAGIC = "JX64B001"; // exactly 8 bytes
+    public const MAGIC = "JX64B001"; // exactly 8 bytes; stable package ABI
     public const HEADER_BYTES = 48;
     public const FIXED_MTIME = 946684800; // 2000-01-01T00:00:00Z
     public const MAX_SECTIONS = 65535;
     public const MAX_SECTION_BYTES = 268435456; // 256 MiB per section
 
     /**
-     * Build a deterministic ZIP-compatible .64B package.
+     * Build a deterministic ZIP-compatible .jxb package.
      *
      * $sections maps stable package paths (for example CODE/native.bin or
      * HOT/registers.bin) to compiled binary strings. Source-language files do
@@ -40,10 +41,10 @@ final class NativeBook64
     public static function build(string $path, array $sections, array $metadata = []): array
     {
         if (!class_exists(ZipArchive::class)) {
-            throw new JxException('Native .64B packaging requires the PHP zip extension', '64b', true);
+            throw new JxException('Native .jxb packaging requires the PHP zip extension', '64b', true);
         }
         if ($sections === [] || count($sections) > self::MAX_SECTIONS) {
-            throw new JxException('Native .64B package requires 1..65535 sections', '64b', true,
+            throw new JxException('Native .jxb package requires 1..65535 sections', '64b', true,
                 ['sections'=>count($sections)]);
         }
 
@@ -51,10 +52,10 @@ final class NativeBook64
         foreach ($sections as $name => $bytes) {
             $name = self::sectionName((string)$name);
             if (isset($clean[$name])) {
-                throw new JxException('Duplicate native .64B section', '64b', true, ['section'=>$name]);
+                throw new JxException('Duplicate native .jxb section', '64b', true, ['section'=>$name]);
             }
             if (strlen($bytes) > self::MAX_SECTION_BYTES) {
-                throw new JxException('Native .64B section exceeds bounded size', '64b', true,
+                throw new JxException('Native .jxb section exceeds bounded size', '64b', true,
                     ['section'=>$name, 'bytes'=>strlen($bytes)]);
             }
             $clean[$name] = $bytes;
@@ -66,7 +67,6 @@ final class NativeBook64
         foreach ($clean as $name => $bytes) {
             $digest = hash('sha256', $bytes);
             $sectionRows[] = ['name'=>$name, 'bytes'=>strlen($bytes), 'sha256'=>$digest];
-            // Length-prefix names and content hashes so concatenation is unambiguous.
             $canonicalDigestInput .= pack('V', strlen($name)).$name.pack('V', strlen($bytes)).hex2bin($digest);
         }
         $contentSha = hash('sha256', $canonicalDigestInput);
@@ -94,21 +94,19 @@ final class NativeBook64
 
         $dir = dirname($path);
         if ($dir !== '.' && !is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-            throw new JxException('Cannot create native .64B output directory', '64b', true, ['directory'=>$dir]);
+            throw new JxException('Cannot create native .jxb output directory', '64b', true, ['directory'=>$dir]);
         }
         @unlink($path);
         $zip = new ZipArchive();
         $opened = $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
         if ($opened !== true) {
-            throw new JxException('Cannot create native .64B package', '64b', true, ['path'=>$path, 'zip'=>$opened]);
+            throw new JxException('Cannot create native .jxb package', '64b', true, ['path'=>$path, 'zip'=>$opened]);
         }
         try {
             foreach ($entries as $name => $bytes) {
                 if (!$zip->addFromString($name, $bytes)) {
-                    throw new JxException('Cannot add native .64B entry', '64b', true, ['entry'=>$name]);
+                    throw new JxException('Cannot add native .jxb entry', '64b', true, ['entry'=>$name]);
                 }
-                // STORE removes zlib-version variability; fixed timestamps and
-                // sorted entries make identical compiled content byte-stable.
                 if (method_exists($zip, 'setCompressionName')) {
                     $zip->setCompressionName($name, ZipArchive::CM_STORE);
                 }
@@ -124,7 +122,7 @@ final class NativeBook64
         }
 
         if (!is_file($path)) {
-            throw new JxException('Native .64B package was not written', '64b', true, ['path'=>$path]);
+            throw new JxException('Native .jxb package was not written', '64b', true, ['path'=>$path]);
         }
         return [
             'path'=>$path,
@@ -137,13 +135,14 @@ final class NativeBook64
 
     /**
      * Recognize and validate a compiled Book regardless of filename extension.
+     * This is what keeps legacy .64B packages readable during the .jxb migration.
      *
      * @return array{manifest:array<string,mixed>,content_sha256:string,file_sha256:string,sections:array<string,string>}
      */
     public static function load(string $path, bool $loadSections = true): array
     {
         if (!class_exists(ZipArchive::class) || !is_file($path)) {
-            throw new JxException('Native .64B package is unavailable', '64b', true, ['path'=>$path]);
+            throw new JxException('Native .jxb package is unavailable', '64b', true, ['path'=>$path]);
         }
         $zip = new ZipArchive();
         if ($zip->open($path, ZipArchive::RDONLY) !== true) {
@@ -208,7 +207,6 @@ final class NativeBook64
     private static function header(int $sections, string $manifestShaRaw): string
     {
         if (strlen($manifestShaRaw) !== 32) throw new \LogicException('sha256 must be 32 bytes');
-        // 8 magic + 2 major + 2 minor + 4 section count + 32 manifest digest = 48 bytes.
         return self::MAGIC.pack('vvV', 1, 0, $sections).$manifestShaRaw;
     }
 
@@ -234,7 +232,7 @@ final class NativeBook64
         if ($name === '' || strlen($name) > 1024 || str_starts_with($name, '/') || str_contains($name, "\0") ||
             preg_match('#(^|/)\.\.(/|$)#', $name) || preg_match('/[\r\n]/', $name) ||
             $name === self::HEADER_ENTRY || $name === self::MANIFEST_ENTRY) {
-            throw new JxException('Invalid native .64B section name', '64b', true, ['section'=>$name]);
+            throw new JxException('Invalid native .jxb section name', '64b', true, ['section'=>$name]);
         }
         return $name;
     }
