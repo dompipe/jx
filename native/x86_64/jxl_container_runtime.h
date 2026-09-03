@@ -19,17 +19,25 @@ extern "C" {
  *   native/x86_64/jxl_containers.asm
  *   native/x86_64/jxl_container_executor.asm
  *   native/x86_64/jxl_container_stream.asm
+ *
+ * Discipline-specific array law:
+ *   record/vector/stack: base = dense element array
+ *   queue/deque:         base = ring array, head/tail = monotonic indexes
+ *   set:                 base = ordered unique keys[], head = locality cursor,
+ *                        tail = element count
+ *   map:                 base = ordered keys[], aux = synchronized values[],
+ *                        head = locality cursor, tail = element count
  */
 typedef struct JxJxlContainerBinding {
     void    *native_fn;       /* +00 already-resolved assembly routine */
-    uint64_t *base;           /* +08 element/hash-slot storage */
-    uint64_t *head;           /* +16 ring head or discipline-specific origin */
-    uint64_t *tail;           /* +24 ring tail / vector count */
-    uint64_t capacity;        /* +32 element or slot capacity */
-    uint64_t mask;            /* +40 power-of-two ring/hash mask */
+    uint64_t *base;           /* +08 elements or Map/Set keys[] */
+    uint64_t *head;           /* +16 ring head or Map/Set locality cursor */
+    uint64_t *tail;           /* +24 ring tail / vector or Map/Set count */
+    uint64_t capacity;        /* +32 dense/ring element capacity */
+    uint64_t mask;            /* +40 ring mask; zero for Map/Set */
     uint64_t *generation;     /* +48 durable Bag generation */
     uint64_t *flags;          /* +56 runtime Bag flags */
-    void    *aux;             /* +64 admitted discipline helper state */
+    void    *aux;             /* +64 Map values[] or discipline helper state */
     void    *aux2;            /* +72 admitted discipline helper state */
 } JxJxlContainerBinding;
 
@@ -51,12 +59,6 @@ enum {
     JX_BAG_DIRTY = 1u,
 };
 
-/* Execute exactly one fixed-width JXL container instruction.
- *
- * On success RAX/return value is next pc. The assembly ABI also exposes CF for
- * failure/slow-path; normal C callers should prefer the stream API below when
- * executing a prepared container region.
- */
 const uint8_t *jx_jxl_container_execute(
     const uint8_t *pc,
     JxJxlContainerBinding *bindings,
@@ -64,18 +66,6 @@ const uint8_t *jx_jxl_container_execute(
     uint64_t binding_count
 );
 
-/* Execute [begin,end) as one resident prepared-container region.
- *
- * begin/end      exact six-byte-aligned JXL stream bounds
- * bindings       admitted operation-specific runtime binding table
- * window8        current eight-qword JXL register window
- * binding_count  admitted binding count
- *
- * Returns 0 on exact completion, -1 for malformed/truncated JXL or an invalid
- * prepared reference, and -2 when an admitted native operation requests its
- * slow/failure path. The loop itself is pure x86-64 assembly and keeps stream
- * state resident across all operations.
- */
 int jx_jxl_container_execute_stream(
     const uint8_t *begin,
     const uint8_t *end,
@@ -84,17 +74,11 @@ int jx_jxl_container_execute_stream(
     uint64_t binding_count
 );
 
-/* Numeric admission table. Slot zero is invalid; IDs 1..count are callable
- * assembly targets. Serialized JXCBIND1 records carry the numeric native ID,
- * so admission never needs native symbol-name lookup.
- */
 extern void *jx_jxl_container_native_table[];
 extern const uint64_t jx_jxl_container_native_count;
 
-/* Direct native routines are public so admission can bind them without a
- * higher-level container runtime. Their machine ABI is RDI=binding, RSI=arg0,
- * RDX=arg1, RAX=result, CF=status.
- */
+/* Direct native routines use RDI=binding, RSI=arg0, RDX=arg1, RAX=result,
+ * CF=status in the assembly ABI. */
 void jx_vector_push_u64(void);
 void jx_vector_pop_u64(void);
 void jx_vector_get_u64(void);
@@ -114,6 +98,9 @@ void jx_deque_pop_back_u64(void);
 void jx_deque_peek_front_u64(void);
 void jx_deque_peek_back_u64(void);
 void jx_ring_reserve_u64(void);
+
+/* Ordered-array Map/Set primitives. Map is never hash-backed in canonical JXL. */
+void jx_sorted_find_u64(void);
 void jx_map_emplace_u64(void);
 void jx_map_get_u64(void);
 void jx_map_put_u64(void);
@@ -122,7 +109,12 @@ void jx_map_remove_u64(void);
 void jx_set_add_u64(void);
 void jx_set_has_u64(void);
 void jx_set_remove_u64(void);
+void jx_sorted_reserve_u64(void);
+
+/* Legacy ABI alias only. New compiler metadata and the native target table use
+ * jx_sorted_reserve_u64. This symbol performs no hashing. */
 void jx_hash_reserve_u64(void);
+
 void jx_bag_dirty(void);
 void jx_bag_sync(void);
 
