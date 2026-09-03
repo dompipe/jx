@@ -4,6 +4,7 @@ namespace jx\semantic;
 
 require_once __DIR__ . '/jx-semantic.php';
 require_once __DIR__ . '/jx-jxl-containers.php';
+require_once __DIR__ . '/jx-jxl-bag-source.php';
 
 /**
  * Canonical semantic IR -> normalized prepared IR -> JXL.
@@ -12,34 +13,51 @@ require_once __DIR__ . '/jx-jxl-containers.php';
  * the VM. Internal names contain NUL, which canonical source identifiers can
  * never spell, making generated temporaries hygienic.
  *
- * Container preparation is deliberately explicit at this layer: the compiler
- * resolves Bag discipline + canonical operation once, receives an
- * operation-specific native binding, and emits fixed-width JXL container
- * instructions that carry only binding IDs and local register selectors.
+ * Container preparation is operation-specific. Canonical Bag blocks and member
+ * calls are resolved before executable JXL is emitted, so the hot path carries
+ * only a prepared binding ID and eight-register-window selectors.
  */
 final class PreparedCompiler
 {
     private int $temporary = 0;
     private PreparedContainerBindings $containerBindings;
+    private ?PreparedContainerSourceCompilation $lastContainerCompilation = null;
 
     public function __construct(private readonly Compiler $semantic = new Compiler())
     {
         $this->containerBindings = new PreparedContainerBindings();
     }
 
+    /**
+     * Prepared parsing accepts canonical `bag Name { ... }` blocks by extracting
+     * their compile-time discipline metadata and feeding `bag Name;` to the
+     * existing typed semantic parser.
+     */
     public function parse(string $source): Program
     {
-        return $this->semantic->parse($source);
+        $unit = PreparedBagSource::prepare($source);
+        return $this->semantic->parse($unit->rewrittenSource);
     }
 
     public function run(string $source): mixed
     {
+        $unit = PreparedBagSource::prepare($source);
+        if ($unit->bags !== []) {
+            throw new SemanticException(
+                'Canonical Bag discipline blocks use prepared/native container execution; compile with emitJxl() or compileContainerSource()',
+                'runtime'
+            );
+        }
         return $this->semantic->run($source);
     }
 
     public function emitJxl(string $source): string
     {
+        $unit = PreparedBagSource::prepare($source);
+        if ($unit->bags !== []) return $this->compileContainerSourceUnit($unit)->jxl;
+
         $this->temporary = 0;
+        $this->lastContainerCompilation = null;
         $program = $this->normalizeProgram($this->semantic->parse($source));
         return (new JxlEmitter())->emit($program);
     }
@@ -47,12 +65,36 @@ final class PreparedCompiler
     public function emitProgram(Program $program): string
     {
         $this->temporary = 0;
+        $this->lastContainerCompilation = null;
         return (new JxlEmitter())->emit($this->normalizeProgram($program));
+    }
+
+    /** Compile a canonical Bag/member-call source unit into pure container JXL. */
+    public function compileContainerSource(string $source): PreparedContainerSourceCompilation
+    {
+        return $this->compileContainerSourceUnit(PreparedBagSource::prepare($source));
+    }
+
+    private function compileContainerSourceUnit(PreparedBagSourceUnit $unit): PreparedContainerSourceCompilation
+    {
+        if ($unit->bags === []) throw new SemanticException('No canonical Bag discipline declarations found', 'bag-source');
+        $this->temporary = 0;
+        $this->containerBindings = new PreparedContainerBindings();
+        $program = $this->semantic->parse($unit->rewrittenSource);
+        $compiled = (new PreparedContainerSourceCompiler($this->containerBindings))->compile($unit, $program);
+        $this->lastContainerCompilation = $compiled;
+        return $compiled;
+    }
+
+    public function lastContainerCompilation(): ?PreparedContainerSourceCompilation
+    {
+        return $this->lastContainerCompilation;
     }
 
     public function resetContainerBindings(): void
     {
         $this->containerBindings = new PreparedContainerBindings();
+        $this->lastContainerCompilation = null;
     }
 
     public function containerBindings(): PreparedContainerBindings
