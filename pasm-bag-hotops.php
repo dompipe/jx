@@ -75,8 +75,8 @@ final class PASMBagHotOp
             self::BPOPF => ['kind'=>'head-read-inc','asm'=>['mov value, [head]','add head, width']],
             self::BPOPB => ['kind'=>'tail-dec-read','asm'=>['sub tail, width','mov value, [tail]']],
 
-            // BEMPLACE is discipline-aware. Map/Set are ordered arrays: FIND is
-            // a cursor-locality check followed by lower_bound when needed.
+            // BEMPLACE is discipline-aware. Map is a keyed Vector of complete
+            // [key,value] entries; Set is the ordered one-word keyed form.
             self::BEMPLACE => match ($discipline) {
                 'vector','stack' => [
                     'kind'=>'address-gap-pack-store',
@@ -91,17 +91,17 @@ final class PASMBagHotOp
                     'insert_if_absent'=>false,
                 ],
                 'map' => [
-                    'kind'=>'ordered-2d-array-emplace',
+                    'kind'=>'ordered-keyed-vector-emplace',
                     'asm'=>[
-                        'call sorted_find_key',
+                        'call keyed_vector_find_key',
                         'jc .exists',
-                        'memmove keys[index+1], keys[index], tail-bytes',
-                        'memmove values[index+1], values[index], tail-bytes',
-                        'mov keys[index], key',
-                        'mov values[index], value',
+                        'memmove entries[index+1], entries[index], tail-entry-bytes',
+                        'mov entries[index].key, key',
+                        'mov entries[index].value, value',
                     ],
                     'find_once'=>true,
-                    'layout'=>['keys[]','values[]'],
+                    'layout'=>['Entry[]','Entry=[key,value]'],
+                    'entry_width'=>'key_width + value_width',
                     'insert_if_absent'=>true,
                     'returns_existing'=>true,
                     'hashing'=>false,
