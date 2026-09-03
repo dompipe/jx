@@ -304,16 +304,15 @@ final class DequeBag extends QueueBag
 }
 
 /**
- * Map is canonically a two-dimensional ordered array. The PHP host mirrors the
- * native law with synchronized keys[] and values[] dimensions; it never uses an
- * associative array as the Map's internal storage.
+ * Map is canonically a keyed Vector. Each logical vector element is one
+ * [key,value] entry. There is no second values array and no associative/hash
+ * structure behind the Map. FIND selects an entry index; PUT either overwrites
+ * entry[index][1] or vector-inserts one new [key,value] element.
  */
 class MapBag extends BagContainer
 {
-    /** @var list<string|int> */
-    protected array $keys=[];
-    /** @var list<mixed> */
-    protected array $values=[];
+    /** @var list<array{0:string|int,1:mixed}> */
+    protected array $entries=[];
     protected int $cursor=0;
 
     public function __construct(Bag $bag, ?string $elementType=null, string $kind=BagDiscipline::MAP)
@@ -321,7 +320,7 @@ class MapBag extends BagContainer
         parent::__construct($bag,$kind,$elementType);
     }
 
-    public function count(): int{return count($this->keys);}
+    public function count(): int{return count($this->entries);}
 
     private static function compareKey(string|int $a,string|int $b): int
     {
@@ -331,19 +330,19 @@ class MapBag extends BagContainer
         return strcmp($a,$b);
     }
 
-    /** @return array{0:int,1:bool} lower_bound index + found */
+    /** @return array{0:int,1:bool} lower_bound entry index + found */
     protected function findPosition(string|int $key): array
     {
-        $n=count($this->keys);
+        $n=count($this->entries);
         if($n===0){$this->cursor=0;return [0,false];}
 
         if($this->cursor<$n){
-            $cmp=self::compareKey($this->keys[$this->cursor],$key);
+            $cmp=self::compareKey($this->entries[$this->cursor][0],$key);
             if($cmp===0)return [$this->cursor,true];
             if($cmp<0){
                 $next=$this->cursor+1;
                 if($next>=$n){$this->cursor=$n;return [$n,false];}
-                $cmpNext=self::compareKey($this->keys[$next],$key);
+                $cmpNext=self::compareKey($this->entries[$next][0],$key);
                 if($cmpNext===0){$this->cursor=$next;return [$next,true];}
                 if($cmpNext>0){$this->cursor=$next;return [$next,false];}
             }
@@ -352,29 +351,24 @@ class MapBag extends BagContainer
         $lo=0;$hi=$n;
         while($lo<$hi){
             $mid=($lo+$hi)>>1;
-            if(self::compareKey($this->keys[$mid],$key)<0)$lo=$mid+1;else$hi=$mid;
+            if(self::compareKey($this->entries[$mid][0],$key)<0)$lo=$mid+1;else$hi=$mid;
         }
         $this->cursor=$lo;
-        return [$lo,$lo<$n && self::compareKey($this->keys[$lo],$key)===0];
+        return [$lo,$lo<$n && self::compareKey($this->entries[$lo][0],$key)===0];
     }
 
     private function insertAt(int $i, string|int $key, mixed $value): void
     {
-        $n=count($this->keys);
-        if($i===$n){
-            $this->keys[]=$key;
-            $this->values[]=$value;
-        }else{
-            array_splice($this->keys,$i,0,[$key]);
-            array_splice($this->values,$i,0,[$value]);
-        }
+        $entry=[$key,$value];
+        if($i===count($this->entries))$this->entries[]=$entry;
+        else array_splice($this->entries,$i,0,[$entry]);
         $this->cursor=$i;
     }
 
     public function put(string|int $key,mixed $value): static
     {
         [$i,$found]=$this->findPosition($key);
-        if($found)$this->values[$i]=$value;
+        if($found)$this->entries[$i][1]=$value;
         else $this->insertAt($i,$key,$value);
         $this->changed();
         return $this;
@@ -388,7 +382,7 @@ class MapBag extends BagContainer
         }
         $key=$args[0];$value=$args[1];
         [$i,$found]=$this->findPosition($key);
-        if($found)return $this->values[$i];
+        if($found)return $this->entries[$i][1];
         $this->insertAt($i,$key,$value);
         $this->changed();
         return $value;
@@ -397,7 +391,7 @@ class MapBag extends BagContainer
     public function get(string|int $key,mixed $default=null): mixed
     {
         [$i,$found]=$this->findPosition($key);
-        return $found?$this->values[$i]:$default;
+        return $found?$this->entries[$i][1]:$default;
     }
 
     public function has(string|int $key): bool
@@ -410,72 +404,76 @@ class MapBag extends BagContainer
     {
         [$i,$found]=$this->findPosition($key);
         if(!$found)return false;
-        array_splice($this->keys,$i,1);
-        array_splice($this->values,$i,1);
-        $this->cursor=min($i,count($this->keys));
+        array_splice($this->entries,$i,1);
+        $this->cursor=min($i,count($this->entries));
         $this->changed();
         return true;
     }
 
     public function clear(): static
     {
-        if($this->keys!==[]){$this->keys=[];$this->values=[];$this->cursor=0;$this->changed();}
+        if($this->entries!==[]){$this->entries=[];$this->cursor=0;$this->changed();}
         return $this;
     }
 
     public function toArray(): array
     {
         $out=[];
-        foreach($this->keys as $i=>$key)$out[$key]=$this->values[$i];
+        foreach($this->entries as [$key,$value])$out[$key]=$value;
         return $out;
     }
 
     public function nativeLayout(): array
     {
         return [
-            'strategy'=>'ordered-2d-array',
-            'dimensions'=>['keys[]','values[]'],
-            'find'=>'cursor marquee then lower_bound',
-            'put'=>'overwrite value at found index; otherwise insert key/value at lower_bound',
+            'strategy'=>'ordered-keyed-vector',
+            'entry'=>['key','value'],
+            'storage'=>'Entry[] = [[key,value], ...]',
+            'find'=>'cursor marquee then lower_bound over Entry.key',
+            'put'=>'overwrite Entry.value when found; otherwise vector-insert Entry(key,value)',
             'element_type'=>$this->elementType,
         ];
     }
 
-    protected function exportPayload(): array{return ['keys'=>$this->keys,'values'=>$this->values];}
+    protected function exportPayload(): array{return ['entries'=>$this->entries];}
 
     protected function importPayload(array $payload): void
     {
-        $keys=$payload['keys']??null;$values=$payload['values']??null;
-        if(is_array($keys)&&is_array($values)&&count($keys)===count($values)){
-            $pairs=[];$valueList=array_values($values);
-            foreach(array_values($keys) as $i=>$key){
+        $incoming=[];
+
+        // Current keyed-vector checkpoint format.
+        if(is_array($payload['entries']??null)){
+            foreach($payload['entries'] as $entry){
+                if(!is_array($entry)||count($entry)<2)continue;
+                $key=$entry[0]??null;
                 if(!is_int($key)&&!is_string($key))continue;
-                $pairs[]=['key'=>$key,'value'=>$valueList[$i]??null];
+                $incoming[]=[$key,$entry[1]??null];
             }
-            usort($pairs,static fn(array $a,array $b):int=>self::compareKey($a['key'],$b['key']));
-            $this->keys=[];$this->values=[];
-            foreach($pairs as $pair){
-                $n=count($this->keys);
-                if($n>0 && self::compareKey($this->keys[$n-1],$pair['key'])===0)$this->values[$n-1]=$pair['value'];
-                else{$this->keys[]=$pair['key'];$this->values[]=$pair['value'];}
+        // Previous split-array checkpoint format.
+        }elseif(is_array($payload['keys']??null)&&is_array($payload['values']??null)){
+            $keys=array_values($payload['keys']);$values=array_values($payload['values']);
+            foreach($keys as $i=>$key){
+                if(!is_int($key)&&!is_string($key))continue;
+                $incoming[]=[$key,$values[$i]??null];
             }
+        // Oldest associative payload format.
         }else{
-            // Backward-compatible restore of the old associative payload. The
-            // restored live representation is immediately converted to 2D arrays.
             $legacy=is_array($payload['values']??null)?$payload['values']:[];
-            $this->keys=[];$this->values=[];
-            foreach($legacy as $key=>$value){$this->keys[]=$key;$this->values[]=$value;}
-            $order=array_keys($this->keys);
-            usort($order,fn(int $a,int $b):int=>self::compareKey($this->keys[$a],$this->keys[$b]));
-            $sortedKeys=[];$sortedValues=[];
-            foreach($order as $i){$sortedKeys[]=$this->keys[$i];$sortedValues[]=$this->values[$i];}
-            $this->keys=$sortedKeys;$this->values=$sortedValues;
+            foreach($legacy as $key=>$value)$incoming[]=[$key,$value];
+        }
+
+        usort($incoming,static fn(array $a,array $b):int=>self::compareKey($a[0],$b[0]));
+        $this->entries=[];
+        foreach($incoming as [$key,$value]){
+            $n=count($this->entries);
+            if($n>0 && self::compareKey($this->entries[$n-1][0],$key)===0)$this->entries[$n-1][1]=$value;
+            else $this->entries[]=[$key,$value];
         }
         $this->cursor=0;
     }
 }
 
-/** Set is the ordered one-dimensional unique-key form of Map's array law. */
+/** Set is the ordered one-dimensional unique-key form of the keyed-Vector law. */
 final class SetBag extends BagContainer
 {
     /** @var list<mixed> */
