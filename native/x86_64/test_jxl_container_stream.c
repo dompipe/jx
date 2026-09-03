@@ -17,8 +17,7 @@ typedef struct BagState {
     uint64_t handle;
     uint8_t discipline;
     uint64_t capacity;
-    uint64_t *base;          /* keys[] for Map/Set, ordinary base otherwise */
-    uint64_t *values;        /* Map values[]; NULL for Set/other disciplines */
+    uint64_t *base;          /* Map Entry[] (key,value), Set keys[], ordinary base otherwise */
     uint64_t head;           /* ring head or Map/Set locality cursor */
     uint64_t tail;           /* ring tail or Map/Set element count */
     uint64_t generation;
@@ -116,19 +115,15 @@ static BagState *find_or_create_bag(
     state->discipline = discipline;
     state->capacity = capacity;
 
-    const size_t words = (size_t)(capacity == 0 ? 1 : capacity);
+    /* Map is Vector<Entry>, and a v1 Entry is two u64 words. Every other
+     * discipline remains one u64 word per logical capacity slot in this test.
+     */
+    size_t words = (size_t)(capacity == 0 ? 1 : capacity);
+    if (discipline == 6) words *= 2u;
     state->base = (uint64_t *)calloc(words, sizeof(uint64_t));
     if (state->base == NULL) {
         fprintf(stderr, "cannot allocate Bag handle %" PRIu64 "\n", handle);
         return NULL;
-    }
-    if (discipline == 6) {
-        state->values = (uint64_t *)calloc(words, sizeof(uint64_t));
-        if (state->values == NULL) {
-            free(state->base);
-            state->base = NULL;
-            return NULL;
-        }
     }
     return state;
 }
@@ -148,7 +143,7 @@ static int resolve_bag(
     runtime->tail = &bag->tail;
     runtime->generation = &bag->generation;
     runtime->flags = &bag->flags;
-    runtime->aux = spec->discipline == 6 ? (void *)bag->values : NULL;
+    runtime->aux = NULL;
     runtime->aux2 = NULL;
     return 1;
 }
@@ -170,10 +165,7 @@ static int set_contains(const BagState *set, uint64_t key)
 
 static void free_bags(HarnessBags *bags)
 {
-    for (size_t i = 0; i < bags->count; i++) {
-        free(bags->states[i].values);
-        free(bags->states[i].base);
-    }
+    for (size_t i = 0; i < bags->count; i++) free(bags->states[i].base);
     bags->count = 0;
 }
 
