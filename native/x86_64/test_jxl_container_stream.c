@@ -17,12 +17,12 @@ typedef struct BagState {
     uint64_t handle;
     uint8_t discipline;
     uint64_t capacity;
-    uint64_t *base;
-    uint64_t head;
-    uint64_t tail;
+    uint64_t *base;          /* keys[] for Map/Set, ordinary base otherwise */
+    uint64_t *values;        /* Map values[]; NULL for Set/other disciplines */
+    uint64_t head;           /* ring head or Map/Set locality cursor */
+    uint64_t tail;           /* ring tail or Map/Set element count */
     uint64_t generation;
     uint64_t flags;
-    uint64_t count;
 } BagState;
 
 typedef struct HarnessBags {
@@ -116,12 +116,19 @@ static BagState *find_or_create_bag(
     state->discipline = discipline;
     state->capacity = capacity;
 
-    size_t words = (size_t)(capacity == 0 ? 1 : capacity);
-    if (discipline == 6 || discipline == 7) words *= 3u; /* hash slot = state,key,value */
+    const size_t words = (size_t)(capacity == 0 ? 1 : capacity);
     state->base = (uint64_t *)calloc(words, sizeof(uint64_t));
     if (state->base == NULL) {
         fprintf(stderr, "cannot allocate Bag handle %" PRIu64 "\n", handle);
         return NULL;
+    }
+    if (discipline == 6) {
+        state->values = (uint64_t *)calloc(words, sizeof(uint64_t));
+        if (state->values == NULL) {
+            free(state->base);
+            state->base = NULL;
+            return NULL;
+        }
     }
     return state;
 }
@@ -141,7 +148,7 @@ static int resolve_bag(
     runtime->tail = &bag->tail;
     runtime->generation = &bag->generation;
     runtime->flags = &bag->flags;
-    runtime->aux = (spec->discipline == 6 || spec->discipline == 7) ? (void *)&bag->count : NULL;
+    runtime->aux = spec->discipline == 6 ? (void *)bag->values : NULL;
     runtime->aux2 = NULL;
     return 1;
 }
@@ -155,16 +162,18 @@ static BagState *bag_by_handle(HarnessBags *bags, uint64_t handle)
 static int set_contains(const BagState *set, uint64_t key)
 {
     if (set == NULL || set->discipline != 7) return 0;
-    for (uint64_t i = 0; i < set->capacity; i++) {
-        const uint64_t *slot = set->base + (size_t)i * 3u;
-        if (slot[0] == 1 && slot[1] == key) return 1;
+    for (uint64_t i = 0; i < set->tail; i++) {
+        if (set->base[i] == key) return 1;
     }
     return 0;
 }
 
 static void free_bags(HarnessBags *bags)
 {
-    for (size_t i = 0; i < bags->count; i++) free(bags->states[i].base);
+    for (size_t i = 0; i < bags->count; i++) {
+        free(bags->states[i].values);
+        free(bags->states[i].base);
+    }
     bags->count = 0;
 }
 
@@ -254,14 +263,10 @@ int main(int argc, char **argv)
     ok = ok && jobs->head == 1 && jobs->tail == 1;
     ok = ok && jobs->generation == 1 && jobs->flags == 0;
     ok = ok && seen != NULL && seen->discipline == 7;
-    ok = ok && seen->count == 1 && seen->flags == JX_BAG_DIRTY && set_contains(seen, 42);
+    ok = ok && seen->tail == 1 && seen->flags == JX_BAG_DIRTY && set_contains(seen, 42);
     ok = ok && state != NULL && state->discipline == 1;
     ok = ok && state->base[0] == 42 && state->flags == JX_BAG_DIRTY;
 
-    /* Source compiler register contract for the fixture:
-     * R0 task=42, R1 next, R2 set-add result, R3 record slot constant=0,
-     * R4 hp. Native execution must update only prepared destination slots.
-     */
     ok = ok && window[0] == 42;
     ok = ok && window[1] == 42;
     ok = ok && window[2] == 1;
@@ -277,7 +282,7 @@ int main(int argc, char **argv)
             jobs ? jobs->tail : UINT64_MAX,
             jobs ? jobs->generation : UINT64_MAX,
             jobs ? jobs->flags : UINT64_MAX,
-            seen ? seen->count : UINT64_MAX,
+            seen ? seen->tail : UINT64_MAX,
             seen ? seen->flags : UINT64_MAX,
             state ? state->base[0] : UINT64_MAX,
             state ? state->flags : UINT64_MAX,
@@ -285,7 +290,7 @@ int main(int argc, char **argv)
         );
     } else {
         printf(
-            "JXL native stream: ok (%zu bytes, %zu admitted bindings, queue->set->record, generation=%" PRIu64 ")\n",
+            "JXL native stream: ok (%zu bytes, %zu admitted bindings, queue->set-array->record, generation=%" PRIu64 ")\n",
             code.size,
             binding_count,
             jobs->generation
