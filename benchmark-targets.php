@@ -2,13 +2,10 @@
 
 require_once __DIR__ . '/pasm-lang.php';
 require_once __DIR__ . '/pasm-lang-x86.php';
-require_once __DIR__ . '/pasm-bytecode.php';
 
 use pasm\lang\Engine;
 use pasm\lang\Compiler;
 use pasm\lang\X86Compiler;
-use pasm\PASMBytecodeVM;
-use pasm\PASMRuntime;
 
 const EXPECTED = 49995000;
 const REPS = 9;
@@ -45,18 +42,21 @@ function bench(string $name, callable $fn, int $reps = REPS): array {
 
 $sourceResult = bench('jx-source-compile-run', fn() => (new Engine(true,false))->runSource($source));
 
-$compileSamples=[];$bytecode=null;
+$compileSamples=[];$jxl=null;
 for($i=0;$i<REPS;$i++){
     $e=new Engine(true,false);$t0=hrtime(true);$code=$e->compile($source);$t1=hrtime(true);
-    $compileSamples[]=($t1-$t0)/1e6;$bytecode=$code;
+    $compileSamples[]=($t1-$t0)/1e6;$jxl=$code;
 }
-if(!is_string($bytecode) || $bytecode==='') throw new RuntimeException('compiled bytecode missing');
-$compileResult=['target'=>'jx-compile-only','median_ms'=>median($compileSamples),'bytes'=>strlen($bytecode),'reps'=>REPS];
+if(!is_string($jxl) || $jxl==='') throw new RuntimeException('compiled JXL missing');
+$compileResult=['target'=>'jx-compile-only','median_ms'=>median($compileSamples),'bytes'=>strlen($jxl),'reps'=>REPS];
 
-$packedResult = bench('packed-pasm-page', function() use ($bytecode) {
-    return (new PASMBytecodeVM(new PASMRuntime()))->run($bytecode);
+// compile() now returns canonical PASM-profile JXL. The old harness sent these
+// bytes into PASMBytecodeVM, which is a legacy .pbc decoder and therefore
+// rejected the JXL opcode band. Use the public Engine admission path instead.
+$preparedResult = bench('prepared-jxl-page', function() use ($jxl) {
+    return (new Engine(true,false))->runCode($jxl);
 });
-$packedResult['bytes']=strlen($bytecode);
+$preparedResult['bytes']=strlen($jxl);
 
 $compiler = new Compiler(true, false);
 $assembly = $compiler->compile($source);
@@ -112,7 +112,7 @@ C;
 }
 @unlink($tmpAsm);
 
-$rows=[$sourceResult,$compileResult,$packedResult,$browserResult,$nativeResult];
+$rows=[$sourceResult,$compileResult,$preparedResult,$browserResult,$nativeResult];
 $baseline=(float)$sourceResult['median_ms'];
 foreach($rows as &$row){
     if(isset($row['median_ms']) && $row['target']!=='jx-compile-only'){
@@ -123,7 +123,7 @@ unset($row);
 
 $out=[
     'workload'=>'sum 0..9999 using PASL while ($i < 10000); expected 49,995,000',
-    'note'=>'server, CLI, and test hosts currently share packed-pasm-page execution; browser uses JS PASM VM; native uses x86-64 backend',
+    'note'=>'PHP server/CLI source compiles to canonical PASM-profile JXL; prepared execution uses Engine::runCode; browser comparison is the existing JS PASM VM; native uses x86-64 backend',
     'results'=>$rows,
 ];
 echo json_encode($out,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES),"\n";
