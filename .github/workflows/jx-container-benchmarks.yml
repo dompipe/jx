@@ -25,3 +25,5 @@ jobs:
         run: php benchmark-container-suite.php 1000000 5 1
       - name: Show measured native JXL detail
         run: php benchmark-jxl-containers.php 1000000 5 1
+      - name: Compare split and keyed-vector Map layouts
+        run: php benchmark-jxl-map-layouts.php 1000000 20000 7 1
