@@ -16,28 +16,25 @@ use InvalidArgumentException;
  *   reveach ($items as $key => $value) { ... }
  *   forif ($items as $value if _ > 10) { ... }
  *   revif ($items as $value if _ > 10) { ... }
- *   forif ($value in $items if _ > 10) { ... }   // Python-like spelling
+ *   forif ($value in $items if _ > 10) { ... }
  *   revif ($value in $items if _ > 10) { ... }
  *
- * `_` is the first implicit value of the filtered-iteration frame: the current
- * collection value. It is valid in the predicate and the loop body. Therefore
- * callback(_, $key) lowers with the current item as callback argument 0. revif
- * changes traversal direction only; `_` remains the current value.
+ * Positional row destructuring for callback/iterator array results:
+ *   _, no1, no2, no3 = forif ($value in $items if no1 < _) { ... }
  *
- * Filtered iteration reuses the same compact iterator controller. A predicate
- * miss skips the body and returns to the iterator check; it does not terminate
- * the collection walk and does not create another iterator object.
+ * The iterator/callback row is exploded before the predicate:
+ *   _   = row[0]
+ *   no1 = row[1]
+ *   no2 = row[2]
+ *   ...
  *
- * The pass reuses the tested bounded while compiler for body/block semantics.
- * After register allocation it replaces the synthetic controller with:
+ * `_` is therefore always argument/value position zero. A predicate may use
+ * any destructured value from the same row. revif changes traversal direction
+ * only; it does not reverse positions inside the returned row.
  *
- *   IRESET slot      # once on loop entry
- *   check:
- *     ITERF slot     # or ITERR; repeated hot operation, exactly 2 bytes
- *     JZ exit
- *     JMP body
- *
- * Value/key destination registers live in the prelinked iterator descriptor.
+ * Filtered iteration reuses the same compact iterator controller. Positional
+ * destination registers live in the prelinked iterator descriptor, so ITERF /
+ * ITERR remain exactly two bytes in the repeated instruction stream.
  */
 final class PASMForeachPass
 {
@@ -63,8 +60,15 @@ final class PASMForeachPass
     {
         $lines=preg_split('/\R/',$asm)?:[];$ints=$varMap['int']??[];$this->bindings=[];
         foreach($this->plans as $plan){
-            $gateReg=$ints[$plan['gate']]??null;$valueReg=$ints[$plan['value']]??null;$keyReg=$plan['key']===null?null:($ints[$plan['key']]??null);
-            if(!is_string($gateReg)||!is_string($valueReg)||($plan['key']!==null&&!is_string($keyReg)))throw new LangException('Collection loop register allocation is incomplete','foreach-regalloc');
+            $gateReg=$ints[$plan['gate']]??null;
+            $valueRegs=[];
+            foreach($plan['values'] as $valueName){
+                $vr=$ints[$valueName]??null;
+                if(!is_string($vr))throw new LangException('Collection row register allocation is incomplete for '.$valueName,'foreach-regalloc');
+                $valueRegs[]=\pasm\PASMBC::regId($vr);
+            }
+            $keyReg=$plan['key']===null?null:($ints[$plan['key']]??null);
+            if(!is_string($gateReg)||($plan['key']!==null&&!is_string($keyReg)))throw new LangException('Collection loop register allocation is incomplete','foreach-regalloc');
 
             $resetFound=false;
             foreach($lines as $i=>$line){
@@ -86,7 +90,14 @@ final class PASMForeachPass
                 $controllerFound=true;break;
             }
             if(!$controllerFound)throw new LangException('Could not locate collection-loop controller for '.$plan['collection'],'foreach-lower');
-            $this->bindings[]=['slot'=>$plan['slot'],'collection'=>$plan['collection'],'value_reg'=>\pasm\PASMBC::regId($valueReg),'key_reg'=>$keyReg===null?null:\pasm\PASMBC::regId($keyReg),'reverse'=>$plan['reverse']];
+            $this->bindings[]=[
+                'slot'=>$plan['slot'],
+                'collection'=>$plan['collection'],
+                'value_reg'=>$valueRegs[0]??null,
+                'value_regs'=>$valueRegs,
+                'key_reg'=>$keyReg===null?null:\pasm\PASMBC::regId($keyReg),
+                'reverse'=>$plan['reverse'],
+            ];
         }
         return implode("\n",$lines);
     }
@@ -95,10 +106,22 @@ final class PASMForeachPass
     {
         $out='';$i=0;$n=strlen($src);
         while($i<$n){
+            $destructure=null;
             $keyword=null;
-            foreach(PASMForeachSurface::keywords() as $candidate){
-                if($this->wordAt($src,$i,$candidate)){$keyword=$candidate;break;}
+
+            // Exact row-binding prefix: _, no1, no2 = forif (...)
+            $rest=substr($src,$i);
+            if(preg_match('/^\s*((?:\$?[A-Za-z_]\w*\s*,\s*)+\$?[A-Za-z_]\w*)\s*=\s*(forif|revif)\b/i',$rest,$dm)){
+                $candidate=strtolower($dm[2]);
+                $destructure=$this->parseDestructure($dm[1]);
+                $keyword=$candidate;
+                $i += strpos($rest,$dm[2]);
+            } else {
+                foreach(PASMForeachSurface::keywords() as $candidate){
+                    if($this->wordAt($src,$i,$candidate)){$keyword=$candidate;break;}
+                }
             }
+
             if($keyword!==null){
                 $j=$this->skipWs($src,$i+strlen($keyword));if($j>=$n||$src[$j]!=='(')throw new LangException("{$keyword} requires (...)",'parse');
                 [$header,$afterHeader]=$this->extractDelimited($src,$j,'(',')');
@@ -106,18 +129,25 @@ final class PASMForeachPass
                 $filtered=PASMForeachSurface::filtered($keyword);
                 [$collection,$key,$value,$predicate]=$this->parseHeader($header,$filtered);
                 if(!isset($this->collections[$collection]))throw new LangException("Unbound collection {$collection}; bind it on Engine before compiling {$keyword}",'foreach-bind');
+                if($destructure!==null&&!$filtered)throw new LangException('Row destructuring prefix is reserved for forif/revif','parse');
+
+                $values=$destructure??[$value];
+                if($destructure!==null&&$values[0]!=='_')throw new LangException('forif/revif row destructuring must bind _ as position zero','parse');
+                if(count($values)>8)throw new LangException('forif/revif row destructuring supports at most 8 positional values','foreach-regalloc');
+
                 $slot=count($this->plans);if($slot>255)throw new LangException('More than 256 collection-loop sites require a wider iterator ABI','foreach-slots');
                 $gate='__jx_iter_gate_'.$this->seq++;
-                $this->plans[]=['slot'=>$slot,'collection'=>$collection,'key'=>$key,'value'=>$value,'gate'=>$gate,'reverse'=>PASMForeachSurface::reverse($keyword)];
+                $this->plans[]=['slot'=>$slot,'collection'=>$collection,'key'=>$key,'value'=>$values[0],'values'=>$values,'gate'=>$gate,'reverse'=>PASMForeachSurface::reverse($keyword)];
 
-                if($filtered)$body=$this->replaceCurrentOperator($body,$value);
+                $current=$values[0];
+                if($filtered)$body=$this->replaceCurrentOperator($body,$current);
                 $loweredBody=$this->lowerBlock($body);
                 if($predicate!==null){
-                    $predicate=$this->replaceCurrentOperator($predicate,$value);
+                    $predicate=$this->replaceCurrentOperator($predicate,$current);
                     $loweredBody='if ('.$predicate.") {\n".$loweredBody."\n}";
                 }
 
-                $out.='$'.$value." = 0;\n";
+                foreach($values as $target)$out.='$'.$target." = 0;\n";
                 if($key!==null)$out.='$'.$key." = 0;\n";
                 $out.='$'.$gate." = 1;\n";
                 $out.='while ($'.$gate.") {\n".$loweredBody."\n}\n";
@@ -126,6 +156,19 @@ final class PASMForeachPass
             if($src[$i]==='"'||$src[$i]==="'"){$q=$src[$i];$start=$i++;while($i<$n){if($src[$i]==='\\'){$i+=2;continue;}if($src[$i]===$q){$i++;break;}$i++;}$out.=substr($src,$start,$i-$start);continue;}
             $out.=$src[$i++];
         }
+        return $out;
+    }
+
+    /** @return list<string> */
+    private function parseDestructure(string $lhs): array
+    {
+        $parts=array_map('trim',explode(',',$lhs));$out=[];
+        foreach($parts as $part){
+            $name=$this->norm($part);
+            if(in_array($name,$out,true))throw new LangException('Duplicate forif/revif destructuring target '.$name,'parse');
+            $out[]=$name;
+        }
+        if(count($out)<2)throw new LangException('Row destructuring requires at least two targets','parse');
         return $out;
     }
 
@@ -142,7 +185,6 @@ final class PASMForeachPass
         if(preg_match('/^\$?([A-Za-z_]\w*)\s+as\s+(?:(?:\$?([A-Za-z_]\w*))\s*=>\s*)?\$?([A-Za-z_]\w*)$/i',$h,$m)){
             $collection=$this->norm($m[1]);$key=isset($m[2])&&$m[2]!==''?$this->norm($m[2]):null;$value=$this->norm($m[3]);
         } elseif($filtered && preg_match('/^\$?([A-Za-z_]\w*)\s+in\s+\$?([A-Za-z_]\w*)$/i',$h,$m)) {
-            // Python-like filtered form: forif ($value in $collection if condition)
             $value=$this->norm($m[1]);$collection=$this->norm($m[2]);$key=null;
         } else {
             $expected=$filtered
@@ -154,27 +196,37 @@ final class PASMForeachPass
         return[$collection,$key,$value,$predicate];
     }
 
-    /**
-     * Replace standalone `_` with the current value. In forif/revif this is the
-     * frame's first implicit value, including when `_` is used as callback arg 0.
-     */
+    /** Replace standalone `_` with the row/frame position-zero variable. */
     private function replaceCurrentOperator(string $expr,string $value): string
+    {
+        if($value==='_')return $this->prefixBareCurrent($expr);
+        $out='';$quote=null;$n=strlen($expr);
+        for($i=0;$i<$n;$i++){
+            $c=$expr[$i];
+            if($quote!==null){$out.=$c;if($c==='\\'&&$i+1<$n){$out.=$expr[++$i];continue;}if($c===$quote)$quote=null;continue;}
+            if($c==='"'||$c==="'"){$quote=$c;$out.=$c;continue;}
+            if($c==='_'){
+                $prev=$i>0?$expr[$i-1]:'';$next=$i+1<$n?$expr[$i+1]:'';
+                $prevIdent=$prev!==''&&(ctype_alnum($prev)||$prev==='_'||$prev==='$');$nextIdent=$next!==''&&(ctype_alnum($next)||$next==='_');
+                if(!$prevIdent&&!$nextIdent){$out.='$'.$value;continue;}
+            }
+            $out.=$c;
+        }
+        return $out;
+    }
+
+    /** Turn bare standalone `_` into PASL variable `$_` without touching identifiers/strings. */
+    private function prefixBareCurrent(string $expr): string
     {
         $out='';$quote=null;$n=strlen($expr);
         for($i=0;$i<$n;$i++){
             $c=$expr[$i];
-            if($quote!==null){
-                $out.=$c;
-                if($c==='\\'&&$i+1<$n){$out.=$expr[++$i];continue;}
-                if($c===$quote)$quote=null;
-                continue;
-            }
+            if($quote!==null){$out.=$c;if($c==='\\'&&$i+1<$n){$out.=$expr[++$i];continue;}if($c===$quote)$quote=null;continue;}
             if($c==='"'||$c==="'"){$quote=$c;$out.=$c;continue;}
             if($c==='_'){
                 $prev=$i>0?$expr[$i-1]:'';$next=$i+1<$n?$expr[$i+1]:'';
-                $prevIdent=$prev!==''&&(ctype_alnum($prev)||$prev==='_'||$prev==='$');
-                $nextIdent=$next!==''&&(ctype_alnum($next)||$next==='_');
-                if(!$prevIdent&&!$nextIdent){$out.='$'.$value;continue;}
+                $prevIdent=$prev!==''&&(ctype_alnum($prev)||$prev==='_'||$prev==='$');$nextIdent=$next!==''&&(ctype_alnum($next)||$next==='_');
+                if(!$prevIdent&&!$nextIdent){$out.='$_';continue;}
             }
             $out.=$c;
         }
