@@ -51,18 +51,18 @@ The repeat path performs no PHP object lookup, method-name lookup, alias lookup,
 JXL deliberately reduces the seven public Bag disciplines to a small number of machine-memory laws.
 
 ```text
-DENSE
+DENSE VECTOR MEMORY
   Record
   Vector
   Stack
 
-RING
+RING VECTOR MEMORY
   Queue
   Deque
 
-ORDERED ARRAY
-  Set
-  Map
+ORDERED KEYED VECTOR MEMORY
+  Set = Vector<Key>
+  Map = Vector<Entry>, Entry=[Key,Value]
 ```
 
 ## Record
@@ -112,114 +112,110 @@ Only Queue and Deque require a power-of-two capacity/mask.
 
 ---
 
-# Map is always a 2D array
+# Map is a keyed Vector
 
-This is a canonical JX invariant.
+This is the active canonical JX Map invariant.
 
-A Map is not a hash table. It is not defined by buckets, probing, collisions, tombstones, or load factor.
-
-Its native u64 representation is two synchronized dense dimensions:
+A Map is not a hash table and is not a secondary lookup structure. It is one ordered contiguous Vector whose elements carry both the key and the value:
 
 ```text
-keys[]
-values[]
+Map = Vector<Entry>
+Entry = [key, value]
 ```
 
-Conceptually:
+For the current fixed-u64 native backend:
 
 ```text
-Map =
-[
-    [key0, value0],
-    [key1, value1],
-    [key2, value2],
-    ...
-]
+Entry size = 16 bytes
+
+base +  0 : key0
+base +  8 : value0
+base + 16 : key1
+base + 24 : value1
+base + 32 : key2
+base + 40 : value2
+...
 ```
 
-The split native representation keeps key search dense and avoids pulling values through cache until a key position is known:
+Therefore:
 
 ```text
-keys:   [ K0 ][ K1 ][ K2 ][ K3 ] ...
-values: [ V0 ][ V1 ][ V2 ][ V3 ] ...
-                 ^
-                 same index
+entry(i) = base + i * 16
+key(i)   = entry(i) + 0
+value(i) = entry(i) + 8
 ```
 
-The keys are maintained in ascending u64 order.
+The entries remain sorted by unsigned u64 key.
 
 ## PUT
 
-`PUT(key, value)` has exactly two semantic outcomes:
+`PUT(key, value)` has exactly two outcomes:
 
 ```text
 position = FIND(key)
 
 if found:
-    values[position] = value
+    Entry[position].value = value
 else:
-    INSERT(position, key, value)
+    Vector.insert(position, Entry(key,value))
 ```
 
-Therefore an existing key overwrites its value memory. A missing key instantiates new synchronized key/value memory.
+An existing key therefore performs one value-cell overwrite. It does not allocate another key position.
 
 Example:
 
 ```text
 before:
-keys:   [ 4 ][ 17 ][ 31 ]
-values: [ A ][ B  ][ C  ]
+[ [4,A] ][ [17,B] ][ [31,C] ]
 
-PUT(17, X)
+PUT(17,X)
 
-keys:   [ 4 ][ 17 ][ 31 ]
-values: [ A ][ X  ][ C  ]
+[ [4,A] ][ [17,X] ][ [31,C] ]
 ```
-
-No new key position is created.
 
 For a missing key:
 
 ```text
-PUT(22, D)
+PUT(22,D)
 
-keys:   [ 4 ][ 17 ][ 22 ][ 31 ]
-values: [ A ][ B  ][ D  ][ C  ]
+[ [4,A] ][ [17,B] ][ [22,D] ][ [31,C] ]
 ```
+
+The tail movement is ordinary Vector insertion, except the element width is 16 bytes instead of 8 bytes.
 
 ## Other Map operations
 
 ```text
-GET      FIND key -> values[index]
+GET      FIND key -> Entry[index].value
 HAS      FIND key -> found boolean
-EMPLACE  FIND key -> keep existing value, or insert missing key/value
-REMOVE   FIND key -> remove keys[index] and values[index]
-RESERVE  verify dense array capacity
+EMPLACE  FIND key -> keep existing value, or insert missing Entry(key,value)
+REMOVE   FIND key -> remove one complete Entry and pack tail left
+RESERVE  verify logical Entry capacity
 ```
 
-Native operations:
+Active native Map operations are:
 
 ```text
-jx_sorted_find_u64
-jx_map_emplace_u64
-jx_map_get_u64
-jx_map_put_u64
-jx_map_has_u64
-jx_map_remove_u64
-jx_sorted_reserve_u64
+jx_map_vector_find_u64
+jx_map_vector_emplace_u64
+jx_map_vector_get_u64
+jx_map_vector_put_u64
+jx_map_vector_has_u64
+jx_map_vector_remove_u64
 ```
 
 ---
 
-# Set is the 1D Map law
+# Set is the one-word keyed Vector
 
-A Set is the unique-key one-dimensional form of the same ordered-array machinery:
+A Set is the unique-key one-dimensional form:
 
 ```text
-Set = [ key0, key1, key2, ... ]
+Set = Vector<Key>
+[ key0, key1, key2, ... ]
 ```
 
-The array stays sorted and contains each value at most once.
+The Vector stays sorted and contains each value at most once.
 
 `ADD(value)`:
 
@@ -229,10 +225,10 @@ position = FIND(value)
 if found:
     drop the insertion
 else:
-    INSERT(position, value)
+    Vector.insert(position, value)
 ```
 
-`HAS` and `REMOVE` use the same `FIND` primitive.
+`HAS` and `REMOVE` use the same ordered position law.
 
 Native operations:
 
@@ -248,69 +244,67 @@ jx_sorted_reserve_u64
 
 # FIND: marquee locality plus lower_bound
 
-Map and Set share one native position primitive:
+Map and Set both use cursor locality followed by lower-bound search.
 
-```text
-jx_sorted_find_u64
-```
+For Map, the finder compares `Entry.key`. For Set it compares the key word directly.
 
-It returns:
+The finder returns:
 
 ```text
 index
 found / absent
 ```
 
-The implementation uses two paths.
-
 ## Local / sequential access
 
-Each admitted Map/Set may carry a locality cursor. The native finder first checks:
+Each admitted Map/Set may carry a locality cursor. The finder first checks:
 
 ```text
 cursor
 cursor + 1
 ```
 
-This implements the marquee behavior for ordered/sequential traffic: a walk through nearby positions does not restart a full search each time.
+This implements the marquee behavior for ordered/sequential traffic: a walk through nearby Vector positions does not restart a full search each time.
 
 ## Random access
 
-If the key is not at the current or next cursor position, the implementation falls back to unsigned u64 `lower_bound` binary search.
-
-Thus the same array supports:
+If the key is not at the current or next position, the implementation falls back to unsigned u64 `lower_bound` binary search.
 
 ```text
 ordered/local access -> cursor walk
 random access        -> binary lower_bound
 ```
 
-Monotonic insertion has an additional last-key/append fast path, so adding already ascending keys does not binary-search or shift the array.
+Monotonic insertion has an additional last-key/append fast path, so adding ascending Map keys simply appends a complete 16-byte Entry.
 
 ---
 
 # Insertion and removal
 
-A missing key is inserted at its ordered position. Dense array tails are shifted in assembly.
-
-For Map, the key and value dimensions move in lockstep.
+A missing Map key is inserted at its ordered Vector position. Dense tails are shifted in assembly as complete entries:
 
 ```text
-keys:   shift right
-values: shift right
-write key/value
+before:
+[Entry0][Entry1][Entry2][Entry3]
+                 ^ insert
+
+move complete 16-byte entries right
+write key
+write value
 count++
 ```
 
-Removal performs the corresponding left shift.
+Removal performs the corresponding complete-entry left shift.
 
-This keeps the canonical data itself simple and contiguous. Mutation-heavy random middle insertion can later be optimized with reserved gaps/packed-array techniques without changing the rule that Map is a 2D array and Set is a 1D unique array.
+Set performs the same operation with an 8-byte element width.
+
+Mutation-heavy random middle insertion can later be optimized with reserved gaps/packed-array techniques without changing the canonical law that Map is `Vector<Entry>`.
 
 ---
 
 # No hash semantics
 
-Canonical JXL Map/Set execution does **not** contain a current Map probe entry point and does not use:
+Canonical JXL Map/Set execution does **not** use:
 
 ```text
 hash buckets
@@ -322,21 +316,54 @@ rehashing
 hash-slot state words
 ```
 
-Native target ID 28 is `jx_sorted_reserve_u64`.
+Native target ID 28 remains `jx_sorted_reserve_u64`.
 
-For binary compatibility only, the assembly still exports the old symbol name:
+For binary compatibility only, the assembly still exports:
 
 ```text
 jx_hash_reserve_u64
 ```
 
-as an alias to the same sorted-array reserve routine. New compiler metadata and the numeric native target table do not use the legacy name. The alias performs no hashing.
+as an alias to the same sorted-array reserve routine. It performs no hashing.
+
+---
+
+# Split-array Map retained for A/B comparison
+
+The previous ordered split representation:
+
+```text
+keys[]
+values[]
+```
+
+was already dramatically faster than the older hash implementation. Its assembly functions remain linked under the older names:
+
+```text
+jx_map_emplace_u64
+jx_map_get_u64
+jx_map_put_u64
+jx_map_has_u64
+jx_map_remove_u64
+```
+
+They are **not selected by active native Map IDs 18 through 22**.
+
+They remain in the same runtime image specifically so later benchmarks can compare:
+
+```text
+split ordered arrays     keys[] + values[]
+versus
+keyed Vector             Entry[] = [key,value][key,value]...
+```
+
+without comparing different commits, toolchains, or surrounding executor implementations.
 
 ---
 
 # Runtime binding ABI
 
-The admission record remains 80 bytes, so the Map/Set correction does not require a new JXL instruction format.
+The admission record remains 80 bytes, so the keyed-Vector change does not require a new JXL instruction format.
 
 ```text
 +00 native function pointer
@@ -353,16 +380,16 @@ The admission record remains 80 bytes, so the Map/Set correction does not requir
 
 Interpretation by discipline:
 
-| Field | Dense | Queue/Deque | Set | Map |
+| Field | Dense | Queue/Deque | Set | Active Map |
 |---|---|---|---|---|
-| `base` | elements | ring | keys[] | keys[] |
+| `base` | elements | ring | `Key[]` | `Entry[]` |
 | `head` | optional | head index | locality cursor | locality cursor |
-| `tail` | count | tail index | count | count |
-| `capacity` | slots | ring capacity | array capacity | array capacity |
+| `tail` | count | tail index | count | Entry count |
+| `capacity` | slots | ring capacity | key capacity | Entry capacity |
 | `mask` | 0 | ring mask | 0 | 0 |
-| `aux` | helper | helper | none | values[] |
+| `aux` | helper | helper | none | unused |
 
-Map/Set capacities are ordinary array capacities. They do not have to be powers of two and their prepared mask is zero.
+A v1 Map resolver allocates `capacity * 16` bytes for its `Entry[]` storage. Map/Set capacities remain ordinary logical array capacities; they do not have to be powers of two.
 
 ---
 
@@ -401,7 +428,7 @@ Container opcodes remain:
 50 SYNC
 ```
 
-The existing Map/Set opcode and native-ID assignments remain stable. The memory law behind their native symbols changed; prepared code does not need a new instruction width or opcode family.
+The existing Map/Set opcode and native-ID assignments remain stable. The physical Map representation changed; prepared instruction width and opcode numbering did not.
 
 ---
 
@@ -416,14 +443,14 @@ jx_jxl_container_native_count
 
 Admission uses numeric target IDs rather than runtime symbol-name lookup.
 
-Map/Set operation IDs stay compatible:
+The active assignments are:
 
 ```text
-18 MAP_EMPLACE
-19 MAP_GET
-20 MAP_PUT
-21 MAP_HAS
-22 MAP_REMOVE
+18 MAP_EMPLACE -> jx_map_vector_emplace_u64
+19 MAP_GET     -> jx_map_vector_get_u64
+20 MAP_PUT     -> jx_map_vector_put_u64
+21 MAP_HAS     -> jx_map_vector_has_u64
+22 MAP_REMOVE  -> jx_map_vector_remove_u64
 23 SET_ADD
 24 SET_HAS
 25 SET_REMOVE
@@ -451,11 +478,9 @@ The existing rule remains:
 
 The hot assembly does not allocate memory.
 
-`RESERVE` checks whether the prepared region has enough capacity. Failure takes a cold/prelinked growth path outside the repeat sequence.
+`RESERVE` checks whether the prepared region has enough logical capacity. Failure takes a cold/prelinked growth path outside the repeat sequence.
 
-For Map, growth must preserve synchronized `keys[]` and `values[]` dimensions. For Set, it grows only `keys[]`.
-
-There is no Map/Set rehash step.
+For the active Map, growth reallocates one `Entry[]` Vector. Set grows one `Key[]` Vector. There is no Map/Set rehash step.
 
 ---
 
@@ -467,21 +492,22 @@ Build the native runtime:
 bash native/x86_64/build-jxl-containers.sh
 ```
 
-Run the prepared contract test:
+Run the prepared contract tests:
 
 ```bash
 php -d zend.assertions=1 -d assert.exception=1 test-jx-jxl-containers.php
+php test-jx-bag-containers.php
+php test-pasm-bag-hotops.php
+bash test-jx-jxl-prepared-program-native.sh
 ```
 
-The contract checks include:
+The native shell test includes a dedicated keyed-Vector Map harness that goes through the numeric native target table and verifies:
 
-- Map/Set resolve to ordered-array native targets,
-- Map/Set accept non-power-of-two capacities,
-- Map/Set prepared masks are zero,
-- Queue/Deque still prepare ring masks,
-- `jx_sorted_find_u64` and `jx_sorted_reserve_u64` exist,
-- no current `jx_map_probe_u64` entry point exists,
-- Set aliases still disappear before JXL,
-- fixed six-byte instruction encoding remains unchanged.
+- out-of-order insertion,
+- ordered Entry layout,
+- overwrite-in-place,
+- emplace-does-not-overwrite,
+- lookup and missing-key behavior,
+- complete-entry removal/packing.
 
-The native benchmark also performs an ordered-array correctness preflight before recording timings. It verifies out-of-order insertion, Map overwrite, Set uniqueness, lookup, and removal through the real six-byte JXL executor.
+The split-vs-keyed-Vector performance comparison is intentionally separate. The old split assembly remains available so that benchmark can be performed afterward without reconstructing an older runtime.
