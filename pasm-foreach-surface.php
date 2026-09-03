@@ -16,6 +16,14 @@ use InvalidArgumentException;
  * is a body-entry predicate, so a rejected value advances to the next element
  * rather than creating a second iterator or container walk.
  *
+ * `_` is filtered-frame value zero: the current collection value. It is valid
+ * in the predicate and body, including callback position zero:
+ *
+ *   callback(_, $key)
+ *
+ * lowers with the current value as the first callback argument. `revif` only
+ * reverses traversal; it does not change the meaning or position of `_`.
+ *
  * The repeated executable operation remains the compact iterator ABI:
  *   foreach / forif -> ITERF <slot>
  *   reveach / revif -> ITERR <slot>
