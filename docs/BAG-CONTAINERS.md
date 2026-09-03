@@ -13,50 +13,105 @@ record   vector stack  queue  deque  map   set
 
 ## Canonical rule
 
-A coder describes one Bag and its discipline. The canonical object remains the source of truth. The compiler/runtime may choose a disposable native shadow appropriate to the discipline and target.
+A coder describes one Bag and its discipline. The canonical object remains the source of truth. The compiler/runtime may keep a prepared native representation appropriate to that discipline.
 
-```jx
-bag Inventory {
-    type: vector
-    of: Item
-}
-
-bag Jobs {
-    type: queue
-    of: Task
-}
-
-bag State {
-    type: record
-    health: int
-    phi: int
-    level: int
-}
-```
-
-## Hot state versus canonical state
-
-`jx-bag-containers.php` intentionally does **not** sign/commit the Bag on every push, get, pop, enqueue, dequeue, or emplace. Hot operations remain in target-native state. `checkpoint()` is the explicit boundary that serializes the current canonical container image through the existing Bag handshake. `restore()` reconstructs hot state from that checkpoint.
-
-> Be native while working. Become canonical at the boundary.
-
-## Disciplines and native shadows
+The native representations are deliberately array-centered:
 
 | Discipline | Hot/native strategy | Canonical meaning |
 |---|---|---|
-| record | fixed dense slots / fixed field offsets | named fields |
-| vector | contiguous indexed storage | ordered sequence |
-| stack | contiguous storage + LIFO law | stack |
-| queue | pointer/ring FIFO | FIFO queue |
-| deque | double-ended pointer/ring | deque |
-| map | target-native hash | keyed values |
-| set | target-native hash set | unique values |
+| record | fixed dense slots | named fields |
+| vector | contiguous indexed array | ordered sequence |
+| stack | contiguous array + LIFO law | stack |
+| queue | circular/ring array | FIFO queue |
+| deque | double-ended circular/ring array | deque |
+| map | **ordered 2D array: keys[] + values[]** | keyed values |
+| set | **ordered 1D unique array** | unique values |
 
-`nativeLayout()` exposes the compiler hint for the Canonical Shadow Machine. It is not the canonical data itself.
+Map and Set are not canonical hash tables.
+
+> **Containers are arrangements of memory, not wrapper objects around unrelated algorithms.**
+
+## Hot state versus canonical state
+
+`jx-bag-containers.php` does not sign/commit the Bag on every operation. `checkpoint()` is the explicit boundary that serializes the current canonical container image through the existing Bag handshake. `restore()` reconstructs live state from that checkpoint.
+
+> **Be native while working. Become canonical at the boundary.**
+
+## Map invariant
+
+A Map is always a two-dimensional key/value array.
+
+Conceptually:
+
+```text
+[
+  [key0, value0],
+  [key1, value1],
+  [key2, value2]
+]
+```
+
+The native representation splits those dimensions for dense key searching:
+
+```text
+keys[]
+values[]
+```
+
+The same index identifies one Map entry.
+
+`PUT(key,value)` means:
+
+```text
+position = FIND(key)
+
+found:
+    overwrite values[position]
+
+absent:
+    insert key at keys[position]
+    insert value at values[position]
+```
+
+There is no bucket, collision, probe, tombstone, load-factor, or rehash meaning in JX Map semantics.
+
+## Set invariant
+
+Set is the one-dimensional unique form of the same ordered-array law:
+
+```text
+[value0, value1, value2, ...]
+```
+
+`ADD(value)` means:
+
+```text
+position = FIND(value)
+
+found:
+    drop duplicate
+
+absent:
+    insert value at position
+```
+
+## FIND and marquee locality
+
+Map and Set use an ordered position search. The current native implementation keeps a locality cursor:
+
+```text
+try cursor
+try cursor + 1
+otherwise lower_bound binary search
+```
+
+That makes sequential/local access behave like a marquee through the array while random access still has logarithmic position search.
+
+Monotonic insertion also gets a direct append/last-key fast path.
 
 ## Bag hot-operation mnemonics
 
-PASM/JX uses a small canonical command family. Readable aliases resolve through `jx-alias.php` at parse/link time and do not survive into the executable shadow.
+PASM/JX uses a small canonical command family. Readable aliases resolve before executable JXL and do not survive into the hot instruction stream.
 
 | Canonical | Meaning | Common aliases |
 |---|---|---|
@@ -66,13 +121,11 @@ PASM/JX uses a small canonical command family. Readable aliases resolve through 
 | `BPUSHB` | push deque back | `PUSHB`, `PUSHBACK`, `DPUSHB` |
 | `BPOPF` | pop deque front | `POPF`, `POPFRONT`, `SHIFT`, `DPOPF` |
 | `BPOPB` | pop deque back | `POPB`, `POPBACK`, `DPOPB` |
-| `BEMPLACE` | calculate insertion address once and insert | `EMPLACE`, `INSERT`, `PACKIN`, `PUTIFABSENT`, `ADDIFABSENT` |
+| `BEMPLACE` | find insertion position once and insert if absent | `EMPLACE`, `INSERT`, `PACKIN`, `PUTIFABSENT`, `ADDIFABSENT` |
 | `BPEEK` | read current element without removal | `PEEK`, `TOP`, `FRONT` |
 | `BRESERVE` | reserve a hot operation region | `RESERVE`, `ENSURE` |
-| `BDIRTY` | mark native shadow dirty once | `DIRTY` |
+| `BDIRTY` | mark native state dirty once | `DIRTY` |
 | `BSYNC` | cross canonical Bag boundary | `SYNC`, `CHECKPOINT`, `COMMITBAG` |
-
-The key rule is **one canonical opcode, many compile-time names**. Aliases exist for programmer vocabulary only; the runtime never performs an alias lookup.
 
 ### Discipline-aware meaning
 
@@ -83,87 +136,48 @@ queue:  BPUSH = enqueue     BPOP = dequeue
 deque:  BPUSH = push-back   BPOP = pop-front
 ```
 
-Record Bags do not use cursor push/pop. Their named fields resolve once to dense slots and then fixed native offsets.
-
-## Two-instruction hot path
-
-For fixed-width sequential Bags, the native lowering keeps cursor/head/tail registers resident across a hot region.
-
-```asm
-; BPUSH vector/stack
-mov [cursor], value
-add cursor, width
-```
-
-```asm
-; BPOP vector/stack
-sub cursor, width
-mov value, [cursor]
-```
-
-```asm
-; BPUSH queue/deque tail
-mov [tail], value
-add tail, width
-```
-
-```asm
-; BPOP queue/deque head
-mov value, [head]
-add head, width
-```
-
-Bounds and growth are hoisted. `BRESERVE` guards a region:
-
-```asm
-lea tmp, [cursor+bytes]
-cmp tmp, end
-ja .bag_grow
-```
-
-After that guard, each push/pop in the reserved region remains two instructions. Wrap, reallocation, underflow recovery, canonical synchronization and revision updates are out-of-line slow paths.
+Record Bags resolve named fields to dense slots.
 
 ## BEMPLACE
 
-`BEMPLACE` exists so an insertion does not degrade into a loop of pushes/pops.
+### Vector / Stack
 
-### Vector / stack
-
-The insertion address is calculated once; the rest of the tail is packed over in one overlap-safe move; the new value is stored once:
-
-```asm
-lea insert, [base+index*width]
-memmove [insert+width], [insert], cursor-insert
-mov [insert], value
-```
-
-The cursor advances once after the bulk move. The PHP canonical fallback uses one `array_splice()` operation to preserve the same semantic shape.
+Calculate the insertion address once, move the tail once, and store once.
 
 ### Map
 
-Map emplace is insert-if-absent. The native backend probes once to either the existing entry or insertion address:
+Map emplace means insert-if-absent on the ordered 2D array:
 
-```asm
-call map_probe_insert_address
-jc .exists
-mov [slot], key_value
+```text
+i = FIND(key)
+if found: return values[i]
+insert keys[i]
+insert values[i]
 ```
-
-The canonical fallback is `MapBag::emplace(key, value)`: an existing value is returned untouched; a missing key is inserted once.
 
 ### Set
 
-Set emplace uses the same probe-address idea without a value payload:
+Set emplace uses the same ordered position rule:
 
-```asm
-call set_probe_insert_address
-jc .exists
-mov [slot], key
+```text
+i = FIND(value)
+if found: return existing value
+insert value at i
 ```
 
-The canonical fallback is `SetBag::emplace(value)`. Duplicate insertion leaves the Set unchanged.
+Duplicate insertion leaves the Set unchanged.
 
-This makes vector, stack, map, and set all share one canonical `BEMPLACE` operation while retaining discipline-specific machine strategy.
+## PHP Bag mirror
+
+The PHP Bag implementation now mirrors the canonical memory law rather than advertising a different backend:
+
+- `MapBag` stores synchronized `keys[]` and `values[]` lists internally.
+- `SetBag` stores one ordered unique value list.
+- Both use cursor locality plus lower-bound search.
+- Map checkpoint payloads contain explicit key and value dimensions.
+- Legacy associative Map checkpoint payloads are accepted during restore and immediately converted to the 2D representation.
+
+This PHP layer is a semantic/reference implementation. The native prepared JXL path remains the performance target.
 
 ## Dirty/revision rule
 
@@ -177,7 +191,7 @@ Checkpoints use:
 jx.bag.container/1
 ```
 
-and include Bag identity, discipline, optional element type, revision, count, native-layout hint and canonical payload.
+and include Bag identity, discipline, optional element type, revision, count, layout hint, and canonical payload.
 
 ## RecordBag and fixed offsets
 
@@ -189,20 +203,49 @@ phi    -> slot 1
 level  -> slot 2
 ```
 
-A native ELF/EXE shadow can then lower those slots to `offsetof()`/fixed offsets. The earlier whole-language native microbenchmark measured fixed Bag field offsets at roughly 12x the repeated-name-resolution baseline. That measurement applies to the native compiled shadow benchmark, not to every PHP Bag operation.
+A native shadow can lower those slots to fixed offsets.
 
 ## Queue and Deque
 
-Queue/deque native shadows should prefer register-resident head/tail pointers in hot regions. Wrap handling is an out-of-line path. A power-of-two ring remains the fallback representation where pointer residency is not profitable or when a target backend prefers mask indexing.
+Queue/Deque remain power-of-two rings in the current native JXL path. They are the only container disciplines that require the prepared capacity mask.
 
-## Tests
+## Native Map/Set ABI
+
+For u64 JXL execution:
+
+```text
+Set:
+  base -> keys[]
+  head -> locality cursor
+  tail -> count
+  mask -> 0
+
+Map:
+  base -> keys[]
+  aux  -> values[]
+  head -> locality cursor
+  tail -> count
+  mask -> 0
+```
+
+The shared primitives are:
+
+```text
+jx_sorted_find_u64
+jx_sorted_reserve_u64
+```
+
+with discipline-specific Map/Set get/put/emplace/has/remove routines built around them.
+
+## Tests and benchmarks
 
 ```bash
 php test-jx-bag-containers.php
 php test-pasm-bag-hotops.php
-php test-jx-alias.php
-php test-jx-lang-alias.php
+php -d zend.assertions=1 -d assert.exception=1 test-jx-jxl-containers.php
 php benchmark-jx-bag-containers.php 1000000 7
+php benchmark-jxl-containers.php 1000000 9 2
+php benchmark-container-suite.php 1000000 9 2
 ```
 
-The older PASM container implementation remains useful as historical/runtime evidence while JX converges container meaning on Bags.
+The benchmark contract must keep Map and Set array semantics intact while comparing PHP, PASM, Bag, and prepared JXL execution.
