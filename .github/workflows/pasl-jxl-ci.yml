@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'pasm-jxl.php'
+      - 'pasm-run.php'
       - 'pasm-lang*.php'
       - 'pasm-loop-fuser.php'
       - 'pasm-bytecode.php'
@@ -13,6 +14,7 @@ on:
   pull_request:
     paths:
       - 'pasm-jxl.php'
+      - 'pasm-run.php'
       - 'pasm-lang*.php'
       - 'pasm-loop-fuser.php'
       - 'pasm-bytecode.php'
@@ -32,6 +34,7 @@ jobs:
       - name: PHP syntax
         run: |
           php -l pasm-jxl.php
+          php -l pasm-run.php
           php -l pasm-loop-fuser.php
           php -l pasm-lang-engine.php
           php -l test-pasm-jxl.php
