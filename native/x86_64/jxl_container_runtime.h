@@ -18,6 +18,7 @@ extern "C" {
  * The field order is part of the x86-64 assembly ABI. Keep synchronized with:
  *   native/x86_64/jxl_containers.asm
  *   native/x86_64/jxl_container_executor.asm
+ *   native/x86_64/jxl_container_stream.asm
  */
 typedef struct JxJxlContainerBinding {
     void    *native_fn;       /* +00 already-resolved assembly routine */
@@ -52,14 +53,9 @@ enum {
 
 /* Execute exactly one fixed-width JXL container instruction.
  *
- * pc            current instruction
- * bindings      admitted operation-specific runtime binding table
- * window8       current eight-entry JXL register window
- * binding_count number of admitted bindings
- *
  * On success RAX/return value is next pc. The assembly ABI also exposes CF for
- * failure/slow-path; normal C callers should wrap this through the native JXL
- * host rather than relying on C to observe flags directly.
+ * failure/slow-path; normal C callers should prefer the stream API below when
+ * executing a prepared container region.
  */
 const uint8_t *jx_jxl_container_execute(
     const uint8_t *pc,
@@ -68,8 +64,35 @@ const uint8_t *jx_jxl_container_execute(
     uint64_t binding_count
 );
 
-/* Direct native routines are public so admission can build a native-id table
- * without string lookup. Their machine ABI is RDI=binding, RSI=arg0,
+/* Execute [begin,end) as one resident prepared-container region.
+ *
+ * begin/end      exact six-byte-aligned JXL stream bounds
+ * bindings       admitted operation-specific runtime binding table
+ * window8        current eight-qword JXL register window
+ * binding_count  admitted binding count
+ *
+ * Returns 0 on exact completion, -1 for malformed/truncated JXL or an invalid
+ * prepared reference, and -2 when an admitted native operation requests its
+ * slow/failure path. The loop itself is pure x86-64 assembly and keeps stream
+ * state resident across all operations.
+ */
+int jx_jxl_container_execute_stream(
+    const uint8_t *begin,
+    const uint8_t *end,
+    JxJxlContainerBinding *bindings,
+    uint64_t window8[8],
+    uint64_t binding_count
+);
+
+/* Numeric admission table. Slot zero is invalid; IDs 1..count are callable
+ * assembly targets. Serialized JXCBIND1 records carry the numeric native ID,
+ * so admission never needs native symbol-name lookup.
+ */
+extern void *jx_jxl_container_native_table[];
+extern const uint64_t jx_jxl_container_native_count;
+
+/* Direct native routines are public so admission can bind them without a
+ * higher-level container runtime. Their machine ABI is RDI=binding, RSI=arg0,
  * RDX=arg1, RAX=result, CF=status.
  */
 void jx_vector_push_u64(void);
