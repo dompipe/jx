@@ -4,7 +4,13 @@ namespace pasm\lang;
 require_once __DIR__ . '/pasm-iterator-abi.php';
 require_once __DIR__ . '/pasm-jxl.php';
 
-/** PASL execution engine with JXL as the canonical prepared target. */
+/**
+ * PASL execution/development engine.
+ *
+ * compile()/runCode() retain the proven in-memory prepared PASM representation
+ * for compatibility and tests. Public .jxl files are native Jinx executable
+ * images and must be produced by the native encoder pipeline.
+ */
 final class Engine
 {
     /** @var array<string,array{kind:'vector'|'map',keys:list<int|string>,values:list<mixed>}> */
@@ -20,7 +26,7 @@ final class Engine
     /**
      * Bind a source-visible collection name before compiling collection loops.
      * Rich tuple/row source syntax is normalized by the PHP front end before
-     * JXL/PASM preparation; PASM iteration itself remains scalar + optional key.
+     * PASM preparation; PASM iteration itself remains scalar + optional key.
      */
     public function bindCollection(string $name, iterable $collection): self
     {
@@ -55,14 +61,18 @@ final class Engine
         return $this->collections[$this->norm($name)]['kind'] ?? null;
     }
 
+    /** Return the internal prepared PASM stream used by compatibility tests/runtime. */
     public function compile(string $source): string
     {
         $compiler = new PASMFusedCompiler($this->optimize,$this->verbose,PASMLoopSpace::DEFAULT_MAX_DEPTH,array_keys($this->collections));
-        $code = $compiler->compileToJxl($source);
+        $code = $compiler->compileToJxl($source); // historical internal method name
         $this->lastIteratorBindings = $compiler->iteratorBindings();
         return $code;
     }
 
+    public function compilePrepared(string $source): string { return $this->compile($source); }
+
+    /** @deprecated Historical API name. This does not define the public .jxl file contract. */
     public function compileJxl(string $source): string { return $this->compile($source); }
 
     public function compilePbc(string $source): string
@@ -73,11 +83,21 @@ final class Engine
         return $code;
     }
 
+    /**
+     * File output from the PASL development engine is PBC. Native .jxl/.jll and
+     * resource .jxb outputs belong to their dedicated compiler/packer tools.
+     */
     public function compileFile(string $source, string $outPath): void
     {
+        $ext = strtolower(pathinfo($outPath,PATHINFO_EXTENSION));
+        if ($ext === '') { $outPath .= '.pbc'; $ext = 'pbc'; }
+        if (in_array($ext,['jxl','jll','jxb'],true)) {
+            throw new LangException(".{$ext} is not a PASL prepared-file target; use the native JX compiler/resource packer",'io');
+        }
+        if ($ext !== 'pbc') throw new LangException('PASL file output must use .pbc','io');
+
         $compiler = new PASMFusedCompiler($this->optimize,$this->verbose,PASMLoopSpace::DEFAULT_MAX_DEPTH,array_keys($this->collections));
-        if (strtolower(pathinfo($outPath,PATHINFO_EXTENSION)) === 'pbc') $compiler->compileToFile($source,$outPath);
-        else { if(pathinfo($outPath,PATHINFO_EXTENSION)==='')$outPath.='.jxl'; $compiler->compileToJxlFile($source,$outPath); }
+        $compiler->compileToFile($source,$outPath);
         $this->lastIteratorBindings = $compiler->iteratorBindings();
     }
 
@@ -86,6 +106,8 @@ final class Engine
     public function runFile(string $path): mixed
     {
         $bytes=file_get_contents($path);if($bytes===false)throw new LangException("Cannot read {$path}",'io');
+        // Historical prepared streams remain byte-detectable for compatibility,
+        // but the ordinary persisted PASL file contract is .pbc.
         if(\pasm\PASMJxlCompiler::isJxl($bytes))return$this->runCode($bytes);
         $pbc=PbcFile::read($path);return$this->runPasmCode($pbc['code']);
     }
