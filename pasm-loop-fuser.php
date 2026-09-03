@@ -4,6 +4,7 @@ namespace pasm\lang;
 
 require_once __DIR__ . '/pasm-surface-loops.php';
 require_once __DIR__ . '/pasm-foreach-pass.php';
+require_once __DIR__ . '/pasm-jxl.php';
 
 /**
  * Post-lowering loop-block fuser.
@@ -81,7 +82,7 @@ final class PASMLoopFuser
 /**
  * Active compiler facade:
  * rich loop rhetoric -> collection-loop lowering -> bounded compiler ->
- * compact iterator controller rewrite -> loop fusion -> packed PASM.
+ * compact iterator controller rewrite -> loop fusion -> prepared JXL.
  */
 final class PASMFusedCompiler
 {
@@ -121,6 +122,24 @@ final class PASMFusedCompiler
         return $asm;
     }
 
+    /** Canonical PASL prepared target: six-byte PASM-profile JXL cells. */
+    public function compileToJxl(string $source): string
+    {
+        $asm = $this->compile($source);
+        try { return (new \pasm\PASMJxlCompiler())->compile($asm); }
+        catch (\Throwable $e) { throw new LangException('JXL assemble failed: ' . $e->getMessage(), 'assemble-jxl', null, $e); }
+    }
+
+    public function compileToJxlFile(string $source, string $path): string
+    {
+        $code = $this->compileToJxl($source);
+        $dir = dirname($path);
+        if ($dir !== '.' && !is_dir($dir) && !mkdir($dir,0775,true) && !is_dir($dir)) throw new LangException("Cannot create {$dir}",'io');
+        if (file_put_contents($path,$code)!==strlen($code)) throw new LangException("Cannot write {$path}",'io');
+        return $code;
+    }
+
+    /** Legacy compatibility target. New PASL executables should use .jxl. */
     public function compileToBytecode(string $source): string
     {
         $asm = $this->compile($source);
@@ -129,8 +148,10 @@ final class PASMFusedCompiler
         catch (\Throwable $e) { throw new LangException('Assemble failed: ' . $e->getMessage(), 'assemble', null, $e); }
     }
 
+    /** Legacy .pbc writer retained for compatibility. */
     public function compileToFile(string $source, string $path): string
     {
+        if (strtolower(pathinfo($path,PATHINFO_EXTENSION)) === 'jxl') return $this->compileToJxlFile($source,$path);
         $code = $this->compileToBytecode($source);
         $flags = $this->optimize ? PbcFile::FLAG_OPTIMIZED : 0;
         PbcFile::write($path, $code, $flags);
