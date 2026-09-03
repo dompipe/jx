@@ -17,6 +17,7 @@ extern "C" {
  *
  * The field order is part of the x86-64 assembly ABI. Keep synchronized with:
  *   native/x86_64/jxl_containers.asm
+ *   native/x86_64/jxl_map_vector.asm
  *   native/x86_64/jxl_container_executor.asm
  *   native/x86_64/jxl_container_stream.asm
  *
@@ -25,19 +26,22 @@ extern "C" {
  *   queue/deque:         base = ring array, head/tail = monotonic indexes
  *   set:                 base = ordered unique keys[], head = locality cursor,
  *                        tail = element count
- *   map:                 base = ordered keys[], aux = synchronized values[],
+ *   map:                 base = ordered Entry[] where Entry=[u64 key,u64 value],
  *                        head = locality cursor, tail = element count
+ *
+ * Map is therefore a keyed Vector, not a secondary lookup structure. In v1 an
+ * Entry is 16 bytes. aux is not required by the canonical keyed-vector Map.
  */
 typedef struct JxJxlContainerBinding {
     void    *native_fn;       /* +00 already-resolved assembly routine */
-    uint64_t *base;           /* +08 elements or Map/Set keys[] */
+    uint64_t *base;           /* +08 dense/ring elements or Map Entry[] */
     uint64_t *head;           /* +16 ring head or Map/Set locality cursor */
     uint64_t *tail;           /* +24 ring tail / vector or Map/Set count */
-    uint64_t capacity;        /* +32 dense/ring element capacity */
+    uint64_t capacity;        /* +32 capacity in logical elements/entries */
     uint64_t mask;            /* +40 ring mask; zero for Map/Set */
     uint64_t *generation;     /* +48 durable Bag generation */
     uint64_t *flags;          /* +56 runtime Bag flags */
-    void    *aux;             /* +64 Map values[] or discipline helper state */
+    void    *aux;             /* +64 discipline helper; unused by keyed Map */
     void    *aux2;            /* +72 admitted discipline helper state */
 } JxJxlContainerBinding;
 
@@ -99,17 +103,28 @@ void jx_deque_peek_front_u64(void);
 void jx_deque_peek_back_u64(void);
 void jx_ring_reserve_u64(void);
 
-/* Ordered-array Map/Set primitives. Map is never hash-backed in canonical JXL. */
+/* Canonical keyed-vector Map primitives. The native target table uses these. */
+void jx_map_vector_find_u64(void);
+void jx_map_vector_emplace_u64(void);
+void jx_map_vector_get_u64(void);
+void jx_map_vector_put_u64(void);
+void jx_map_vector_has_u64(void);
+void jx_map_vector_remove_u64(void);
+
+/* Ordered Set primitives. */
 void jx_sorted_find_u64(void);
+void jx_set_add_u64(void);
+void jx_set_has_u64(void);
+void jx_set_remove_u64(void);
+void jx_sorted_reserve_u64(void);
+
+/* Split-array Map comparison backend retained for later A/B measurement. These
+ * are not selected by canonical native IDs 18..22. */
 void jx_map_emplace_u64(void);
 void jx_map_get_u64(void);
 void jx_map_put_u64(void);
 void jx_map_has_u64(void);
 void jx_map_remove_u64(void);
-void jx_set_add_u64(void);
-void jx_set_has_u64(void);
-void jx_set_remove_u64(void);
-void jx_sorted_reserve_u64(void);
 
 /* Legacy ABI alias only. New compiler metadata and the native target table use
  * jx_sorted_reserve_u64. This symbol performs no hashing. */
