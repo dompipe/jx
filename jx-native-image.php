@@ -101,13 +101,13 @@ final class JxNativeImage
         $directoryBytes = self::json($directory);
 
         // Fixed 40-byte header. All integers little-endian u32 except entrypoint u64.
-        $entry = $this->entrypoint ?? 0xffffffffffffffff;
+        $entryBytes = $this->entrypoint === null ? pack('V2',0xffffffff,0xffffffff) : self::u64($this->entrypoint);
         $header = self::MAGIC
             . pack('V', self::VERSION)
             . pack('V', $this->architecture)
             . pack('V', $this->flags)
             . pack('V', count($directory))
-            . self::u64($entry)
+            . $entryBytes
             . pack('V', strlen($directoryBytes))
             . pack('V', 0);
 
@@ -120,8 +120,9 @@ final class JxNativeImage
         if (strlen($bytes) < 40 || substr($bytes,0,8) !== self::MAGIC) throw new RuntimeException('Not a JX native image');
         $h = unpack('Vversion/Varchitecture/Vflags/Vcount/VentryLo/VentryHi/VdirSize/Vreserved', substr($bytes,8,32));
         if (!is_array($h) || $h['version'] !== self::VERSION) throw new RuntimeException('Unsupported JX native image version');
-        $entryUnsigned = (($h['entryHi'] & 0xffffffff) << 32) | ($h['entryLo'] & 0xffffffff);
-        $entrypoint = ($h['entryHi'] === 0xffffffff && $h['entryLo'] === 0xffffffff) ? null : $entryUnsigned;
+        $entrypoint = ($h['entryHi'] === 0xffffffff && $h['entryLo'] === 0xffffffff)
+            ? null
+            : (($h['entryHi'] << 32) | $h['entryLo']);
         $dirStart = 40;
         $dir = json_decode(substr($bytes,$dirStart,$h['dirSize']), true, 512, JSON_THROW_ON_ERROR);
         if (!is_array($dir) || count($dir) !== $h['count']) throw new RuntimeException('Corrupt native image directory');
@@ -146,6 +147,7 @@ final class JxNativeImage
 
     private static function u64(int $value): string
     {
+        if ($value < 0) throw new InvalidArgumentException('u64 value cannot be negative');
         return pack('V2', $value & 0xffffffff, ($value >> 32) & 0xffffffff);
     }
 }
