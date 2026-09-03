@@ -2,169 +2,208 @@
 
 ## Principle
 
-JX separates readable source, prepared execution, and compiled packaging.
+JX separates readable source, internal lowering, native code images, loadable libraries, and resource packaging.
 
 ```text
-canonical .jx / .pasl
-    -> PHP-backed JX/PASL front end
-    -> semantic JX / PASM lowering
-    -> prepared .jxl and/or target-native code
-    -> deterministic .jxb Book
-    -> JX / WSJX64 / OSAura64 runtime
+canonical .jx source
+    -> PHP-backed JX front end
+    -> canonical JX IR
+    -> PASM lowering when appropriate
+    -> direct target-native encoder
+    -> shared native image
+         entrypoint present  -> .jxl
+         no entrypoint       -> .jll
+
+resources / images / models / tables
+    -> indexed ZIP/deflate resource archive
+    -> .jxb
 ```
 
-The PHP front end supplies mature authoring, parsing/tooling, package construction, server/web hosting, diagnostics, and compiler orchestration. Native installed Books do not need to execute PHP source.
+PHP is cold compiler/tooling infrastructure. It may parse unusual JX syntax, normalize it to JX IR, choose PASM lowering, construct native images, build JXB archives, and emit diagnostics. Native `.jxl` and `.jll` execution does not require PHP source.
 
-The optimization law is:
+The optimization law remains:
 
 > **Resolve cold -> bind once -> execute hot.**
 
-Canonical source remains programmer- and AI-readable. Register windows, prepared operation IDs, JXL attachments, native targets, hot-bank placement, and Book layout are compiler/runtime concerns.
-
-## File contract
+## Canonical file contract
 
 ```text
-.jx    canonical JX source
-.pasl  PASL source
-.jxl   canonical prepared executable stream
-.jxb   compiled JX Binary Book/container
-.pbc   legacy PASM bytecode compatibility container
-.64B   legacy JXB filename only
+.jx    canonical Jinx source code
+.jxl   native Jinx executable image; has an entrypoint
+.jll   Jinx Loadable Library; same native image format, normally no entrypoint
+.jxb   indexed compressed resource archive; ZIP-compatible Deflate payloads
+.pasl  optional PASL source / compiler-development surface
+.pbc   PASM bytecode / prepared compatibility and test representation
 ```
 
-Internal v1 JXB package identifiers remain `JX64B001` and `jx.64B/1` for binary compatibility. They are not the public filename extension.
+Historical `.64B`, compiled-Book JXB, and six-byte prepared-stream JXL readers may remain for compatibility, but new code must not assign those old meanings to the canonical public extensions.
 
-## Commands
+## One native image, two code extensions
+
+`.jxl` and `.jll` use the same native image structure and the same native encoder. The distinction is an image property rather than a second machine-code format.
+
+```text
+JXNI image
+|- header
+|- CODE
+|- DATA              optional
+|- IMPORTS           optional
+|- EXPORTS           optional
+|- SIGNATURES        optional
+|- RELOCATIONS       optional
+`- DEBUG             optional
+```
+
+The header declares architecture, flags, section directory, and entrypoint.
+
+```text
+entrypoint != none -> executable image -> .jxl
+entrypoint == none -> loadable library -> .jll
+```
+
+A parameterized JLL may carry initialization metadata or a deliberately supplied entrypoint, but ordinary library loading does not require one.
+
+Implementation: `../jx-native-image.php`.
+
+## JLL public-call contract
+
+A JLL normally ships the callable contract of the code compiled into it. Public functions are described by compact `EXPORTS` and `SIGNATURES` sections.
+
+An export record identifies:
+
+```text
+function name
+native CODE offset
+signature id
+function flags
+```
+
+A signature identifies:
+
+```text
+ordered parameter types
+return type
+```
+
+This allows a loader to map a JLL into memory, resolve an export, validate/prepare arguments, and jump to native code without parsing the original `.jx` source.
+
+Private functions do not need to appear in the public tables.
+
+Current tooling:
 
 ```bash
-# Interpret current canonical .jx surface
-php jx-run.php --print examples/hello.jx
-
-# PASL arithmetic/control flow executes through prepared JXL
-php jx-run.php --print examples/arith.pasl
-php jx-run.php -o out.jxl examples/arith.pasl
-php jx-run.php --print out.jxl
-
-# Explicit old PBC compatibility target
-php jx-run.php -o out.pbc examples/arith.pasl
-php jx-run.php --print out.pbc
-
-# Typed semantic JX -> prepared JXL
-php jx-run.php --jxl -o program.jxl program.jx
-
-# Typed semantic JX -> compiled JXB Book
-php jx-run.php --jxb -o program.jxb program.jx
-
-# --64b is accepted as a legacy spelling of --jxb, but a requested .64B
-# output suffix is normalized to .jxb.
+php jll-native-compile.php library.jx library.jll exports.json
+php jll-inspect.php library.jll
 ```
 
-## Current pipeline
+## JXL native executable contract
 
-1. **`jx-run.php`** — JX product CLI and executable compiler driver.
-2. **`JxEngine` (`jx-lang.php`)** — current PHP-backed Bag/Task/Book/Delivery host surface.
-3. **PASL Engine (`pasm-lang.php`)** — lowers PASL into PASM semantic assembly and now emits prepared JXL by default.
-4. **Loop compiler / foreach pass / loop fuser** — lower structured source into explicit PASM semantics before JXL encoding.
-5. **`pasm-jxl.php`** — canonical PASM-profile JXL backend covering all current PASM semantic opcodes.
-6. **JXL core/native container backend** — existing arithmetic/control and native Bag prepared bands.
-7. **`JxbBook` / internal v1 Book packer** — deterministic `.jxb` packaging, admission, checksums and trust metadata.
+`.jxl` is not the six-byte prepared stream and is not PASM bytecode. It is the output boundary of the native encoder.
 
-## PASL to JXL
-
-PASL no longer needs PBC as its ordinary prepared representation.
+The existing direct encoder already performs deterministic PASM -> x86-64 machine-code emission without NASM/GAS/LLVM in the middle for admitted operations:
 
 ```text
-PASL source
-  -> PASM semantic assembly
-  -> optimization / iterator rewrite / loop fusion
-  -> six-byte JXL cells
+JX
+ -> JX IR
+ -> PASM
+ -> PASMNativeJxlEncoder
+ -> native machine bytes
+ -> JxNativeImage(entrypoint)
+ -> program.jxl
 ```
 
-Current bands:
+Current command:
+
+```bash
+php jxl-native-compile.php program.jx program.jxl
+```
+
+The direct encoder is intentionally strict. Unsupported PASM operations must be implemented in the native encoder rather than silently reinterpreted as another public JXL format.
+
+## PASM and PASL roles
+
+PASM is the preferred low-level executable IR because it is short, resolved, and close to native instructions.
+
+PASL remains useful for:
+
+- readable compiler tests,
+- arithmetic/control-flow lowering,
+- bootstrap work,
+- validation against a simpler intermediate form,
+- compatibility tooling.
+
+PASL is **not** a mandatory stage for every JX construct.
+
+Canonical compiler law:
 
 ```text
-0x20..0x37  prepared arithmetic/control core
-0x40..0x50  native Bag/container operations
-0x51..0x76  PASM semantic operations (PASM 0x00..0x25)
-0x77        64-bit MOVI continuation
+common scalar JX:
+    JX IR -> PASM -> native encoder
+
+construct helped by PASL:
+    JX IR -> PASL/PASM lowering -> native encoder
+
+rich/rare construct:
+    PHP front end -> normalized JX IR -> PASM or direct native preparation
 ```
 
-The PASM-profile band includes arithmetic, bitwise operations, comparison/branches, stack operations, `LOAD32`/`STORE32`, forward/reverse iterators, iterator reset, named memory, and `MCALL0..3`.
+The language is therefore not constrained to features PASL can express.
 
-Every JXL cell is six bytes. The opcode byte keeps its high bit clear; the five following attachment bytes keep the high bit set. Full 64-bit immediates use the continuation cell rather than truncation.
+## Prepared six-byte stream compatibility
 
-## Execution status
+The repository contains a proven six-byte prepared decoder and native container benchmarks historically named JXL. That machinery remains useful and may continue to exist internally while migration occurs.
 
-The PASL compiler and file/runtime admission path now use JXL as the canonical prepared representation. The host currently executes PASM-profile JXL by reconstructing the already-tested PASM runtime semantics.
+Its canonical role is now **internal prepared execution / PBC-compatible compiler machinery**, not the meaning of a newly emitted `.jxl` file.
 
-The native x86-64 JXL dispatcher already executes the existing arithmetic/control and Bag/container bands. Direct native handlers for PASM-profile `0x51..0x77` remain the next performance layer; they should be added without changing the `.jxl` file contract.
+Do not remove benchmark code merely to rename the public file contract. Rename or qualify prepared-stream terminology as files are touched, and keep its byte law documented as an internal ABI where required for benchmark reproducibility.
 
-## Active PASL/JX-lowerable control forms
+## JXB resource contract
 
-Current structured lowering includes the compiler-backed loop and branch families such as:
+`.jxb` is no longer the executable compiled Book boundary. It is the resource package.
+
+Canonical JXB v1 is ZIP-compatible and uses per-entry Deflate compression so the runtime can read the central directory once and retrieve only requested resources.
 
 ```text
-while
-for
-if / else
-select / switch
-break
-continue
-foreach / reverse iterator lowering where collection bindings are supplied
+assets.jxb
+|- jx-manifest.json
+|- images/logo.png
+|- models/skull.mesh
+|- tables/taxonomy.bin
+|- dictionaries/words.bin
+`- shaders/main.bin
 ```
 
-Mutation includes assignment, increment/decrement, arithmetic/bitwise compound operations, and the available PASM comparison branches.
-
-## JXL is separate from global Hot-Call ABI v4
-
-Do not conflate these decoders.
-
-Global JX Hot-Call ABI v4:
+Runtime law:
 
 ```text
-1xxxxxxx                  -> HOT / exactly one byte
-0xxxxxxx xxxxxxxx         -> EXTENDED / exactly two bytes
+open archive
+ -> read member index
+ -> locate requested member
+ -> decompress/stream that member only
+ -> leave unrelated members compressed
 ```
 
-JXL prepared execution:
+Implementation: `../jx-jxb-archive.php`.
+
+The `.jxb` extension does not mean that every member is inherently binary; it means the package is the binary/resource distribution boundary.
+
+## Current implementation map
 
 ```text
-0xxxxxxx -> executable JXL opcode
-1xxxxxxx -> attached extension/data byte; never opcode
+jx-forif-lowering.php   rich PHP/JX normalization, including rare row-forif form
+pasm-*.php              PASM/PASL lowering and compatibility execution
+pasm-native-jxl.php     current direct x86-64 native encoder (historical class name)
+jx-native-image.php     shared .jxl/.jll image container
+jxl-native-compile.php  native executable image writer
+jll-native-compile.php  native library image writer
+jll-inspect.php         JLL export/signature inspection
+jx-jxb-archive.php      indexed JXB resources
 ```
 
-Admission selects the execution mode and matching decoder once.
+## Compatibility policy
 
-## Relationship to JXB
+Old artifacts should be readable where practical, but the canonical meanings are fixed:
 
-`.jxb` is the compiled Book/container, not a synonym for one bytecode stream.
+> **`.jx` is source. `.jxl` is a native executable. `.jll` is a native loadable library. `.jxb` is an indexed compressed resource archive. PASM is the low-level compiler language.**
 
-It may carry:
-
-```text
-Book metadata
-Bag schemas/state descriptors
-Page/Control descriptions
-assets
-permissions/generations
-JXL executable sections
-target-native ELF/PE sections
-HOT/prepared tables
-optional canonical/debug maps
-```
-
-Native recognition is byte/magic based rather than suffix-trust based. Existing `.64B` files remain readable because their package bytes carry the same v1 identity, but new writers use `.jxb`.
-
-See `../docs/NATIVE-JXB.md` and `../docs/JXB-COMPILED-BOOKS.md`.
-
-## PHP crossing rule
-
-PHP may host current web/server JX, compiler/front-end tooling, Book construction/validation, and adapters. It must not become a runtime requirement for already prepared native Books merely because PHP was used to compile them.
-
-## Relation to `pasm-run.php`
-
-`pasm-run.php` remains the PASL-focused runner/compiler and may retain explicit legacy PBC controls. `jx-run.php` is the JX product entry. The canonical public pipeline is now JXL for prepared execution and JXB for compiled packaging.
-
-## Documentation contract
-
-When JXL bit law, opcode bands, package identity, or language status changes, implementation + specification + tests should move together. The PASL JXL CI gate currently verifies all 38 PASM semantic opcodes round-trip through JXL and executes a PASL loop through the new path.
+When documentation, CLI help, tests, or comments are updated, those meanings are authoritative.
