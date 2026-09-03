@@ -20,6 +20,7 @@ HARNESS="$OUT_DIR/test_jxl_container_stream"
 "$CC_BIN" \
   -std=c11 -O2 -Wall -Wextra -Werror -no-pie \
   -Inative/x86_64 \
+  native/x86_64/jxl_container_admission.c \
   native/x86_64/test_jxl_container_stream.c \
   "$OUT_DIR/jxl_container_runtime.o" \
   -o "$HARNESS"
