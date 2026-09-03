@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JX Live DOM</title>
+</head>
+<body>
+  <h1 id="jx-status">Waiting for JX…</h1>
+  <section id="jx-panel" style="display:none">
+    This panel was revealed by browser-target PASM through the fixed JX host.
+  </section>
+  <p>Result handle: <output data-pasl-result="live-dom"></output></p>
+
+  <script src="../pasl/browser/pasl-vm.js"></script>
+  <script src="../pasl/browser/jx-browser-host.js"></script>
+
+  <script type="application/jx-pasl" data-window='{"window":"live-dom","book":"examples","leaf":"browser-live-dom"}'>
+"HOST ecx DOM.GET \"#jx-status\"\nHOST _ DOM.TEXT ecx \"JX changed this without a refresh\"\nHOST _ DOM.STYLE ecx \"font-weight\" \"700\"\nHOST ah DOM.GET \"#jx-panel\"\nHOST _ DOM.SHOW ah\nRET ecx"
+  </script>
+</body>
+</html>
