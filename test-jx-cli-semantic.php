@@ -15,7 +15,10 @@ assert(trim($out) === '48', $out);
 
 $tmp = sys_get_temp_dir() . '/jx-cli-' . bin2hex(random_bytes(4));
 $jxl = $tmp . '.jxl';
-$book = $tmp . '.64B';
+$book = $tmp . '.jxb';
+$legacyRequested = $tmp . '-legacy-request.64B';
+$legacyNormalized = $tmp . '-legacy-request.jxb';
+$legacyInput = $tmp . '-legacy-input.64B';
 $source = $tmp . '.jx';
 file_put_contents($source, $src);
 
@@ -26,12 +29,27 @@ assert(is_file($jxl) && filesize($jxl) > 0);
 assert($code === 0, $out);
 assert(trim($out) === '48', $out);
 
-[$code,$out] = $run("{$php} {$runner} --64b -o " . escapeshellarg($book) . ' ' . escapeshellarg($source));
+// Canonical compiled Book path.
+[$code,$out] = $run("{$php} {$runner} --jxb -o " . escapeshellarg($book) . ' ' . escapeshellarg($source));
 assert($code === 0, $out);
 assert(is_file($book) && filesize($book) > 48);
 [$code,$out] = $run("{$php} {$runner} --print " . escapeshellarg($book));
 assert($code === 0, $out);
 assert(trim($out) === '48', $out);
 
-@unlink($jxl); @unlink($book); @unlink($source);
-echo "jx.exe semantic/JXL/64B CLI normalized lowering: ok\n";
+// --64b is accepted only as a compatibility spelling and never creates a new
+// .64B output name. The requested suffix is normalized to .jxb.
+[$code,$out] = $run("{$php} {$runner} --64b -o " . escapeshellarg($legacyRequested) . ' ' . escapeshellarg($source));
+assert($code === 0, $out);
+assert(!is_file($legacyRequested));
+assert(is_file($legacyNormalized) && filesize($legacyNormalized) > 48);
+
+// Historical .64B filenames remain readable because Book identity is in the
+// package bytes, not in the suffix.
+copy($book, $legacyInput);
+[$code,$out] = $run("{$php} {$runner} --print " . escapeshellarg($legacyInput));
+assert($code === 0, $out);
+assert(trim($out) === '48', $out);
+
+@unlink($jxl); @unlink($book); @unlink($legacyRequested); @unlink($legacyNormalized); @unlink($legacyInput); @unlink($source);
+echo "jx.exe semantic/JXL/JXB CLI normalized lowering: ok\n";
