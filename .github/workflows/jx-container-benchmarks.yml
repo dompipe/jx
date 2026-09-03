@@ -1,0 +1,27 @@
+name: JX container benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  container-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: Install native JXL toolchain
+        run: sudo apt-get update && sudo apt-get install -y nasm
+      - name: Verify master container contract with native JXL enabled
+        run: php -d zend.assertions=1 -d assert.exception=1 test-container-benchmark-contract.php
+      - name: Run one-million-operation container matrix
+        run: php benchmark-container-suite.php 1000000 5 1
+      - name: Show measured native JXL detail
+        run: php benchmark-jxl-containers.php 1000000 5 1
