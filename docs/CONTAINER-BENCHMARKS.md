@@ -1,8 +1,8 @@
 # JX Container Benchmark Contract
 
-This document defines the permanent benchmark contract for JX containers from the current PHP-hosted implementation through PASM, JXL VM execution, and native JXL execution.
+This document defines the permanent benchmark contract for JX containers from the PHP-hosted implementations through PASM, prepared JXL, and native JXL execution.
 
-The purpose is to prevent benchmark drift. A faster-looking result is not useful if a later backend changes the operation count, data shape, checksum, process model, or synchronization boundary.
+The purpose is to prevent benchmark drift. A result is comparable only when operation count, workload semantics, checksum, setup boundary, and execution layer remain explicit.
 
 ## Canonical container family
 
@@ -16,7 +16,7 @@ JX has seven Bag disciplines:
 6. `map`
 7. `set`
 
-Historical PASM OOP exposes Vector, Stack, Queue, Deque, Map, and Set. It does not have a Record class. Record therefore appears in the master matrix through `RecordBag` and PHP baselines; the historical PASM columns remain `TBD`/not applicable instead of inventing an implementation.
+Historical PASM OOP exposes Vector, Stack, Queue, Deque, Map, and Set. It does not have a Record class. Record therefore appears through `RecordBag`, PHP baselines, and JXL native execution; the historical PASM Record cells stay not-applicable rather than inventing an implementation.
 
 ## Benchmark law
 
@@ -29,11 +29,11 @@ N writes/inserts + N reads/removals = total_ops
 
 Every measured implementation must return the same checksum for the same workload. A checksum mismatch invalidates the comparison and the harness throws.
 
-Hot work, canonical synchronization, compilation, JXL admission, and native execution are different costs and must stay separate.
+Hot work, canonical synchronization, compilation, JXL admission, allocation, and native execution are different costs and must stay separate.
 
-## Stable entry point
+## Stable master entry point
 
-Run the complete comparison matrix with:
+Run the complete matrix with:
 
 ```bash
 php benchmark-container-suite.php
@@ -54,7 +54,7 @@ Stress mode adds 10,000,000 operations:
 php benchmark-container-suite.php --stress 9 2
 ```
 
-Explicit sizes are also accepted:
+Explicit sizes are accepted:
 
 ```bash
 php benchmark-container-suite.php 1000,10000,100000,1000000 9 2
@@ -62,31 +62,31 @@ php benchmark-container-suite.php 1000,10000,100000,1000000 9 2
 
 The final two arguments are measured repetitions and warmup repetitions.
 
-The master report is written to:
+Machine-readable output:
 
 ```text
 benchmark-container-suite-results.json
 ```
 
-## Master matrix
-
-The stable columns are:
+## Stable columns
 
 ```text
 legacy PASM/PHP
 canonical PASM/PHP
 JX Bag/PHP
-PHP array/idiomatic baseline
+PHP array / idiomatic baseline
 PHP SPL structural baseline
 JXL VM
 JXL native
 ```
 
-Unimplemented JXL cells must remain `null` / `TBD`. Never estimate a JXL time from PHP, PASM, C, or another native microbenchmark.
+`JXL VM` remains `TBD` until a distinct non-native JXL container executor is actually measured. `JXL native` is now measured on supported hosts through the real six-byte prepared JXL executor and pure x86-64 container runtime.
+
+Never estimate an unimplemented cell from PHP, C, PASM, or another native microbenchmark.
 
 ## Metrics
 
-General and Bag benchmarks report:
+General, Bag, and JXL-native benchmarks report:
 
 - median milliseconds
 - minimum milliseconds
@@ -94,35 +94,31 @@ General and Bag benchmarks report:
 - Mops/s
 - ns/op
 - checksum
-- process peak memory where available
+- process peak memory where meaningful
 
-The README/book may quote a snapshot, but the JSON result is the machine-readable record for a run.
+The README/book may quote snapshots, but JSON output and CI logs are the run records.
 
 ## PHP baselines
 
-Two PHP baseline ideas are kept distinct where useful:
+Two PHP baseline families stay distinct.
 
 ### Idiomatic PHP
 
-Examples:
-
+- Record: associative array
 - Vector: PHP array append/index
 - Stack: PHP array + `array_pop()`
 - Queue/Deque balanced baseline: PHP array + head cursor
 - Map: associative array
 - Set: associative array + `isset()`
-- Record: associative array
 
 ### SPL structural baseline
-
-Examples:
 
 - Record/Vector fixed-slot comparison: `SplFixedArray`
 - Stack: `SplStack`
 - Queue: `SplQueue`
 - Deque: `SplDoublyLinkedList`
 
-Map and Set do not receive fake SPL rows when there is no directly useful structural counterpart.
+Map and Set do not receive fake SPL rows when there is no justified structural counterpart.
 
 ## Complete Bag benchmark
 
@@ -132,7 +128,7 @@ Run:
 php benchmark-jx-bag-containers.php 1000000 9 2
 ```
 
-It covers every JX Bag discipline:
+It covers all seven disciplines:
 
 ```text
 record put/get
@@ -144,9 +140,9 @@ map put/get
 set add/contains
 ```
 
-The former missing Stack and Set rows are part of the permanent suite.
+Stack and Set are now permanent rows rather than missing cases.
 
-Canonical checkpoint work is reported separately from these hot operations.
+Canonical checkpoint work is reported separately from hot operations.
 
 ## Low-level PASM/PHP benchmark
 
@@ -156,15 +152,79 @@ Run:
 php benchmark-pasm-oop-fast.php
 ```
 
-Or:
+Or stress it explicitly:
 
 ```bash
 php benchmark-pasm-oop-fast.php --stress 9 2
 ```
 
-Each implementation runs in a fresh child PHP process. This prevents legacy/canonical class definitions, container state, and process-local caches from contaminating one another.
+Each implementation runs in a fresh child PHP process so legacy/canonical class state and process-local caches do not contaminate one another.
 
-Record is intentionally not fabricated in historical PASM OOP. Use the Bag row for JX Record semantics.
+Record is intentionally not fabricated in historical PASM OOP.
+
+## Native JXL benchmark
+
+Provider:
+
+```text
+benchmark-jxl-containers.php
+```
+
+Native harness:
+
+```text
+native/x86_64/benchmark_jxl_containers.c
+```
+
+Run directly on Linux x86-64 with NASM, `cc`, and GNU `ld`:
+
+```bash
+php benchmark-jxl-containers.php 1000000 9 2
+```
+
+Or machine-readable:
+
+```bash
+php benchmark-jxl-containers.php 1000000 9 2 --json
+```
+
+The provider builds the existing pure-assembly JXL container runtime and measures this path:
+
+```text
+6-byte prepared JXL instruction
+    -> jx_jxl_container_execute
+    -> operation-specific admitted binding
+    -> pure x86-64 container routine
+    -> Bag memory
+```
+
+Allocation, buffer zeroing, binding construction, and instruction construction stay outside the timed region.
+
+The benchmark does **not** substitute a direct C container implementation. Each logical operation calls the real JXL executor. The register window is updated between operations so the workload uses the same changing indexes, keys, and values as the PHP/PASM rows.
+
+Measured native operations are:
+
+```text
+record: PUT / GET
+vector: PUSH / GET
+stack:  PUSH / POP
+queue:  PUSH / POP
+deque:  PUSHB / POPF
+map:    PUT / GET
+set:    EMPLACE / HAS
+```
+
+The master matrix compares their checksums with the corresponding PHP/PASM/Bag workloads.
+
+On unsupported hosts or hosts without the native toolchain, the provider returns an explicit `unavailable` result with empty native cells. It does not invent numbers and does not make portable PHP-only CI fail.
+
+## Native benchmark CI
+
+`.github/workflows/jx-container-benchmarks.yml` runs the one-million-operation master matrix on Ubuntu 24.04 with PHP 8.3 and NASM so PHP/PASM/Bag/JXL numbers come from the same runner.
+
+The existing `prepared-jxl-native` CI job also builds and executes a smaller native container benchmark as a correctness smoke test.
+
+This is important: JXL numbers are accepted only after the real native runtime compiles and the seven checksums pass.
 
 ## Specialized regression: opposite-end deque
 
@@ -174,8 +234,6 @@ Run:
 php benchmark-pasm-oop-fast-deque.php
 ```
 
-This test remains separate because it is primarily an algorithm/asymptotic regression test, not a generic language-speed benchmark.
-
 Workload:
 
 ```text
@@ -183,15 +241,15 @@ pushFront N times
 popBack N times
 ```
 
-The native structural baseline is `SplDoublyLinkedList`, which has O(1) end operations.
+This stays separate because it is primarily an algorithm/asymptotic regression test. `SplDoublyLinkedList` is the structural PHP baseline because both end operations are O(1).
 
-The harness now uses warmups, repeated measurements, median/min/p95 reporting, throughput, checksum verification, and a JSON result file:
+The harness uses warmups, repeated measurements, median/min/p95, throughput, checksum verification, and writes:
 
 ```text
 benchmark-pasm-oop-fast-deque-results.json
 ```
 
-Do not describe a very large legacy-to-canonical ratio from this test as a general JX multiplier. It demonstrates removal of pathological data-structure behavior.
+Do not describe a large legacy-to-canonical ratio from this test as a language-wide JX multiplier.
 
 ## Specialized regression: hot work versus canonical export
 
@@ -201,7 +259,7 @@ Run:
 php benchmark-pasm-oop-fast-sync.php
 ```
 
-This covers:
+Coverage:
 
 ```text
 Vector
@@ -212,71 +270,26 @@ Map
 Set
 ```
 
-The benchmark records hot operation time and `dirtySegments()` export time independently.
+The benchmark records hot operation time and `dirtySegments()` export independently.
 
-Balanced Stack, Queue, and Deque workloads may end empty. A zero dirty-page result in such a case means that workload has no retained dirty pages; it does not mean all snapshots are free.
+Balanced Stack, Queue, and Deque workloads may end empty. Zero retained dirty pages in such a case is a property of that workload, not a claim that snapshots are free.
 
 The design rule remains:
 
-> Be native while working. Become canonical at the Bag boundary.
-
-## JXL provider contract
-
-The master suite checks for:
-
-```text
-benchmark-jxl-containers.php
-```
-
-Until that executable benchmark exists, the JXL VM and JXL native columns remain `TBD`.
-
-When implemented, the provider should accept:
-
-```bash
-php benchmark-jxl-containers.php TOTAL_OPS REPS WARMUPS --json
-```
-
-and return a JSON object shaped like:
-
-```json
-{
-  "vm": {
-    "record": {"median_ms": 0, "min_ms": 0, "p95_ms": 0, "mops_s": 0, "ns_op": 0, "checksum": 0},
-    "vector": {},
-    "stack": {},
-    "queue": {},
-    "deque": {},
-    "map": {},
-    "set": {}
-  },
-  "native": {
-    "record": {},
-    "vector": {},
-    "stack": {},
-    "queue": {},
-    "deque": {},
-    "map": {},
-    "set": {}
-  }
-}
-```
-
-The empty examples above describe shape only. Real entries must contain measured values.
-
-The JXL provider must use the same operation law and checksum semantics as the PHP/PASM/Bag rows.
+> **Be native while working. Become canonical at the Bag boundary.**
 
 ## JXL timing boundaries
 
-Do not blend these phases into one number when comparing hot execution:
+Do not blend these phases when comparing hot execution:
 
 ```text
 JX source compile
 PASM lowering
-native/JXL encoding
+JXL encoding
 JXL validation/admission
 container allocation/reserve
-hot operations
-BSYNC/canonical checkpoint
+prepared JXL hot operations
+BSYNC / canonical checkpoint
 restore
 ```
 
@@ -289,11 +302,11 @@ warm execution
 sync/checkpoint
 ```
 
-The master container table should use the warm operation phase for the direct PHP/PASM/JXL execution comparison. Cold-start numbers belong in a separate startup table.
+The master table uses the warm operation phase for the direct implementation comparison. Cold-start numbers belong in a separate startup table.
 
-## Per-discipline expansion workloads
+## Expansion workloads
 
-The master row is the stable baseline. Additional targeted tests should be added without replacing it.
+The master row is the stable baseline. Targeted tests may extend it without replacing it.
 
 ### Record
 
@@ -368,21 +381,19 @@ The master row is the stable baseline. Additional targeted tests should be added
 
 ## Interpretation rule
 
-A benchmark result is evidence only for the workload that was measured.
+A benchmark result is evidence only for the workload measured.
 
-Examples:
+- A native arithmetic loop does not prove Map speed.
+- The opposite-end deque repair does not imply a language-wide multiplier.
+- Canonical checkpoint cost should not be charged to every mutation when the runtime crosses the boundary only when semantics require it.
+- A JXL number is publishable only when the actual JXL executor ran the workload and checksum verification passed.
 
-- a native x86 arithmetic loop does not prove native Map speed;
-- the opposite-end deque repair does not imply a language-wide multiplier;
-- a canonical checkpoint cost must not be charged to every hot mutation if the runtime only crosses that boundary occasionally;
-- a JXL time must not be published until the actual JXL path executes the workload and passes checksum verification.
-
-The performance architecture is therefore measured as a pipeline rather than collapsed into one marketing number:
+The measured architecture stays explicit:
 
 ```text
 JX source
   -> PASM lowering
   -> prepared JXL
-  -> JXL VM/native execution
+  -> JXL native execution
   -> explicit canonical boundary when required
 ```
