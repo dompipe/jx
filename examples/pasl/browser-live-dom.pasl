@@ -1,0 +1,11 @@
+; Browser-target PASM emitted from JX can mutate the DOM directly through HOST.
+; No application JavaScript is required.
+
+HOST ecx DOM.GET "#jx-status"
+HOST _ DOM.TEXT ecx "JX changed this without a refresh"
+HOST _ DOM.STYLE ecx "font-weight" "700"
+
+HOST ah DOM.GET "#jx-panel"
+HOST _ DOM.SHOW ah
+
+RET ecx
