@@ -78,4 +78,36 @@ assert(PASMJxlCompiler::isJxl($compiled));
 assert($engine->runCode($compiled) === 6);
 assert($engine->runSource($source) === 6);
 
-echo 'PASL -> JXL: ok (' . count($ops) . ' PASM opcodes, ' . strlen($jxl) . " fixture bytes, result=6)\n";
+// The public PASL runner must make .jxl first-class while retaining explicit
+// .pbc compatibility.
+$tmp = sys_get_temp_dir() . '/pasl-jxl-' . bin2hex(random_bytes(5));
+$srcPath = $tmp . '.pasl';
+$jxlPath = $tmp . '.jxl';
+$pbcPath = $tmp . '.pbc';
+file_put_contents($srcPath, $source);
+$php = escapeshellarg(PHP_BINARY);
+$runner = escapeshellarg(__DIR__ . '/pasm-run.php');
+$run = static function(string $cmd): array {
+    $out=[]; $status=0; exec($cmd . ' 2>&1', $out, $status);
+    return [$status, trim(implode("\n", $out))];
+};
+try {
+    [$status,$out] = $run("{$php} {$runner} -o " . escapeshellarg($jxlPath) . ' ' . escapeshellarg($srcPath));
+    assert($status === 0, $out);
+    $diskJxl = file_get_contents($jxlPath);
+    assert(is_string($diskJxl) && PASMJxlCompiler::isJxl($diskJxl));
+    [$status,$out] = $run("{$php} {$runner} --print " . escapeshellarg($jxlPath));
+    assert($status === 0, $out);
+    assert($out === '6', $out);
+
+    [$status,$out] = $run("{$php} {$runner} -o " . escapeshellarg($pbcPath) . ' ' . escapeshellarg($srcPath));
+    assert($status === 0, $out);
+    assert(is_file($pbcPath));
+    [$status,$out] = $run("{$php} {$runner} --print " . escapeshellarg($pbcPath));
+    assert($status === 0, $out);
+    assert($out === '6', $out);
+} finally {
+    @unlink($srcPath); @unlink($jxlPath); @unlink($pbcPath);
+}
+
+echo 'PASL -> JXL: ok (' . count($ops) . ' PASM opcodes, ' . strlen($jxl) . " fixture bytes, result=6, CLI=.jxl)\n";
