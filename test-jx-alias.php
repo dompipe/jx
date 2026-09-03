@@ -37,9 +37,10 @@ $surface = JxAlias::canonicalizeSurface('x = deliver(root, "a.b")');
 $expect($surface, 'x = delivery(root, "a.b")', 'surface deliver');
 
 $map = PASMBagHotOp::lowering('emplace', 'map');
-$expect($map['kind'], 'ordered-2d-array-emplace', 'map emplace lowering');
+$expect($map['kind'], 'ordered-keyed-vector-emplace', 'map emplace lowering');
 $expect($map['find_once'], true, 'map single position find');
-$expect($map['layout'], ['keys[]','values[]'], 'map 2D array layout');
+$expect($map['layout'], ['Entry[]','Entry=[key,value]'], 'map keyed-vector layout');
+$expect($map['entry_width'], 'key_width + value_width', 'map entry width');
 $expect($map['hashing'], false, 'map hashing prohibited');
 $expect($map['insert_if_absent'], true, 'map absent semantics');
 $set = PASMBagHotOp::lowering('insert', 'set');
