@@ -1,0 +1,39 @@
+name: PASL JXL CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pasm-jxl.php'
+      - 'pasm-lang*.php'
+      - 'pasm-loop-fuser.php'
+      - 'pasm-bytecode.php'
+      - 'test-pasm-jxl.php'
+      - '.github/workflows/pasl-jxl-ci.yml'
+  pull_request:
+    paths:
+      - 'pasm-jxl.php'
+      - 'pasm-lang*.php'
+      - 'pasm-loop-fuser.php'
+      - 'pasm-bytecode.php'
+      - 'test-pasm-jxl.php'
+      - '.github/workflows/pasl-jxl-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  pasl-jxl:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: PHP syntax
+        run: |
+          php -l pasm-jxl.php
+          php -l pasm-loop-fuser.php
+          php -l pasm-lang-engine.php
+          php -l test-pasm-jxl.php
+      - name: Full PASM opcode JXL coverage and PASL execution
+        run: php -d zend.assertions=1 -d assert.exception=1 test-pasm-jxl.php
