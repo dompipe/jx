@@ -1,530 +1,197 @@
-# JXL Prepared Execution Contract
+# Historical JXL Prepared-Execution ABI
 
 ## Status
 
-**Authoritative for JXL.**
+**Internal/compatibility ABI. Not the public `.jxl` file format.**
 
-JXL is the prepared executable companion to canonical JX. It is deliberately **not** another programmer-facing source language and it is deliberately **not** the same byte grammar as the global JX Hot-Call ABI v4.
-
-When this document conflicts with older exploratory `.8B` notes, this document wins for JXL.
-
-The distinction is intentional:
+This document preserves the proven prepared-execution design that older JX code and benchmarks called **JXL**. The name remains in implementation files and benchmark labels for provenance, but the canonical public extension contract is now:
 
 ```text
-canonical JX           human / AI readable program meaning
-JX ABI v4              global prepared call ABI used by JX/OSAura services
-JXL / .8B              compact prepared executable stream for admitted code
-.64B                   compiled Book/container that may carry JXL sections
+.jx   Jinx source
+.jxl  native JXNI executable image
+.jll  native JXNI loadable library
+.jxb  indexed compressed resource archive
+.8B   historical/internal prepared stream when persisted explicitly
+.pbc  PASM bytecode/prepared compatibility container
 ```
 
-The central design rule is:
-
-> **Canonical JX explains. JXL remembers the compiler's decisions. The runtime repeats only the cheap part.**
+For current public binary formats, [`JX-FILE-FORMATS.md`](JX-FILE-FORMATS.md) is authoritative.
 
 ---
 
-## 1. JXL byte law
+## Prepared byte law retained for compatibility
 
-JXL uses a simple stream law:
-
-```text
-0xxxxxxx = executable JXL opcode
-1xxxxxxx = attached extension/data byte; never an opcode
-```
-
-This is intentionally separate from global JX ABI v4, whose first-byte law is:
+The historical prepared stream uses:
 
 ```text
-1xxxxxxx                  = HOT / exactly one byte
-0xxxxxxx xxxxxxxx         = EXTENDED / exactly two bytes
+0xxxxxxx = executable prepared opcode
+1xxxxxxx = attached extension/data byte; never an independent opcode
 ```
 
-Do not feed a stream to the wrong decoder. A Book admission record selects the execution mode once and binds the correct decoder/executor before the repeat path begins.
-
-Recommended session/admission mode identity:
+This remains distinct from the global JX Hot-Call ABI:
 
 ```text
-0 = JX ABI mode
-1 = JXL mode
+1xxxxxxx                  = HOT / one byte
+0xxxxxxx xxxxxxxx         = EXTENDED / two bytes
 ```
 
-The mode is resolved once on admission. A hot loop must not repeatedly ask whether it is running JX ABI or JXL.
+A compatibility loader must select the proper decoder once at admission rather than test modes on every operation.
 
 ---
 
-## 2. Why JXL exists
+## Why the prepared representation remains useful
 
-Canonical source should remain comfortable to read:
+Canonical JX source can express readable operations while the compiler resolves details such as:
 
-```jx
-for ($i = 0; $i < 1000; $i++) {
-    $sum += $i;
-}
-```
-
-The compiler may know much more by the time that source is admitted:
-
-- the identity of `$i` and `$sum`,
 - register allocation,
-- the loop's prepared body,
 - branch destinations,
-- Bag field offsets,
-- method receiver shapes,
-- permissions already established for a call,
-- the native operation behind a canonical alias,
-- the active register window,
-- constants and immutable values,
-- whether a value is hot enough to remain resident,
-- which kernel/runtime service is prelinked.
+- loop bodies,
+- Bag/container operation ids,
+- receiver shapes,
+- native operation targets,
+- constants,
+- prepared bindings,
+- register windows,
+- hot/cold placement.
 
-JXL exists so those decisions do not have to be rediscovered on every iteration.
+The prepared stream records those decisions so a compatibility executor or benchmark can repeat only the cheap work.
 
-```text
-canonical source
-    -> parse
-    -> validate
-    -> resolve aliases/names/types
-    -> authorize
-    -> allocate/registerize
-    -> form prepared blocks
-    -> prelink operations
-    -> JXL
-    -> execute prepared work
-```
+That purpose remains valid even though the public native executable boundary moved to JXNI.
 
 ---
 
-## 3. Executable versus attached bytes
+## Relationship to the native path
 
-A JXL executable byte always has its high bit clear.
-
-```text
-00..7F = executable opcode namespace
-```
-
-Bytes with their high bit set are attached state/data for a preceding executable form or for a declared prepared record. They are not independently dispatched.
+Current preferred compilation is:
 
 ```text
-80..FF = extension/data namespace
+.jx
+ -> PHP/JX front end
+ -> canonical JX IR
+ -> PASM directly where appropriate
+ -> direct native encoder
+ -> machine CODE
+ -> JXNI
+      entrypoint    -> .jxl
+      no entrypoint -> .jll
 ```
 
-This lets an admitted block carry compact attached information without creating ambiguity about whether the byte begins a new operation.
+The older prepared path remains:
 
-A JXL decoder therefore has an invariant equivalent to:
-
-```c
-uint8_t b = *pc++;
-if ((b & 0x80u) == 0u) {
-    execute_jxl_opcode(b);
-} else {
-    reject_or_consume_only_as_declared_attachment(b);
-}
+```text
+JX/PASL
+ -> PASM semantics
+ -> fixed-width prepared encoding
+ -> in-memory compatibility executor
+    or explicit .8B/internal artifact
 ```
 
-An unattached high-bit byte is malformed input.
-
-The exact number and meaning of attached bytes belong to the prepared opcode/block metadata, not to a second ad-hoc instruction grammar.
+It is useful for regression testing, bootstrap work, and comparison against direct native emission.
 
 ---
 
-## 4. JXL and register windows
+## Six-byte prepared cells
 
-JXL retains the useful register-window idea: a large logical register file can be exposed to a compact block through an eight-entry local window.
-
-Canonical v1 logical register identity:
+The established container/native prepared operations use six-byte cells in relevant bands:
 
 ```text
-register ID = 8 bits     -> 0..255
-register value = native 64-bit JX working value unless typed metadata says otherwise
++0 opcode
++1 attachment/binding low
++2 attachment/binding high
++3 source selector 0
++4 source selector 1
++5 destination selector
 ```
 
-A prepared window contains eight full register IDs:
+Attachment bytes use the high-bit convention required by the historical decoder.
 
-```c
-uint8_t register_id[8];
-```
+Some PASM-profile operations use additional continuation cells for values that cannot fit in one cell, including full-width immediates.
 
-Example:
-
-```text
-W7 = [40, 41, 52, 53, 80, 81, 200, 201]
-```
-
-A prepared block binds to `W7` once. Local selectors `0..7` then point to those already-resolved registers.
-
-Programmers do **not** write window-management instructions in ordinary JX. The compiler performs liveness analysis and block formation.
-
-The rule remains:
-
-> **Do not spend runtime instructions selecting a register page when the compiler can bind the page to the block.**
+The exact opcode tables remain implemented and tested in the historical prepared subsystem (`pasm-jxl.php`, semantic JXL compiler/runtime files, and native `jxl_*` benchmark sources). Those implementation tables remain the compatibility authority for byte-for-byte regression work.
 
 ---
 
-## 5. Bags versus registers
+## Prepared bindings
 
-JXL does not replace Bags.
+The central performance rule remains:
 
-```text
-Bags      = durable structured semantic state
-registers = immediate hot working state
-JXL       = prepared executable behavior
-```
+> Resolve identities, addresses, and operation targets once; do not perform string/name discovery in the repeated path.
 
-The intended relationship is:
-
-> **Bags remember. Registers react. Prepared code executes.**
-
-A hot Bag field may be promoted/cached into a register for a prepared region. A semantic write still belongs to the Bag's ownership/generation law. The register is acceleration, not a second authority.
-
-For UI controls the same principle means:
+A prepared binding may therefore hold:
 
 ```text
-Control Bag = persistent identity/data/state
-Control view = borrowed reference + placement
-JXL code     = prepared reaction to event/change
+operation id
+container/bag binding id
+resolved register selectors
+native target id
+receiver/layout metadata
 ```
 
-Moving a view does not clone or rewrite the Bag.
+The exact shape depends on the prepared band being exercised.
 
 ---
 
-## 6. JXL inside `.64B`
+## Register windows
 
-`.64B` is the broader 64-bit compiled Book container. It may carry:
+The older `.8B` register-window design can be used with the prepared representation to expose a larger logical register file through small local working sets.
 
-- manifests,
-- Bag schemas,
-- generations,
-- Page/control descriptions,
-- assets,
-- permissions/capability metadata,
-- native ELF/PE sections,
-- hot/prepared tables,
-- one or more JXL executable sections,
-- canonical/debug maps when intentionally retained.
-
-Conceptually:
-
-```text
-BOOK.64B
-|- JX64/header.bin
-|- JX64/manifest.json
-|- BAG/schema.bin
-|- PAGE/layout.bin
-|- HOT/bindings.bin
-|- CODE/main.jxl
-|- CODE/native.elf or native.pe (optional target section)
-`- DEBUG/canonical-map.json (optional)
-```
-
-Native installation consumes compiled Books. It does not require PHP source at runtime.
+See [`JX-8B-REGISTER-WINDOW-BYTECODE.md`](JX-8B-REGISTER-WINDOW-BYTECODE.md), which is also explicitly classified as compatibility/internal material.
 
 ---
 
-## 7. Cold admission, hot execution
+## Native container benchmarks
 
-Admission is allowed to be careful and comparatively expensive. Repetition should be cheap.
-
-### Cold/admission work
+Files and benchmark labels such as:
 
 ```text
-verify Book bytes
-verify version
-verify hashes
-choose JX ABI or JXL mode
-resolve block table
-resolve register windows
-validate attached-byte declarations
-resolve Bag/frame offsets
-resolve canonical operation IDs
-check capabilities/policy
-bind native executor targets
-prepare branch destinations
-prepare generation root
+native/x86_64/jxl_container_executor.asm
+native/x86_64/jxl_containers.asm
+benchmark-jxl-containers.php
+benchmark-jxl-map-layouts.php
 ```
 
-### Hot/repeat work
+retain `jxl` in their names because they measure the established prepared-dispatch subsystem. Renaming those files would obscure benchmark history and is not required to change the public extension contract.
 
-```text
-fetch executable JXL byte
-invoke already-bound executor
-use prepared register/Bag/frame references
-advance/branch
-```
-
-If a hot executor has to look up a string, search a schema, parse JSON, find a method by name, ask what mode it is in, or rebuild a register window, preparation is incomplete.
+When discussing those results, use wording such as **historical prepared JXL executor** or **six-byte prepared executor** rather than implying that benchmark input is a modern `.jxl` JXNI executable.
 
 ---
 
-## 8. Relationship to the global Hot-Call ABI v4
+## Historical Book relationship
 
-JXL and ABI v4 can coexist in one product because they solve different boundaries.
+Older `.64B`/compiled-Book packages could contain prepared streams under names such as `CODE/program.jxl`. Those are legacy package members identified by the old manifest/byte format.
 
-### ABI v4
+They are not modern JXNI `.jxl` images.
 
-Use when the executable contract itself is the global prepared call ABI shared with JX/OSAura services:
-
-```text
-1bbbbsss = one-byte hot bank/shadow
-0fffffff ssssssss = two-byte extended family/slot
-```
-
-There are exactly eight shadows per hot bank.
-
-`F0-FF` remains protected/unassigned in the fixed global subsystem mapping unless an explicit future ABI ratification says otherwise.
-
-### JXL
-
-Use for admitted prepared program streams:
-
-```text
-0xxxxxxx = executable
-1xxxxxxx = attachment/data
-```
-
-A JXL executable may ultimately invoke a prelinked ABI-v4 target, but the JXL decoder must not reinterpret JXL bytes using ABI-v4 instruction-length rules.
+Compatibility readers may continue admitting them through the old package path. New `.jxb` archives are resources and new `.jxl` outputs are native JXNI executables.
 
 ---
 
-## 9. Canonical lowering example
+## Admission requirements
 
-Canonical JX/PASL-like source:
+A prepared compatibility loader should continue to reject malformed data, including:
 
-```jx
-$sum = 0;
-for ($i = 0; $i < 100; $i++) {
-    $sum += $i;
-}
-```
+- unsupported opcode bands,
+- high-bit attachment bytes without a valid owning operation,
+- truncated cells/continuations,
+- invalid binding ids,
+- invalid register selectors,
+- invalid branch targets,
+- mismatched prepared tables,
+- incompatible mode/version metadata.
 
-A compiler may determine:
-
-```text
-$sum -> R40
-$i   -> R41
-block window -> W3=[40,41,...]
-loop condition target -> prepared address A
-loop body target      -> prepared address B
-step                   -> VINC R41
-sum mutation           -> VADD R40,R41
-```
-
-JXL records the already-made decisions. It is not obligated to preserve the spelling `$sum`, `$i`, `for`, or `+=` in the executable stream. Debug/canonical maps may retain them outside the hot stream.
+The native JXNI loader has a separate validation contract defined in [`JX-FILE-FORMATS.md`](JX-FILE-FORMATS.md).
 
 ---
 
-## 10. Types in JXL
+## Fixed terminology
 
-Canonical JX owns developer-facing types. JXL owns prepared storage/execution representations.
-
-A future typed register descriptor may include compact tags for values such as:
+Use these phrases consistently:
 
 ```text
-integer
-unsigned
-float
-boolean
-handle
-Bag reference
-window/control handle
-pointer-like host-internal reference (never exposed as a portable JX address)
-complex pair
+"prepared JXL" / "six-byte JXL"  -> historical/internal prepared ABI
+".jxl executable"                -> native JXNI image with entrypoint
+".jll library"                   -> native JXNI image without normal entrypoint
+".jxb"                           -> indexed compressed resource archive
 ```
 
-The important rule is not the exact tag numbering yet. It is that a JXL opcode should not repeatedly rediscover a type that admission can prove once.
-
-Typed metadata must remain versioned and validated.
-
----
-
-## 11. Branches and loops
-
-Canonical loops stay readable. JXL should preserve prepared loop-space decisions.
-
-Current compiler concepts include:
-
-```text
-LCHECK   prepared guard
-LCALL    prepared body/step transfer
-LREPEAT  loop-slot repetition
-```
-
-The current PASM target may lower a prepared loop call to a direct branch with a fixed continuation; a native target may use a machine call, tail branch, or inline body. JXL records the semantic prepared block relationship rather than requiring one machine implementation.
-
-Nested loop-space is bounded at compile time. The current default semantic depth is eight.
-
----
-
-## 12. Aliases disappear before JXL
-
-JX allows readable aliases, but aliases do not belong in prepared execution.
-
-Example:
-
-```text
-enqueue / append / push
-        -> canonical BPUSH
-        -> discipline/native lowering
-        -> prepared JXL/native target
-```
-
-Diagnostics may retain provenance:
-
-```text
-source_spelling = enqueue
-canonical       = BPUSH
-```
-
-The hot executor sees only the canonical/prepared identity.
-
----
-
-## 13. JXL generation law
-
-Prepared streams and their bindings belong to a generation.
-
-Do not mutate the executable meaning underneath code that is currently running.
-
-```text
-generation N running
-      -> prepare N+1 beside it
-      -> validate Book/JXL/tables
-      -> reach safe boundary
-      -> atomically swap generation root
-```
-
-Rollback selects a previously validated generation/root. It does not attempt to reverse random individual mutations in live executable tables.
-
----
-
-## 14. Security
-
-Compact execution is safe only when preparation is trustworthy.
-
-Before JXL executes, admission must establish as applicable:
-
-- Book integrity and supported format,
-- JXL format version,
-- block/table bounds,
-- legal attachment lengths,
-- register IDs/window bounds,
-- Bag/frame bounds,
-- branch target validity,
-- operation/signature compatibility,
-- required capabilities,
-- generation ownership,
-- host/kernel service authorization,
-- no arbitrary untrusted function-pointer installation.
-
-A JXL runtime may rely on completed admission checks. It may not use compactness as a reason to skip them.
-
----
-
-## 15. Required JXL tests
-
-Every implementation should eventually prove:
-
-### Stream law
-
-- every executable byte has bit 7 clear,
-- every high-bit byte is consumed only as declared attached data,
-- an unattached high-bit byte is rejected,
-- truncated attachments are rejected,
-- one block cannot read beyond its declared code range.
-
-### Preparation
-
-- block -> register-window bindings are deterministic,
-- local selector `0..7` resolves to the expected full register ID,
-- no register-window search occurs in the repeat executor,
-- branch targets resolve before execution,
-- canonical alias spellings are absent from release JXL.
-
-### Mode separation
-
-- JX ABI fixture decodes only with the JX ABI decoder,
-- JXL fixture decodes only with the JXL decoder,
-- admission binds mode once,
-- the repeat executor has no per-instruction mode branch.
-
-### Host parity
-
-The same validated JXL section should have the same semantics under:
-
-```text
-jx native host
-WSJX64
-OSAura64
-```
-
-Backend mechanics may differ; prepared meaning may not.
-
----
-
-## 16. Source rule for programmers and AI
-
-Never teach application programmers to hand-optimize JXL bytes.
-
-Teach canonical JX.
-
-A programmer should write:
-
-```jx
-$orders = Bag.underwrite(65536);
-for ($i = 0; $i < $count; $i++) {
-    // readable work
-}
-```
-
-The compiler should decide:
-
-```text
-register residency
-window selection
-hot/cold partition
-canonical alias lowering
-prepared branch blocks
-JXL opcode choice
-native shadow target
-Bag synchronization points
-```
-
-This rule is particularly important as AI-generated JX becomes common. Generated source should maximize correctness and readability; the compiler is responsible for compact execution.
-
----
-
-## 17. The intended product path
-
-```text
-USER / AI
-  writes canonical .jx
-        |
-        v
-PHP-BACKED JX FRONT END
-  parses / validates / resolves / explains
-        |
-        v
-SEMANTIC IR + BAG / PAGE / TYPE INFORMATION
-        |
-        +--> web/PHP host when that is the chosen target
-        |
-        +--> JXL prepared executable sections
-        |
-        +--> target-native ELF/PE sections
-        v
-.64B COMPILED BOOK
-        |
-        v
-JX / WSJX64 / OSAura64 admission
-        |
-        v
-prepared execution
-```
-
-PHP is a powerful front end and web/server host. It is not required to remain in a native installed Book's hot execution path.
-
----
-
-## 18. One sentence to retain
-
-> **JX is the language people read; JXL is the execution the compiler remembers.**
+The prepared system remains important. It simply no longer owns the public `.jxl` extension.
