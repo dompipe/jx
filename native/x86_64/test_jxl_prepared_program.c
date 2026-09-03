@@ -18,7 +18,6 @@ typedef struct BagState {
     uint8_t discipline;
     uint64_t capacity;
     uint64_t *base;
-    uint64_t *values;
     uint64_t head;
     uint64_t tail;
     uint64_t generation;
@@ -121,17 +120,10 @@ static int resolve_bag(
         state->discipline = spec->discipline;
         state->capacity = spec->capacity;
 
-        const size_t words = (size_t)(spec->capacity == 0 ? 16u : spec->capacity);
+        size_t words = (size_t)(spec->capacity == 0 ? 16u : spec->capacity);
+        if (spec->discipline == 6) words *= 2u; /* Map Entry=[key,value]. */
         state->base = (uint64_t *)calloc(words, sizeof(uint64_t));
         if (state->base == NULL) return 0;
-        if (spec->discipline == 6) {
-            state->values = (uint64_t *)calloc(words, sizeof(uint64_t));
-            if (state->values == NULL) {
-                free(state->base);
-                state->base = NULL;
-                return 0;
-            }
-        }
     } else if (state->discipline != spec->discipline || state->capacity != spec->capacity) {
         return 0;
     }
@@ -141,17 +133,14 @@ static int resolve_bag(
     runtime->tail = &state->tail;
     runtime->generation = &state->generation;
     runtime->flags = &state->flags;
-    runtime->aux = spec->discipline == 6 ? (void *)state->values : NULL;
+    runtime->aux = NULL;
     runtime->aux2 = NULL;
     return 1;
 }
 
 static void free_states(ResolverContext *ctx)
 {
-    for (size_t i = 0; i < ctx->count; i++) {
-        free(ctx->states[i].values);
-        free(ctx->states[i].base);
-    }
+    for (size_t i = 0; i < ctx->count; i++) free(ctx->states[i].base);
     ctx->count = 0;
 }
 
