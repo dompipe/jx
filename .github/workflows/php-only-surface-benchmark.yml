@@ -9,6 +9,10 @@ on:
       - 'jx-jxl-compiler.php'
       - 'jx-jxb.php'
       - 'pasm-lang.php'
+      - 'benchmark-targets.php'
+      - 'benchmark-loop-active.php'
+      - 'benchmark-jxl-containers.php'
+      - 'benchmark-jxl-map-layouts.php'
       - 'benchmark-php-only-surface.php'
       - 'benchmarks/nojs-http-router.php'
       - '.github/workflows/php-only-surface-benchmark.yml'
@@ -18,6 +22,9 @@ jobs:
   benchmark:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - name: Setup PHP
@@ -29,15 +36,25 @@ jobs:
       - name: Install native JXL toolchain
         run: sudo apt-get update && sudo apt-get install -y nasm
       - name: PHP-only authoring, compile, prepared execution, native build, and no-JS HTTP
-        run: php benchmark-php-only-surface.php 21 5 | tee benchmark-php-only-surface.txt
-      - name: Existing cross-target PASL benchmark
-        run: php benchmark-targets.php | tee benchmark-targets.json
+        run: |
+          set -o pipefail
+          php benchmark-php-only-surface.php 21 5 | tee benchmark-php-only-surface.txt
+      - name: Cross-target PASL/JXL benchmark
+        run: |
+          set -o pipefail
+          php benchmark-targets.php | tee benchmark-targets.json
       - name: Active loop compiler benchmark
-        run: php benchmark-loop-active.php 10000 9 | tee benchmark-loop-active.json
+        run: |
+          set -o pipefail
+          php benchmark-loop-active.php 10000 9 | tee benchmark-loop-active.json
       - name: Prepared JXL native container detail
-        run: php benchmark-jxl-containers.php 1000000 5 1 --json | tee benchmark-jxl-containers.json
+        run: |
+          set -o pipefail
+          php benchmark-jxl-containers.php 1000000 5 1 --json | tee benchmark-jxl-containers.json
       - name: Map layout A/B detail
-        run: php benchmark-jxl-map-layouts.php 1000000 20000 7 1 --json | tee benchmark-jxl-map-layouts.json
+        run: |
+          set -o pipefail
+          php benchmark-jxl-map-layouts.php 1000000 20000 7 1 --json | tee benchmark-jxl-map-layouts.json
       - name: Upload benchmark evidence
         uses: actions/upload-artifact@v4
         with:
