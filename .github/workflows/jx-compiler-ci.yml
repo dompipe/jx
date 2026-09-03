@@ -211,3 +211,7 @@ jobs:
         run: php -d zend.assertions=1 -d assert.exception=1 test-jx-jxl-prepared-program.php
       - name: Execute mixed prepared JXL in x86-64 assembly
         run: bash test-jx-jxl-prepared-program-native.sh
+      - name: Benchmark native prepared JXL containers
+        run: |
+          php benchmark-jxl-containers.php 100000 3 1 --json > /tmp/jxl-container-benchmark.json
+          php -r '$r=json_decode(file_get_contents("/tmp/jxl-container-benchmark.json"),true,512,JSON_THROW_ON_ERROR); if(($r["status"]??null)!=="measured"||count($r["native"]??[])!==7) throw new RuntimeException("native JXL container benchmark incomplete"); foreach($r["native"] as $name=>$m){ if(!isset($m["median_ms"],$m["checksum"])) throw new RuntimeException("missing metric for ".$name); } echo "JXL native container benchmark: ok\n";'
