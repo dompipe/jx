@@ -19,8 +19,10 @@ use InvalidArgumentException;
  *   forif ($value in $items if _ > 10) { ... }   // Python-like spelling
  *   revif ($value in $items if _ > 10) { ... }
  *
- * `_` is the current-value operator inside a forif/revif predicate. It lowers
- * to the bound value register before normal expression compilation.
+ * `_` is the first implicit value of the filtered-iteration frame: the current
+ * collection value. It is valid in the predicate and the loop body. Therefore
+ * callback(_, $key) lowers with the current item as callback argument 0. revif
+ * changes traversal direction only; `_` remains the current value.
  *
  * Filtered iteration reuses the same compact iterator controller. A predicate
  * miss skips the body and returns to the iterator check; it does not terminate
@@ -101,12 +103,14 @@ final class PASMForeachPass
                 $j=$this->skipWs($src,$i+strlen($keyword));if($j>=$n||$src[$j]!=='(')throw new LangException("{$keyword} requires (...)",'parse');
                 [$header,$afterHeader]=$this->extractDelimited($src,$j,'(',')');
                 [$body,$afterBody]=$this->extractBody($src,$afterHeader);
-                [$collection,$key,$value,$predicate]=$this->parseHeader($header,PASMForeachSurface::filtered($keyword));
+                $filtered=PASMForeachSurface::filtered($keyword);
+                [$collection,$key,$value,$predicate]=$this->parseHeader($header,$filtered);
                 if(!isset($this->collections[$collection]))throw new LangException("Unbound collection {$collection}; bind it on Engine before compiling {$keyword}",'foreach-bind');
                 $slot=count($this->plans);if($slot>255)throw new LangException('More than 256 collection-loop sites require a wider iterator ABI','foreach-slots');
                 $gate='__jx_iter_gate_'.$this->seq++;
                 $this->plans[]=['slot'=>$slot,'collection'=>$collection,'key'=>$key,'value'=>$value,'gate'=>$gate,'reverse'=>PASMForeachSurface::reverse($keyword)];
 
+                if($filtered)$body=$this->replaceCurrentOperator($body,$value);
                 $loweredBody=$this->lowerBlock($body);
                 if($predicate!==null){
                     $predicate=$this->replaceCurrentOperator($predicate,$value);
@@ -150,7 +154,10 @@ final class PASMForeachPass
         return[$collection,$key,$value,$predicate];
     }
 
-    /** Replace standalone `_` in a filtered predicate with its current value. */
+    /**
+     * Replace standalone `_` with the current value. In forif/revif this is the
+     * frame's first implicit value, including when `_` is used as callback arg 0.
+     */
     private function replaceCurrentOperator(string $expr,string $value): string
     {
         $out='';$quote=null;$n=strlen($expr);
