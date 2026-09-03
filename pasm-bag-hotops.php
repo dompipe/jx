@@ -47,7 +47,7 @@ final class PASMBagHotOp
 
     /**
      * Returns a semantic native-lowering recipe. Actual registers, offsets,
-     * hash helpers and relocation targets are assigned by the native backend.
+     * array helpers and relocation targets are assigned by the native backend.
      */
     public static function lowering(string $op, string $discipline): array
     {
@@ -62,7 +62,7 @@ final class PASMBagHotOp
             self::BPUSH => match ($discipline) {
                 'vector','stack' => ['kind'=>'cursor-write-inc','asm'=>['mov [cursor], value','add cursor, width']],
                 'queue','deque' => ['kind'=>'tail-write-inc','asm'=>['mov [tail], value','add tail, width']],
-                'map','set' => throw new InvalidArgumentException("{$discipline} uses BEMPLACE for insert-if-absent semantics"),
+                'map','set' => throw new InvalidArgumentException("{$discipline} uses BEMPLACE for ordered insert-if-absent semantics"),
                 default => throw new InvalidArgumentException("BPUSH unsupported for {$discipline}"),
             },
             self::BPOP => match ($discipline) {
@@ -75,7 +75,8 @@ final class PASMBagHotOp
             self::BPOPF => ['kind'=>'head-read-inc','asm'=>['mov value, [head]','add head, width']],
             self::BPOPB => ['kind'=>'tail-dec-read','asm'=>['sub tail, width','mov value, [tail]']],
 
-            // BEMPLACE is discipline-aware. The address/probe happens once.
+            // BEMPLACE is discipline-aware. Map/Set are ordered arrays: FIND is
+            // a cursor-locality check followed by lower_bound when needed.
             self::BEMPLACE => match ($discipline) {
                 'vector','stack' => [
                     'kind'=>'address-gap-pack-store',
@@ -90,26 +91,34 @@ final class PASMBagHotOp
                     'insert_if_absent'=>false,
                 ],
                 'map' => [
-                    'kind'=>'probe-address-map-emplace',
+                    'kind'=>'ordered-2d-array-emplace',
                     'asm'=>[
-                        'call map_probe_insert_address',
+                        'call sorted_find_key',
                         'jc .exists',
-                        'mov [slot], key_value',
+                        'memmove keys[index+1], keys[index], tail-bytes',
+                        'memmove values[index+1], values[index], tail-bytes',
+                        'mov keys[index], key',
+                        'mov values[index], value',
                     ],
-                    'probe_once'=>true,
+                    'find_once'=>true,
+                    'layout'=>['keys[]','values[]'],
                     'insert_if_absent'=>true,
                     'returns_existing'=>true,
+                    'hashing'=>false,
                 ],
                 'set' => [
-                    'kind'=>'probe-address-set-emplace',
+                    'kind'=>'ordered-unique-array-emplace',
                     'asm'=>[
-                        'call set_probe_insert_address',
+                        'call sorted_find_key',
                         'jc .exists',
-                        'mov [slot], key',
+                        'memmove keys[index+1], keys[index], tail-bytes',
+                        'mov keys[index], key',
                     ],
-                    'probe_once'=>true,
+                    'find_once'=>true,
+                    'layout'=>['keys[]'],
                     'insert_if_absent'=>true,
                     'returns_existing'=>true,
+                    'hashing'=>false,
                 ],
                 default => throw new InvalidArgumentException("BEMPLACE unsupported for {$discipline}"),
             },
