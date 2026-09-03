@@ -33,7 +33,7 @@ extern jx_set_has_u64
 extern jx_set_remove_u64
 extern jx_vector_reserve_u64
 extern jx_ring_reserve_u64
-extern jx_hash_reserve_u64
+extern jx_sorted_reserve_u64
 extern jx_bag_dirty
 extern jx_bag_sync
 
@@ -71,7 +71,7 @@ jx_jxl_container_native_table:
     dq jx_set_remove_u64              ; 25
     dq jx_vector_reserve_u64          ; 26
     dq jx_ring_reserve_u64            ; 27
-    dq jx_hash_reserve_u64            ; 28
+    dq jx_sorted_reserve_u64          ; 28
     dq jx_bag_dirty                    ; 29
     dq jx_bag_sync                     ; 30
 
