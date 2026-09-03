@@ -14,6 +14,17 @@ use InvalidArgumentException;
  *   foreach ($items as $key => $value) { ... }
  *   reveach ($items as $value) { ... }
  *   reveach ($items as $key => $value) { ... }
+ *   forif ($items as $value if _ > 10) { ... }
+ *   revif ($items as $value if _ > 10) { ... }
+ *   forif ($value in $items if _ > 10) { ... }   // Python-like spelling
+ *   revif ($value in $items if _ > 10) { ... }
+ *
+ * `_` is the current-value operator inside a forif/revif predicate. It lowers
+ * to the bound value register before normal expression compilation.
+ *
+ * Filtered iteration reuses the same compact iterator controller. A predicate
+ * miss skips the body and returns to the iterator check; it does not terminate
+ * the collection walk and does not create another iterator object.
  *
  * The pass reuses the tested bounded while compiler for body/block semantics.
  * After register allocation it replaces the synthetic controller with:
@@ -83,16 +94,30 @@ final class PASMForeachPass
         $out='';$i=0;$n=strlen($src);
         while($i<$n){
             $keyword=null;
-            if($this->wordAt($src,$i,PASMForeachSurface::FOREACH))$keyword=PASMForeachSurface::FOREACH;
-            elseif($this->wordAt($src,$i,PASMForeachSurface::REVEACH))$keyword=PASMForeachSurface::REVEACH;
+            foreach(PASMForeachSurface::keywords() as $candidate){
+                if($this->wordAt($src,$i,$candidate)){$keyword=$candidate;break;}
+            }
             if($keyword!==null){
                 $j=$this->skipWs($src,$i+strlen($keyword));if($j>=$n||$src[$j]!=='(')throw new LangException("{$keyword} requires (...)",'parse');
-                [$header,$afterHeader]=$this->extractDelimited($src,$j,'(',')');[$body,$afterBody]=$this->extractBody($src,$afterHeader);[$collection,$key,$value]=$this->parseHeader($header);
+                [$header,$afterHeader]=$this->extractDelimited($src,$j,'(',')');
+                [$body,$afterBody]=$this->extractBody($src,$afterHeader);
+                [$collection,$key,$value,$predicate]=$this->parseHeader($header,PASMForeachSurface::filtered($keyword));
                 if(!isset($this->collections[$collection]))throw new LangException("Unbound collection {$collection}; bind it on Engine before compiling {$keyword}",'foreach-bind');
                 $slot=count($this->plans);if($slot>255)throw new LangException('More than 256 collection-loop sites require a wider iterator ABI','foreach-slots');
                 $gate='__jx_iter_gate_'.$this->seq++;
                 $this->plans[]=['slot'=>$slot,'collection'=>$collection,'key'=>$key,'value'=>$value,'gate'=>$gate,'reverse'=>PASMForeachSurface::reverse($keyword)];
-                $out.='$'.$value." = 0;\n";if($key!==null)$out.='$'.$key." = 0;\n";$out.='$'.$gate." = 1;\n";$out.='while ($'.$gate.") {\n".$this->lowerBlock($body)."\n}\n";$i=$afterBody;continue;
+
+                $loweredBody=$this->lowerBlock($body);
+                if($predicate!==null){
+                    $predicate=$this->replaceCurrentOperator($predicate,$value);
+                    $loweredBody='if ('.$predicate.") {\n".$loweredBody."\n}";
+                }
+
+                $out.='$'.$value." = 0;\n";
+                if($key!==null)$out.='$'.$key." = 0;\n";
+                $out.='$'.$gate." = 1;\n";
+                $out.='while ($'.$gate.") {\n".$loweredBody."\n}\n";
+                $i=$afterBody;continue;
             }
             if($src[$i]==='"'||$src[$i]==="'"){$q=$src[$i];$start=$i++;while($i<$n){if($src[$i]==='\\'){$i+=2;continue;}if($src[$i]===$q){$i++;break;}$i++;}$out.=substr($src,$start,$i-$start);continue;}
             $out.=$src[$i++];
@@ -100,10 +125,53 @@ final class PASMForeachPass
         return $out;
     }
 
-    private function parseHeader(string $header): array
+    /** @return array{0:string,1:?string,2:string,3:?string} */
+    private function parseHeader(string $header,bool $filtered): array
     {
-        $h=trim($header);if(!preg_match('/^\$?([A-Za-z_]\w*)\s+as\s+(?:(?:\$?([A-Za-z_]\w*))\s*=>\s*)?\$?([A-Za-z_]\w*)$/i',$h,$m))throw new LangException('Expected collection loop header: $collection as [$key =>] $value','parse');
-        $collection=$this->norm($m[1]);$key=isset($m[2])&&$m[2]!==''?$this->norm($m[2]):null;$value=$this->norm($m[3]);if($key===$value)throw new LangException('Collection key and value variables must be distinct','parse');return[$collection,$key,$value];
+        $h=trim($header);$predicate=null;
+        if($filtered){
+            if(!preg_match('/^(.*?)\s+if\s+(.+)$/is',$h,$parts))throw new LangException('Expected filtered loop header ending in: if <condition>','parse');
+            $h=trim($parts[1]);$predicate=trim($parts[2]);
+            if($predicate==='')throw new LangException('forif/revif requires a non-empty predicate','parse');
+        }
+
+        if(preg_match('/^\$?([A-Za-z_]\w*)\s+as\s+(?:(?:\$?([A-Za-z_]\w*))\s*=>\s*)?\$?([A-Za-z_]\w*)$/i',$h,$m)){
+            $collection=$this->norm($m[1]);$key=isset($m[2])&&$m[2]!==''?$this->norm($m[2]):null;$value=$this->norm($m[3]);
+        } elseif($filtered && preg_match('/^\$?([A-Za-z_]\w*)\s+in\s+\$?([A-Za-z_]\w*)$/i',$h,$m)) {
+            // Python-like filtered form: forif ($value in $collection if condition)
+            $value=$this->norm($m[1]);$collection=$this->norm($m[2]);$key=null;
+        } else {
+            $expected=$filtered
+                ? 'Expected forif/revif header: $collection as [$key =>] $value if <condition>, or $value in $collection if <condition>'
+                : 'Expected collection loop header: $collection as [$key =>] $value';
+            throw new LangException($expected,'parse');
+        }
+        if($key===$value)throw new LangException('Collection key and value variables must be distinct','parse');
+        return[$collection,$key,$value,$predicate];
+    }
+
+    /** Replace standalone `_` in a filtered predicate with its current value. */
+    private function replaceCurrentOperator(string $expr,string $value): string
+    {
+        $out='';$quote=null;$n=strlen($expr);
+        for($i=0;$i<$n;$i++){
+            $c=$expr[$i];
+            if($quote!==null){
+                $out.=$c;
+                if($c==='\\'&&$i+1<$n){$out.=$expr[++$i];continue;}
+                if($c===$quote)$quote=null;
+                continue;
+            }
+            if($c==='"'||$c==="'"){$quote=$c;$out.=$c;continue;}
+            if($c==='_'){
+                $prev=$i>0?$expr[$i-1]:'';$next=$i+1<$n?$expr[$i+1]:'';
+                $prevIdent=$prev!==''&&(ctype_alnum($prev)||$prev==='_'||$prev==='$');
+                $nextIdent=$next!==''&&(ctype_alnum($next)||$next==='_');
+                if(!$prevIdent&&!$nextIdent){$out.='$'.$value;continue;}
+            }
+            $out.=$c;
+        }
+        return $out;
     }
 
     private function extractBody(string $src,int $from): array
