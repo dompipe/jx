@@ -11,6 +11,7 @@ on:
       - 'pasm-lang.php'
       - 'benchmark-targets.php'
       - 'benchmark-loop-active.php'
+      - 'benchmark-container-suite.php'
       - 'benchmark-jxl-containers.php'
       - 'benchmark-jxl-map-layouts.php'
       - 'benchmark-php-only-surface.php'
@@ -47,6 +48,10 @@ jobs:
         run: |
           set -o pipefail
           php benchmark-loop-active.php 10000 9 | tee benchmark-loop-active.json
+      - name: Full seven-container cross-layer matrix
+        run: |
+          set -o pipefail
+          php benchmark-container-suite.php 1000000 5 1 | tee benchmark-container-suite.txt
       - name: Prepared JXL native container detail
         run: |
           set -o pipefail
@@ -64,5 +69,7 @@ jobs:
             benchmark-php-only-surface.txt
             benchmark-targets.json
             benchmark-loop-active.json
+            benchmark-container-suite-results.json
+            benchmark-container-suite.txt
             benchmark-jxl-containers.json
             benchmark-jxl-map-layouts.json
