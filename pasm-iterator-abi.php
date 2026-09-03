@@ -15,6 +15,10 @@ use RuntimeException;
  * Loop entry may issue one equally compact IRESET <slot> (0x21 slot). Reset is
  * not part of the repeated hot path; it makes nested re-entry and early break
  * deterministic without widening ITERF/ITERR.
+ *
+ * A descriptor may prelink one scalar value target or several positional row
+ * targets. Row targets are cold/prelinked metadata; ITERF/ITERR stay 2 bytes.
+ * Position zero is the canonical current value (`_`) for forif/revif frames.
  */
 final class PASMIterBC
 {
@@ -50,6 +54,8 @@ final class PASMIteratorDescriptor
     public bool $started = false;
     public ?int $valueRegister = null;
     public ?int $keyRegister = null;
+    /** @var list<int> */
+    public array $valueRegisters = [];
 
     /** @param callable(int):mixed $read @param null|callable(int):mixed $readKey */
     public function __construct(
@@ -69,8 +75,40 @@ final class PASMIteratorDescriptor
             if ($reg !== null && ($reg < 0 || $reg > 7)) throw new InvalidArgumentException("{$name} iterator register must be 0..7");
         }
         $this->valueRegister = $valueRegister;
+        $this->valueRegisters = $valueRegister === null ? [] : [$valueRegister];
         $this->keyRegister = $keyRegister;
         return $this;
+    }
+
+    /**
+     * Prelink positional targets for a row/array iterator value.
+     * target[0] is the canonical current value (`_`); target[n] receives row[n].
+     * The descriptor owns the shape so the repeated iterator opcode stays tiny.
+     *
+     * @param list<int> $registers
+     */
+    public function rowTargets(array $registers, ?int $keyRegister = null): self
+    {
+        if (count($registers) > 8) throw new InvalidArgumentException('Iterator row destructuring supports at most 8 register targets');
+        $seen = [];
+        foreach ($registers as $i=>$reg) {
+            if (!is_int($reg) || $reg < 0 || $reg > 7) throw new InvalidArgumentException("row target {$i} register must be 0..7");
+            if (isset($seen[$reg])) throw new InvalidArgumentException('Iterator row targets must use distinct registers');
+            $seen[$reg] = true;
+        }
+        if ($keyRegister !== null && ($keyRegister < 0 || $keyRegister > 7)) throw new InvalidArgumentException('key iterator register must be 0..7');
+        $this->valueRegisters = array_values($registers);
+        $this->valueRegister = $registers[0] ?? null;
+        $this->keyRegister = $keyRegister;
+        return $this;
+    }
+
+    /** @return list<mixed> */
+    public static function explodeValue(mixed $value): array
+    {
+        if (is_array($value)) return array_values($value);
+        if ($value instanceof \Traversable) return array_values(iterator_to_array($value, false));
+        return [$value];
     }
 
     public function reset(): void { $this->cursor = 0; $this->started = false; }
