@@ -30,6 +30,13 @@ $rGet = $compiler->bindContainer(15, 'record', 'get', 8, 32);
 $rPut = $compiler->bindContainer(15, 'record', 'put', 8, 32);
 $sync = $compiler->bindContainer(10, 'queue', 'checkpoint', 8, 1024);
 
+// Map/Set capacities are ordinary array capacities. Deliberately use non-power-
+// of-two values to make a regression back to hash/ring admission impossible.
+$mOdd = $compiler->bindContainer(16, 'map', 'put', 8, 1500);
+$sOdd = $compiler->bindContainer(17, 'set', 'add', 8, 1501);
+$mReserve = $compiler->bindContainer(16, 'map', 'reserve', 8, 1500);
+$sReserve = $compiler->bindContainer(17, 'set', 'reserve', 8, 1501);
+
 assert($qPush->operation === 'PUSH');
 assert($qPush->nativeSymbol === 'jx_queue_push_u64');
 assert($qPop->operation === 'POP');
@@ -53,6 +60,8 @@ assert($sRemove->nativeSymbol === 'jx_set_remove_u64');
 assert($rGet->nativeSymbol === 'jx_record_get_u64');
 assert($rPut->nativeSymbol === 'jx_record_put_u64');
 assert($sync->nativeSymbol === 'jx_bag_sync');
+assert($mReserve->nativeSymbol === 'jx_sorted_reserve_u64');
+assert($sReserve->nativeSymbol === 'jx_sorted_reserve_u64');
 
 // Identical prepared operations dedupe to exactly one binding ID.
 $qPushAgain = $compiler->bindContainer(10, 'queue', 'BPUSH', 8, 1024);
@@ -115,9 +124,21 @@ try {
 }
 assert($failed);
 
-// Ring/hash capacities are resolved to power-of-two masks before execution.
+// Ring capacity remains power-of-two. Map/Set are ordinary ordered arrays and
+// must never acquire a hash/ring mask.
 assert($qPush->capacity === 1024 && $qPush->mask === 1023);
-assert($mPut->capacity === 2048 && $mPut->mask === 2047);
+assert($mPut->capacity === 2048 && $mPut->mask === 0);
+assert($sAdd->capacity === 2048 && $sAdd->mask === 0);
+assert($mOdd->capacity === 1500 && $mOdd->mask === 0);
+assert($sOdd->capacity === 1501 && $sOdd->mask === 0);
+
+$failed = false;
+try {
+    $compiler->bindContainer(18, 'map', 'put', 8, 1500, 1499);
+} catch (InvalidArgumentException) {
+    $failed = true;
+}
+assert($failed);
 
 $binary = $compiler->containerBindingBinary();
 assert(str_starts_with($binary, 'JXCBIND1'));
@@ -127,11 +148,14 @@ $json = $compiler->containerBindingJson();
 assert(str_contains($json, 'jx.jxl-container-bindings/1'));
 assert(str_contains($json, 'jx_queue_push_u64'));
 assert(str_contains($json, 'jx_set_add_u64'));
+assert(str_contains($json, 'jx_sorted_reserve_u64'));
+assert(!str_contains($json, 'jx_hash_reserve_u64'));
 assert(!str_contains(strtolower($json), 'enqueue'));
 assert(!str_contains(strtolower($json), 'append'));
 
 // Assembly source is the actual native container implementation, not a PHP
-// runtime trampoline.
+// runtime trampoline. Map/Set must expose the ordered-array primitives and no
+// current hash-probe entry point.
 $coreAsm = file_get_contents(__DIR__ . '/native/x86_64/jxl_containers.asm');
 $execAsm = file_get_contents(__DIR__ . '/native/x86_64/jxl_container_executor.asm');
 assert(is_string($coreAsm) && is_string($execAsm));
@@ -139,18 +163,21 @@ foreach ([
     'global jx_vector_push_u64',
     'global jx_queue_push_u64',
     'global jx_deque_push_front_u64',
+    'global jx_sorted_find_u64',
+    'global jx_sorted_reserve_u64',
     'global jx_map_emplace_u64',
     'global jx_set_add_u64',
     'global jx_bag_sync',
 ] as $symbol) {
     assert(str_contains($coreAsm, $symbol));
 }
+assert(!str_contains($coreAsm, 'global jx_map_probe_u64'));
 assert(str_contains($execAsm, 'global jx_jxl_container_execute'));
 assert(str_contains($execAsm, 'call qword [rbx + B_FN]'));
 assert(!str_contains(strtolower($coreAsm . $execAsm), 'php_'));
 
 printf(
-    "JXL native containers: ok (%d prepared bindings, %d-byte instructions)\n",
+    "JXL native containers: ok (%d prepared bindings, %d-byte instructions, ordered Map/Set arrays)\n",
     count($compiler->containerBindings()->all()),
     JxlContainerInstruction::BYTES,
 );
