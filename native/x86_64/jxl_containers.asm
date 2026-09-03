@@ -13,14 +13,18 @@
 ; Runtime binding layout (pointers are installed at admission, never serialized):
 ;   +00 native function pointer
 ;   +08 base pointer
-;   +16 head/count-origin pointer (qword*)
+;   +16 head/count-origin/cursor pointer (qword*)
 ;   +24 tail/count pointer (qword*)
 ;   +32 capacity (elements/slots)
-;   +40 mask (power-of-two ring/hash)
+;   +40 mask (power-of-two ring mask; unused by ordered Map/Set)
 ;   +48 generation pointer (qword*)
 ;   +56 flags pointer (qword*)
-;   +64 aux pointer (hash count qword* for map/set)
+;   +64 aux pointer (Map values[]; discipline-specific otherwise)
 ;   +72 aux2 pointer
+;
+; Map is always an ordered 2D array: keys[] + values[]. Set is its ordered
+; 1D unique-key form. There is no hash table, probing, tombstone, collision,
+; or load-factor law in canonical JXL Map/Set execution.
 ;
 ; All v1 hot payloads are fixed u64. Wider records are lowered to prepared copy
 ; helpers before entering this ABI.
@@ -360,14 +364,24 @@ jx_ring_fail:
     ret
 
 ; ---------------------------------------------------------------------------
-; Map/set: open-addressed u64 slots, 24 bytes each:
-;   +0 state: 0 empty, 1 occupied, 2 tombstone
-;   +8 key
-;  +16 value
-; Capacity is power-of-two; mask = capacity - 1.
-; B_AUX optionally points to a qword occupied-count used by HASH_RESERVE.
+; Map/Set ordered arrays.
+;
+; Map is a 2D array represented as two synchronized dense dimensions:
+;   B_BASE -> keys[]
+;   B_AUX  -> values[]
+;   B_TAIL -> count
+;   B_HEAD -> locality cursor index (optional)
+;
+; Set is the same law without values[]:
+;   B_BASE -> unique sorted keys[]
+;   B_TAIL -> count
+;   B_HEAD -> locality cursor index (optional)
+;
+; FIND is lower_bound with a one-step marquee fast path from the previous
+; cursor. PUT overwrites values[index] when the key exists. Missing keys are
+; inserted into the sorted arrays. There are no hash slots or tombstones.
 ; ---------------------------------------------------------------------------
-global jx_map_probe_u64
+global jx_sorted_find_u64
 global jx_map_emplace_u64
 global jx_map_get_u64
 global jx_map_put_u64
@@ -376,182 +390,465 @@ global jx_map_remove_u64
 global jx_set_add_u64
 global jx_set_has_u64
 global jx_set_remove_u64
+global jx_sorted_reserve_u64
 global jx_hash_reserve_u64
 
 ; RDI=binding, RSI=key
-; return RAX=slot ptr, EDX=0 insertion slot / 1 found / 2 full
-jx_map_probe_u64:
+; return RAX=lower_bound index, EDX=1 found / 0 absent.
+; B_HEAD cursor is optional. Exact cursor and cursor+1 checks make ordered/local
+; access effectively a marquee walk while random access falls back to binary.
+jx_sorted_find_u64:
     mov r8, [rdi + B_BASE]
+    mov r9, [rdi + B_TAIL]
     test r8, r8
-    jz .probe_full
-    mov rcx, [rdi + B_CAP]
+    jz jx_sorted_fail
+    test r9, r9
+    jz jx_sorted_fail
+    mov rcx, [r9]
     test rcx, rcx
-    jz .probe_full
-    mov rax, rsi
-    mov r10, 11400714819323198485
-    imul rax, r10
-    and rax, [rdi + B_MASK]
-    xor r11, r11
-.probe_loop:
-    mov r9, rax
-    imul r9, r9, 24
-    add r9, r8
-    mov r10, [r9]
+    jz .empty
+
+    mov r10, [rdi + B_HEAD]
     test r10, r10
-    jz .probe_empty
-    cmp r10, 2
-    je .probe_tomb
-    cmp qword [r9 + 8], rsi
-    je .probe_found
-.probe_next:
-    inc rax
-    and rax, [rdi + B_MASK]
-    dec rcx
-    jnz .probe_loop
-    test r11, r11
-    jnz .probe_tomb_return
-.probe_full:
-    xor rax, rax
-    mov edx, 2
-    ret
-.probe_tomb:
-    test r11, r11
-    cmovz r11, r9
-    jmp .probe_next
-.probe_empty:
-    test r11, r11
-    cmovnz r9, r11
-    mov rax, r9
-    xor edx, edx
-    ret
-.probe_tomb_return:
-    mov rax, r11
-    xor edx, edx
-    ret
-.probe_found:
-    mov rax, r9
+    jz .binary
+    mov rax, [r10]
+    cmp rax, rcx
+    jae .binary
+    mov r11, [r8 + rax*8]
+    cmp rsi, r11
+    je .found_cursor
+    jb .binary
+
+    lea rdx, [rax + 1]
+    cmp rdx, rcx
+    jae .absent_end
+    mov r11, [r8 + rdx*8]
+    cmp rsi, r11
+    je .found_next
+    jb .absent_next
+
+.binary:
+    xor eax, eax                    ; low = 0
+    mov rdx, rcx                    ; high = count
+.bin_loop:
+    cmp rax, rdx
+    jae .bin_done
+    mov r11, rax
+    add r11, rdx
+    shr r11, 1                      ; mid
+    cmp qword [r8 + r11*8], rsi
+    jb .bin_right
+    mov rdx, r11
+    jmp .bin_loop
+.bin_right:
+    lea rax, [r11 + 1]
+    jmp .bin_loop
+.bin_done:
+    mov r10, [rdi + B_HEAD]
+    test r10, r10
+    jz .check_found
+    mov [r10], rax
+.check_found:
+    cmp rax, rcx
+    jae .absent
+    cmp qword [r8 + rax*8], rsi
+    jne .absent
     mov edx, 1
-    ret
-
-; Increment B_AUX occupied-count if admission supplied one.
-jx_hash_count_inc:
-    mov r8, [rdi + B_AUX]
-    test r8, r8
-    jz .done
-    inc qword [r8]
-.done:
-    ret
-
-; Decrement B_AUX occupied-count if supplied and nonzero.
-jx_hash_count_dec:
-    mov r8, [rdi + B_AUX]
-    test r8, r8
-    jz .done
-    cmp qword [r8], 0
-    je .done
-    dec qword [r8]
-.done:
-    ret
-
-; RSI=key, RDX=value; existing value is returned unchanged.
-jx_map_emplace_u64:
-    push rdx
-    call jx_map_probe_u64
-    pop rcx
-    cmp edx, 2
-    je jx_hash_fail
-    cmp edx, 1
-    je .existing
-    mov [rax + 8], rsi
-    mov [rax + 16], rcx
-    mov qword [rax], 1
-    push rcx
-    call jx_hash_count_inc
-    pop rax
-    clc
-    ret
-.existing:
-    mov rax, [rax + 16]
     clc
     ret
 
-jx_map_put_u64:
-    push rdx
-    call jx_map_probe_u64
-    pop rcx
-    cmp edx, 2
-    je jx_hash_fail
-    cmp edx, 1
-    je .replace
-    mov [rax + 8], rsi
-    mov [rax + 16], rcx
-    mov qword [rax], 1
-    push rcx
-    call jx_hash_count_inc
-    pop rax
+.found_cursor:
+    mov edx, 1
     clc
     ret
-.replace:
-    mov [rax + 16], rcx
+.found_next:
+    mov rax, rdx
+    mov [r10], rax
+    mov edx, 1
+    clc
+    ret
+.absent_next:
+    mov rax, rdx
+    mov [r10], rax
+    xor edx, edx
+    clc
+    ret
+.absent_end:
     mov rax, rcx
+    mov [r10], rax
+    xor edx, edx
+    clc
+    ret
+.empty:
+    xor eax, eax
+    mov r10, [rdi + B_HEAD]
+    test r10, r10
+    jz .empty_done
+    mov qword [r10], 0
+.empty_done:
+    xor edx, edx
+    clc
+    ret
+.absent:
+    xor edx, edx
+    clc
+    ret
+
+; Shift keys right one slot from count-1 down to insertion index RAX.
+; RDI=binding, RAX=index. Clobbers RCX,R8,R9,R11.
+jx_sorted_shift_keys_right:
+    mov r8, [rdi + B_BASE]
+    mov r9, [rdi + B_TAIL]
+    mov rcx, [r9]
+.shift_keys_right:
+    cmp rcx, rax
+    jbe .keys_right_done
+    mov r11, [r8 + rcx*8 - 8]
+    mov [r8 + rcx*8], r11
+    dec rcx
+    jmp .shift_keys_right
+.keys_right_done:
+    ret
+
+; Shift Map values right in lockstep. RAX=insertion index.
+jx_sorted_shift_values_right:
+    mov r8, [rdi + B_AUX]
+    mov r9, [rdi + B_TAIL]
+    mov rcx, [r9]
+.shift_values_right:
+    cmp rcx, rax
+    jbe .values_right_done
+    mov r11, [r8 + rcx*8 - 8]
+    mov [r8 + rcx*8], r11
+    dec rcx
+    jmp .shift_values_right
+.values_right_done:
+    ret
+
+; Shift keys left after removal. RAX=removed index.
+jx_sorted_shift_keys_left:
+    mov r8, [rdi + B_BASE]
+    mov r9, [rdi + B_TAIL]
+    mov rcx, [r9]
+    lea r11, [rax + 1]
+.shift_keys_left:
+    cmp r11, rcx
+    jae .keys_left_done
+    mov rdx, [r8 + r11*8]
+    mov [r8 + r11*8 - 8], rdx
+    inc r11
+    jmp .shift_keys_left
+.keys_left_done:
+    ret
+
+; Shift Map values left after removal. RAX=removed index.
+jx_sorted_shift_values_left:
+    mov r8, [rdi + B_AUX]
+    mov r9, [rdi + B_TAIL]
+    mov rcx, [r9]
+    lea r11, [rax + 1]
+.shift_values_left:
+    cmp r11, rcx
+    jae .values_left_done
+    mov rdx, [r8 + r11*8]
+    mov [r8 + r11*8 - 8], rdx
+    inc r11
+    jmp .shift_values_left
+.values_left_done:
+    ret
+
+; RSI=key, RDX=value. Existing key returns its current value unchanged.
+jx_map_emplace_u64:
+    mov r8, [rdi + B_BASE]
+    mov r9, [rdi + B_TAIL]
+    mov r10, [rdi + B_AUX]
+    test r8, r8
+    jz jx_sorted_fail
+    test r9, r9
+    jz jx_sorted_fail
+    test r10, r10
+    jz jx_sorted_fail
+    mov rcx, [r9]
+
+    ; Fast append/last-key path for monotonic or repeated inserts.
+    test rcx, rcx
+    jz .emplace_append
+    mov rax, rcx
+    dec rax
+    cmp rsi, [r8 + rax*8]
+    je .emplace_existing_last
+    ja .emplace_append
+
+    push rdx
+    call jx_sorted_find_u64
+    pop r10
+    cmp edx, 1
+    je .emplace_existing_index
+    cmp qword [r9], [rdi + B_CAP]
+    jae jx_sorted_fail
+    push rax
+    call jx_sorted_shift_keys_right
+    pop rax
+    push rax
+    call jx_sorted_shift_values_right
+    pop rax
+    mov r8, [rdi + B_BASE]
+    mov r11, [rdi + B_AUX]
+    mov [r8 + rax*8], rsi
+    mov [r11 + rax*8], r10
+    inc qword [r9]
+    mov r11, [rdi + B_HEAD]
+    test r11, r11
+    jz .emplace_insert_done
+    mov [r11], rax
+.emplace_insert_done:
+    mov rax, r10
+    clc
+    ret
+.emplace_existing_index:
+    mov r11, [rdi + B_AUX]
+    mov rax, [r11 + rax*8]
+    clc
+    ret
+.emplace_existing_last:
+    mov rax, [r10 + rax*8]
+    clc
+    ret
+.emplace_append:
+    cmp rcx, [rdi + B_CAP]
+    jae jx_sorted_fail
+    mov [r8 + rcx*8], rsi
+    mov [r10 + rcx*8], rdx
+    inc qword [r9]
+    mov r11, [rdi + B_HEAD]
+    test r11, r11
+    jz .emplace_append_done
+    mov [r11], rcx
+.emplace_append_done:
+    mov rax, rdx
+    clc
+    ret
+
+; RSI=key, RDX=value. Existing key overwrites value memory; absent key inserts a
+; new synchronized key/value position into the 2D array.
+jx_map_put_u64:
+    mov r8, [rdi + B_BASE]
+    mov r9, [rdi + B_TAIL]
+    mov r10, [rdi + B_AUX]
+    test r8, r8
+    jz jx_sorted_fail
+    test r9, r9
+    jz jx_sorted_fail
+    test r10, r10
+    jz jx_sorted_fail
+    mov rcx, [r9]
+    test rcx, rcx
+    jz .put_append
+    mov rax, rcx
+    dec rax
+    cmp rsi, [r8 + rax*8]
+    je .put_replace_last
+    ja .put_append
+
+    push rdx
+    call jx_sorted_find_u64
+    pop r10
+    cmp edx, 1
+    je .put_replace_index
+    cmp qword [r9], [rdi + B_CAP]
+    jae jx_sorted_fail
+    push rax
+    call jx_sorted_shift_keys_right
+    pop rax
+    push rax
+    call jx_sorted_shift_values_right
+    pop rax
+    mov r8, [rdi + B_BASE]
+    mov r11, [rdi + B_AUX]
+    mov [r8 + rax*8], rsi
+    mov [r11 + rax*8], r10
+    inc qword [r9]
+    mov r11, [rdi + B_HEAD]
+    test r11, r11
+    jz .put_insert_done
+    mov [r11], rax
+.put_insert_done:
+    mov rax, r10
+    clc
+    ret
+.put_replace_index:
+    mov r11, [rdi + B_AUX]
+    mov [r11 + rax*8], r10
+    mov rax, r10
+    clc
+    ret
+.put_replace_last:
+    mov [r10 + rax*8], rdx
+    mov rax, rdx
+    clc
+    ret
+.put_append:
+    cmp rcx, [rdi + B_CAP]
+    jae jx_sorted_fail
+    mov [r8 + rcx*8], rsi
+    mov [r10 + rcx*8], rdx
+    inc qword [r9]
+    mov r11, [rdi + B_HEAD]
+    test r11, r11
+    jz .put_append_done
+    mov [r11], rcx
+.put_append_done:
+    mov rax, rdx
     clc
     ret
 
 jx_map_get_u64:
-    call jx_map_probe_u64
+    call jx_sorted_find_u64
     cmp edx, 1
-    jne jx_hash_fail
-    mov rax, [rax + 16]
+    jne jx_sorted_fail
+    mov r8, [rdi + B_AUX]
+    test r8, r8
+    jz jx_sorted_fail
+    mov rax, [r8 + rax*8]
     clc
     ret
 
 jx_map_has_u64:
-    call jx_map_probe_u64
-    xor eax, eax
-    cmp edx, 1
-    sete al
+    call jx_sorted_find_u64
+    mov eax, edx
     clc
     ret
 
 jx_map_remove_u64:
-    call jx_map_probe_u64
+    call jx_sorted_find_u64
     cmp edx, 1
-    jne .not_found
-    mov qword [rax], 2
-    call jx_hash_count_dec
+    jne .map_not_found
+    push rax
+    call jx_sorted_shift_keys_left
+    pop rax
+    push rax
+    call jx_sorted_shift_values_left
+    pop rax
+    mov r8, [rdi + B_TAIL]
+    dec qword [r8]
+    mov r9, [rdi + B_HEAD]
+    test r9, r9
+    jz .map_removed
+    mov rcx, [r8]
+    cmp rax, rcx
+    cmova rax, rcx
+    mov [r9], rax
+.map_removed:
     mov rax, 1
     clc
     ret
-.not_found:
+.map_not_found:
     xor eax, eax
     clc
     ret
 
+; Set ADD is unique ordered insertion. Existing key is dropped immediately.
 jx_set_add_u64:
-    mov rdx, 1
-    jmp jx_map_emplace_u64
-
-jx_set_has_u64:
-    jmp jx_map_has_u64
-
-jx_set_remove_u64:
-    jmp jx_map_remove_u64
-
-; RSI=requested additional slots. B_AUX points to occupied count. Allocation and
-; rehash remain cold/prelinked services taken by the caller on CF=1.
-jx_hash_reserve_u64:
-    mov r8, [rdi + B_AUX]
+    mov r8, [rdi + B_BASE]
+    mov r9, [rdi + B_TAIL]
     test r8, r8
-    jz jx_hash_fail
-    mov rax, [r8]
-    add rax, rsi
-    jc jx_hash_fail
-    cmp rax, [rdi + B_CAP]
-    ja jx_hash_fail
+    jz jx_sorted_fail
+    test r9, r9
+    jz jx_sorted_fail
+    mov rcx, [r9]
+    test rcx, rcx
+    jz .set_append
+    mov rax, rcx
+    dec rax
+    cmp rsi, [r8 + rax*8]
+    je .set_present
+    ja .set_append
+
+    call jx_sorted_find_u64
+    cmp edx, 1
+    je .set_present
+    cmp qword [r9], [rdi + B_CAP]
+    jae jx_sorted_fail
+    push rax
+    call jx_sorted_shift_keys_right
+    pop rax
+    mov r8, [rdi + B_BASE]
+    mov [r8 + rax*8], rsi
+    inc qword [r9]
+    mov r10, [rdi + B_HEAD]
+    test r10, r10
+    jz .set_inserted
+    mov [r10], rax
+.set_inserted:
+    mov rax, 1
+    clc
+    ret
+.set_present:
+    mov rax, 1
+    clc
+    ret
+.set_append:
+    cmp rcx, [rdi + B_CAP]
+    jae jx_sorted_fail
+    mov [r8 + rcx*8], rsi
+    inc qword [r9]
+    mov r10, [rdi + B_HEAD]
+    test r10, r10
+    jz .set_append_done
+    mov [r10], rcx
+.set_append_done:
+    mov rax, 1
     clc
     ret
 
-jx_hash_fail:
+jx_set_has_u64:
+    call jx_sorted_find_u64
+    mov eax, edx
+    clc
+    ret
+
+jx_set_remove_u64:
+    call jx_sorted_find_u64
+    cmp edx, 1
+    jne .set_not_found
+    push rax
+    call jx_sorted_shift_keys_left
+    pop rax
+    mov r8, [rdi + B_TAIL]
+    dec qword [r8]
+    mov r9, [rdi + B_HEAD]
+    test r9, r9
+    jz .set_removed
+    mov rcx, [r8]
+    cmp rax, rcx
+    cmova rax, rcx
+    mov [r9], rax
+.set_removed:
+    mov rax, 1
+    clc
+    ret
+.set_not_found:
+    xor eax, eax
+    clc
+    ret
+
+; RSI=requested additional array positions. Allocation/growth remains a cold
+; prelinked service. The legacy jx_hash_reserve_u64 symbol is retained only as
+; an ABI alias; its behavior is ordered-array capacity checking.
+jx_hash_reserve_u64:
+jx_sorted_reserve_u64:
+    mov r8, [rdi + B_TAIL]
+    test r8, r8
+    jz jx_sorted_fail
+    mov rax, [r8]
+    add rax, rsi
+    jc jx_sorted_fail
+    cmp rax, [rdi + B_CAP]
+    ja jx_sorted_fail
+    clc
+    ret
+
+jx_sorted_fail:
     mov rax, -1
     stc
     ret
