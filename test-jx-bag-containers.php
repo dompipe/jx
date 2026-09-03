@@ -54,15 +54,22 @@ same($deque->popBack(), 3, 'deque pop back');
 same($deque->back(), 2, 'deque back');
 
 $map = BagContainers::map(4096, 'int');
-$map->put('a', 1);
+$map->put('b', 2)->put('a', 1);
 same($map->emplace('a', 99), 1, 'map emplace returns existing');
 same($map->get('a'), 1, 'map emplace does not replace');
-same($map->emplace('b', 2), 2, 'map emplace inserts absent');
-same($map->get('b'), 2, 'map emplace stored absent');
+$map->put('a', 7);
+same($map->get('a'), 7, 'map put overwrites Entry.value in place');
+same($map->emplace('c', 3), 3, 'map emplace inserts absent');
+same($map->get('c'), 3, 'map emplace stored absent');
 $map->put('nullable', null);
 same($map->has('nullable'), true, 'map null key exists');
 same($map->get('nullable', 'fallback'), null, 'map preserves stored null over default');
 same($map->get('missing', 'fallback'), 'fallback', 'map default only applies to missing key');
+$mapCanonical = $map->canonical();
+same($mapCanonical['layout']['strategy'], 'ordered-keyed-vector', 'map is keyed Vector');
+same($mapCanonical['payload']['entries'][0], ['a',7], 'map first canonical entry');
+same($mapCanonical['payload']['entries'][1], ['b',2], 'map second canonical entry');
+same($mapCanonical['payload']['entries'][2], ['c',3], 'map third canonical entry');
 
 $set = BagContainers::set(4096, 'string');
 same($set->emplace('x'), 'x', 'set emplace inserts');
