@@ -18,11 +18,11 @@ typedef struct BagState {
     uint8_t discipline;
     uint64_t capacity;
     uint64_t *base;
+    uint64_t *values;
     uint64_t head;
     uint64_t tail;
     uint64_t generation;
     uint64_t flags;
-    uint64_t count;
 } BagState;
 
 typedef struct ResolverContext {
@@ -121,10 +121,17 @@ static int resolve_bag(
         state->discipline = spec->discipline;
         state->capacity = spec->capacity;
 
-        size_t words = (size_t)(spec->capacity == 0 ? 16u : spec->capacity);
-        if (spec->discipline == 6 || spec->discipline == 7) words *= 3u;
+        const size_t words = (size_t)(spec->capacity == 0 ? 16u : spec->capacity);
         state->base = (uint64_t *)calloc(words, sizeof(uint64_t));
         if (state->base == NULL) return 0;
+        if (spec->discipline == 6) {
+            state->values = (uint64_t *)calloc(words, sizeof(uint64_t));
+            if (state->values == NULL) {
+                free(state->base);
+                state->base = NULL;
+                return 0;
+            }
+        }
     } else if (state->discipline != spec->discipline || state->capacity != spec->capacity) {
         return 0;
     }
@@ -134,14 +141,17 @@ static int resolve_bag(
     runtime->tail = &state->tail;
     runtime->generation = &state->generation;
     runtime->flags = &state->flags;
-    runtime->aux = (spec->discipline == 6 || spec->discipline == 7) ? (void *)&state->count : NULL;
+    runtime->aux = spec->discipline == 6 ? (void *)state->values : NULL;
     runtime->aux2 = NULL;
     return 1;
 }
 
 static void free_states(ResolverContext *ctx)
 {
-    for (size_t i = 0; i < ctx->count; i++) free(ctx->states[i].base);
+    for (size_t i = 0; i < ctx->count; i++) {
+        free(ctx->states[i].values);
+        free(ctx->states[i].base);
+    }
     ctx->count = 0;
 }
 
@@ -257,12 +267,9 @@ int main(int argc, char **argv)
     ok = ok && jobs != NULL && jobs->head == 4 && jobs->tail == 4;
     ok = ok && jobs->generation == 1 && jobs->flags == 0;
     ok = ok && state != NULL && state->base[0] == 6 && state->flags == JX_BAG_DIRTY;
-    ok = ok && window[0] == 0; /* i */
-    ok = ok && window[1] == 6; /* sum */
-    /* R2 backs loop-local x but is also a dead scratch at the loop condition.
-     * On the final false condition it is legally clobbered to zero, so its
-     * post-loop value is not part of the source-visible contract. */
-    ok = ok && window[3] == 6; /* out */
+    ok = ok && window[0] == 0;
+    ok = ok && window[1] == 6;
+    ok = ok && window[3] == 6;
 
     if (!ok) {
         fprintf(stderr,
