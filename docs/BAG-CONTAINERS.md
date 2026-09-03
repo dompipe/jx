@@ -24,12 +24,24 @@ The native representations are deliberately array-centered:
 | stack | contiguous array + LIFO law | stack |
 | queue | circular/ring array | FIFO queue |
 | deque | double-ended circular/ring array | deque |
-| map | **ordered 2D array: keys[] + values[]** | keyed values |
-| set | **ordered 1D unique array** | unique values |
+| map | **ordered keyed Vector: `Entry[]`, `Entry=[key,value]`** | keyed values |
+| set | **ordered 1D unique keyed Vector** | unique values |
 
 Map and Set are not canonical hash tables.
 
 > **Containers are arrangements of memory, not wrapper objects around unrelated algorithms.**
+
+A useful physical reduction is:
+
+```text
+Record -> fixed Vector
+Vector -> contiguous Vector
+Stack  -> Vector + LIFO cursor
+Queue  -> Vector + ring cursors
+Deque  -> Vector + two-ended ring law
+Set    -> ordered Vector<Key>
+Map    -> ordered Vector<Entry>, Entry=[Key,Value]
+```
 
 ## Hot state versus canonical state
 
@@ -39,11 +51,12 @@ Map and Set are not canonical hash tables.
 
 ## Map invariant
 
-A Map is always a two-dimensional key/value array.
-
-Conceptually:
+A Map is always one keyed Vector. Every logical Vector element carries its own key and value:
 
 ```text
+Map = Vector<Entry>
+Entry = [key, value]
+
 [
   [key0, value0],
   [key1, value1],
@@ -51,14 +64,24 @@ Conceptually:
 ]
 ```
 
-The native representation splits those dimensions for dense key searching:
+For the current native u64 backend one entry occupies 16 contiguous bytes:
 
 ```text
-keys[]
-values[]
+entry 0  +00 key0   +08 value0
+entry 1  +16 key1   +24 value1
+entry 2  +32 key2   +40 value2
+...
 ```
 
-The same index identifies one Map entry.
+The address law is:
+
+```text
+entry(i) = base + i * 16
+key(i)   = entry(i) + 0
+value(i) = entry(i) + 8
+```
+
+There is no second values allocation behind the active Map and no bucket, collision, probe, tombstone, load-factor, or rehash meaning.
 
 `PUT(key,value)` means:
 
@@ -66,20 +89,41 @@ The same index identifies one Map entry.
 position = FIND(key)
 
 found:
-    overwrite values[position]
+    overwrite Entry[position].value
 
 absent:
-    insert key at keys[position]
-    insert value at values[position]
+    Vector.insert(position, Entry(key,value))
 ```
 
-There is no bucket, collision, probe, tombstone, load-factor, or rehash meaning in JX Map semantics.
+A successful overwrite never creates another key.
+
+Example:
+
+```text
+before:
+[ [4,A] ][ [17,B] ][ [31,C] ]
+
+PUT(17,X)
+
+[ [4,A] ][ [17,X] ][ [31,C] ]
+```
+
+For a missing key:
+
+```text
+PUT(22,D)
+
+[ [4,A] ][ [17,B] ][ [22,D] ][ [31,C] ]
+```
+
+The Vector memory itself is the Map.
 
 ## Set invariant
 
-Set is the one-dimensional unique form of the same ordered-array law:
+Set is the one-dimensional unique keyed form of the same Vector law:
 
 ```text
+Vector<Key>
 [value0, value1, value2, ...]
 ```
 
@@ -92,7 +136,7 @@ found:
     drop duplicate
 
 absent:
-    insert value at position
+    Vector.insert(position, value)
 ```
 
 ## FIND and marquee locality
@@ -105,9 +149,9 @@ try cursor + 1
 otherwise lower_bound binary search
 ```
 
-That makes sequential/local access behave like a marquee through the array while random access still has logarithmic position search.
+That makes sequential/local access behave like a marquee through the Vector while random access still has logarithmic position search.
 
-Monotonic insertion also gets a direct append/last-key fast path.
+Monotonic insertion also gets a direct append/last-key fast path. For a Map this is simply appending one complete `Entry` to the Vector.
 
 ## Bag hot-operation mnemonics
 
@@ -146,36 +190,37 @@ Calculate the insertion address once, move the tail once, and store once.
 
 ### Map
 
-Map emplace means insert-if-absent on the ordered 2D array:
+Map emplace is the same Vector insertion law with a keyed element:
 
 ```text
 i = FIND(key)
-if found: return values[i]
-insert keys[i]
-insert values[i]
+if found: return Entry[i].value
+Vector.insert(i, Entry(key,value))
 ```
+
+The tail move moves complete entries rather than separate key/value dimensions.
 
 ### Set
 
-Set emplace uses the same ordered position rule:
+Set emplace uses the ordered one-word position rule:
 
 ```text
 i = FIND(value)
 if found: return existing value
-insert value at i
+Vector.insert(i, value)
 ```
 
 Duplicate insertion leaves the Set unchanged.
 
 ## PHP Bag mirror
 
-The PHP Bag implementation now mirrors the canonical memory law rather than advertising a different backend:
+The PHP Bag implementation mirrors the canonical keyed-Vector law:
 
-- `MapBag` stores synchronized `keys[]` and `values[]` lists internally.
+- `MapBag` stores one ordered `entries[]` list; every element is `[key,value]`.
 - `SetBag` stores one ordered unique value list.
 - Both use cursor locality plus lower-bound search.
-- Map checkpoint payloads contain explicit key and value dimensions.
-- Legacy associative Map checkpoint payloads are accepted during restore and immediately converted to the 2D representation.
+- Map checkpoint payloads now contain `entries: [[key,value], ...]`.
+- Restore remains backward compatible with the previous split `keys[]` + `values[]` checkpoint and the older associative Map payload; either old form is converted immediately to the keyed-Vector representation.
 
 This PHP layer is a semantic/reference implementation. The native prepared JXL path remains the performance target.
 
@@ -215,37 +260,63 @@ For u64 JXL execution:
 
 ```text
 Set:
-  base -> keys[]
+  base -> Key[]
   head -> locality cursor
   tail -> count
   mask -> 0
 
 Map:
-  base -> keys[]
-  aux  -> values[]
+  base -> Entry[]
+          Entry[0] = key
+          Entry[1] = value
+          stride   = 16 bytes
   head -> locality cursor
-  tail -> count
+  tail -> entry count
   mask -> 0
+  aux  -> unused by active keyed-Vector Map
 ```
 
-The shared primitives are:
+Map native IDs 18 through 22 resolve to:
+
+```text
+jx_map_vector_emplace_u64
+jx_map_vector_get_u64
+jx_map_vector_put_u64
+jx_map_vector_has_u64
+jx_map_vector_remove_u64
+```
+
+The previous split-array `jx_map_*` routines remain linked as a comparison backend so the split and interleaved layouts can be benchmarked from the same runtime image. They are not selected by the canonical native Map IDs.
+
+Set continues to use:
 
 ```text
 jx_sorted_find_u64
+jx_set_add_u64
+jx_set_has_u64
+jx_set_remove_u64
 jx_sorted_reserve_u64
 ```
 
-with discipline-specific Map/Set get/put/emplace/has/remove routines built around them.
-
 ## Tests and benchmarks
+
+Correctness:
 
 ```bash
 php test-jx-bag-containers.php
 php test-pasm-bag-hotops.php
 php -d zend.assertions=1 -d assert.exception=1 test-jx-jxl-containers.php
+bash test-jx-jxl-prepared-program-native.sh
+```
+
+The native smoke includes a dedicated keyed-Vector Map test that exercises out-of-order insertion, overwrite, emplace, lookup, and removal through the actual numeric native target table.
+
+Benchmarking remains separate:
+
+```bash
 php benchmark-jx-bag-containers.php 1000000 7
 php benchmark-jxl-containers.php 1000000 9 2
 php benchmark-container-suite.php 1000000 9 2
 ```
 
-The benchmark contract must keep Map and Set array semantics intact while comparing PHP, PASM, Bag, and prepared JXL execution.
+The retained split backend exists specifically so a later A/B benchmark can compare **split `keys[]/values[]` versus interleaved `Entry[]`** under identical native/runtime conditions.
