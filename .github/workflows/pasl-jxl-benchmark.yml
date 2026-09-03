@@ -1,0 +1,39 @@
+name: PASL JXL Benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'pasm-jxl.php'
+      - 'pasm-lang-*.php'
+      - 'pasm-bytecode*.php'
+      - 'pasl/bench/bench-jxl.php'
+      - '.github/workflows/pasl-jxl-benchmark.yml'
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: Optimized PASL JXL vs PBC
+        run: |
+          php pasl/bench/bench-jxl.php --compile-iters 500 --run-iters 80 --rounds 7 | tee pasl-jxl-benchmark-optimized.txt
+          php pasl/bench/bench-jxl.php --compile-iters 500 --run-iters 80 --rounds 7 --json > pasl-jxl-benchmark-optimized.json
+      - name: Plain PASL JXL vs PBC
+        run: |
+          php pasl/bench/bench-jxl.php --compile-iters 300 --run-iters 50 --rounds 5 --no-optimize | tee pasl-jxl-benchmark-plain.txt
+          php pasl/bench/bench-jxl.php --compile-iters 300 --run-iters 50 --rounds 5 --no-optimize --json > pasl-jxl-benchmark-plain.json
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: pasl-jxl-benchmark
+          path: |
+            pasl-jxl-benchmark-optimized.txt
+            pasl-jxl-benchmark-optimized.json
+            pasl-jxl-benchmark-plain.txt
+            pasl-jxl-benchmark-plain.json
