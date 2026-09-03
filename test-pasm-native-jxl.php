@@ -12,7 +12,7 @@ if (!is_dir($outDir) && !mkdir($outDir, 0775, true) && !is_dir($outDir)) {
 
 $cases = [
     'scalar' => [
-        'source' => '<?php $a=1;$b=2;$c=$a+$b;$d=$c*3;$result=$d-1;',
+        'source' => '<?php $a=1;$b=2;$c=$a+$b;$d=$c*3;$result=$d;$result--;',
         'expected' => 8,
     ],
     'while64' => [
