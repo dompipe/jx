@@ -40,15 +40,15 @@ JX;
 $compiler = new PreparedCompiler();
 $program = $compiler->parse($source);
 
-// The canonical Bag blocks are now accepted through the prepared semantic
-// compiler and become ordinary typed Bag declarations in semantic IR.
+// The canonical Bag blocks are accepted through the prepared semantic compiler
+// and become ordinary typed Bag declarations in semantic IR.
 assert(count($program->statements) === 10);
 assert($program->statements[0]->op === 'decl' && $program->statements[0]->type === Type::BAG);
 assert($program->statements[1]->op === 'decl' && $program->statements[1]->type === Type::BAG);
 assert($program->statements[2]->op === 'decl' && $program->statements[2]->type === Type::BAG);
 
 $compiled = $compiler->compileContainerSource($source);
-assert(strlen($compiled->jxl) === 6 * JxlContainerInstruction::BYTES);
+assert(strlen($compiled->jxl) === 9 * JxlContainerInstruction::BYTES);
 assert(strlen($compiled->registerBinary()) === 64);
 
 $bags = $compiled->bags;
@@ -64,31 +64,47 @@ $decoded = [];
 for ($offset = 0; $offset < strlen($compiled->jxl); $offset += JxlContainerInstruction::BYTES) {
     $decoded[] = JxlContainerInstruction::decode($compiled->jxl, $offset);
 }
-assert(array_column($decoded, 'operation') === ['PUSH','POP','EMPLACE','PUT','GET','SYNC']);
+assert(array_column($decoded, 'operation') === [
+    'PUSH','DIRTY','POP',
+    'EMPLACE','DIRTY',
+    'PUT','DIRTY','GET',
+    'SYNC',
+]);
 
 // Queue alias vocabulary has disappeared before executable JXL.
 $bindings = $compiler->containerBindings()->all();
+assert(count($bindings) === 9);
 assert($bindings[0]->nativeSymbol === 'jx_queue_push_u64');
 assert($bindings[1]->nativeSymbol === 'jx_queue_pop_u64');
 assert($bindings[2]->nativeSymbol === 'jx_set_add_u64');
 assert($bindings[3]->nativeSymbol === 'jx_record_put_u64');
 assert($bindings[4]->nativeSymbol === 'jx_record_get_u64');
 assert($bindings[5]->nativeSymbol === 'jx_bag_sync');
+assert($bindings[6]->nativeSymbol === 'jx_bag_dirty' && $bindings[6]->bagHandle === 10);
+assert($bindings[7]->nativeSymbol === 'jx_bag_dirty' && $bindings[7]->bagHandle === 11);
+assert($bindings[8]->nativeSymbol === 'jx_bag_dirty' && $bindings[8]->bagHandle === 12);
+
+// One DIRTY follows the first successful mutation in each native Bag region.
+// Jobs remains dirty across enqueue+dequeue, so no second Jobs DIRTY is emitted.
+assert($decoded[1]['binding_id'] === $bindings[6]->id);
+assert($decoded[4]['binding_id'] === $bindings[7]->id);
+assert($decoded[6]['binding_id'] === $bindings[8]->id);
+assert($decoded[8]['binding_id'] === $bindings[5]->id);
 
 // Set ADD is source-arity one while retaining the global two-source EMPLACE
 // opcode shape. The second selector is deliberately duplicated; set ASM ignores
 // it and installs its own sentinel value.
-assert($decoded[2]['src0'] === $compiled->registers['task']);
-assert($decoded[2]['src1'] === $compiled->registers['task']);
-assert($decoded[2]['dst'] === $compiled->registers['added']);
+assert($decoded[3]['src0'] === $compiled->registers['task']);
+assert($decoded[3]['src1'] === $compiled->registers['task']);
+assert($decoded[3]['dst'] === $compiled->registers['added']);
 
 // Named record fields resolve once to a numeric slot constant. Both PUT and GET
 // reuse the same prepared selector for State.health -> slot 0.
 $healthSelector = $compiled->constants['0'];
-assert($decoded[3]['src0'] === $healthSelector);
-assert($decoded[4]['src0'] === $healthSelector);
-assert($decoded[3]['src1'] === $compiled->registers['next']);
-assert($decoded[4]['dst'] === $compiled->registers['hp']);
+assert($decoded[5]['src0'] === $healthSelector);
+assert($decoded[7]['src0'] === $healthSelector);
+assert($decoded[5]['src1'] === $compiled->registers['next']);
+assert($decoded[7]['dst'] === $compiled->registers['hp']);
 
 // Register initialization is an admission/startup artifact, not executable
 // container traffic. task begins at 42 before the first native instruction.
@@ -103,6 +119,7 @@ $json = $compiled->json();
 assert(str_contains($json, 'jx.jxl-container-source/1'));
 assert(str_contains($json, 'jx_queue_push_u64'));
 assert(str_contains($json, 'jx_set_add_u64'));
+assert(str_contains($json, 'jx_bag_dirty'));
 assert(str_contains($json, '"health"'));
 assert(!str_contains(strtolower($json), 'enqueue'));
 assert(!str_contains(strtolower($json), 'dequeue'));
