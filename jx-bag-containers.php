@@ -200,7 +200,8 @@ class VectorBag extends BagContainer
     {
         $n = count($this->values);
         if ($index < 0 || $index > $n) throw new OutOfBoundsException("VectorBag emplace index {$index}");
-        array_splice($this->values, $index, 0, [$value]);
+        if ($index === $n) $this->values[] = $value;
+        else array_splice($this->values, $index, 0, [$value]);
         $this->changed();
         return $this;
     }
@@ -357,16 +358,24 @@ class MapBag extends BagContainer
         return [$lo,$lo<$n && self::compareKey($this->keys[$lo],$key)===0];
     }
 
-    public function put(string|int $key,mixed $value): static
+    private function insertAt(int $i, string|int $key, mixed $value): void
     {
-        [$i,$found]=$this->findPosition($key);
-        if($found){
-            $this->values[$i]=$value;
+        $n=count($this->keys);
+        if($i===$n){
+            $this->keys[]=$key;
+            $this->values[]=$value;
         }else{
             array_splice($this->keys,$i,0,[$key]);
             array_splice($this->values,$i,0,[$value]);
-            $this->cursor=$i;
         }
+        $this->cursor=$i;
+    }
+
+    public function put(string|int $key,mixed $value): static
+    {
+        [$i,$found]=$this->findPosition($key);
+        if($found)$this->values[$i]=$value;
+        else $this->insertAt($i,$key,$value);
         $this->changed();
         return $this;
     }
@@ -380,9 +389,7 @@ class MapBag extends BagContainer
         $key=$args[0];$value=$args[1];
         [$i,$found]=$this->findPosition($key);
         if($found)return $this->values[$i];
-        array_splice($this->keys,$i,0,[$key]);
-        array_splice($this->values,$i,0,[$value]);
-        $this->cursor=$i;
+        $this->insertAt($i,$key,$value);
         $this->changed();
         return $value;
     }
@@ -440,29 +447,24 @@ class MapBag extends BagContainer
     {
         $keys=$payload['keys']??null;$values=$payload['values']??null;
         if(is_array($keys)&&is_array($values)&&count($keys)===count($values)){
-            $pairs=[];
+            $pairs=[];$valueList=array_values($values);
             foreach(array_values($keys) as $i=>$key){
                 if(!is_int($key)&&!is_string($key))continue;
-                $pairs[]=['key'=>$key,'value'=>array_values($values)[$i]??null];
+                $pairs[]=['key'=>$key,'value'=>$valueList[$i]??null];
             }
             usort($pairs,static fn(array $a,array $b):int=>self::compareKey($a['key'],$b['key']));
             $this->keys=[];$this->values=[];
             foreach($pairs as $pair){
                 $n=count($this->keys);
-                if($n>0 && self::compareKey($this->keys[$n-1],$pair['key'])===0){
-                    $this->values[$n-1]=$pair['value'];
-                }else{
-                    $this->keys[]=$pair['key'];$this->values[]=$pair['value'];
-                }
+                if($n>0 && self::compareKey($this->keys[$n-1],$pair['key'])===0)$this->values[$n-1]=$pair['value'];
+                else{$this->keys[]=$pair['key'];$this->values[]=$pair['value'];}
             }
         }else{
             // Backward-compatible restore of the old associative payload. The
             // restored live representation is immediately converted to 2D arrays.
             $legacy=is_array($payload['values']??null)?$payload['values']:[];
             $this->keys=[];$this->values=[];
-            foreach($legacy as $key=>$value){
-                $this->keys[]=$key;$this->values[]=$value;
-            }
+            foreach($legacy as $key=>$value){$this->keys[]=$key;$this->values[]=$value;}
             $order=array_keys($this->keys);
             usort($order,fn(int $a,int $b):int=>self::compareKey($this->keys[$a],$this->keys[$b]));
             $sortedKeys=[];$sortedValues=[];
@@ -540,7 +542,8 @@ final class SetBag extends BagContainer
         if(count($args)!==1)throw new \InvalidArgumentException('SetBag::emplace expects (mixed value)');
         $value=$args[0];[$i,$found]=$this->findPosition($value);
         if($found)return $this->values[$i];
-        array_splice($this->values,$i,0,[$value]);
+        if($i===count($this->values))$this->values[]=$value;
+        else array_splice($this->values,$i,0,[$value]);
         $this->cursor=$i;$this->changed();return $value;
     }
 
@@ -569,7 +572,11 @@ final class SetBag extends BagContainer
         $input=array_values($payload['values']??[]);$this->values=[];$this->cursor=0;
         foreach($input as $value){
             [$i,$found]=$this->findPosition($value);
-            if(!$found)array_splice($this->values,$i,0,[$value]);
+            if(!$found){
+                if($i===count($this->values))$this->values[]=$value;
+                else array_splice($this->values,$i,0,[$value]);
+                $this->cursor=$i;
+            }
         }
         $this->cursor=0;
     }
