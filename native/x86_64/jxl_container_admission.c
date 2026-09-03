@@ -28,9 +28,12 @@ static int header_matches(const uint8_t *p)
     return 1;
 }
 
+/* Only queue/deque are ring arrays and require power-of-two capacity/masks.
+ * Map and Set are ordered dense arrays and have no hash/ring capacity law.
+ */
 static int needs_power_of_two(uint8_t discipline)
 {
-    return discipline == 4 || discipline == 5 || discipline == 6 || discipline == 7;
+    return discipline == 4 || discipline == 5;
 }
 
 static int is_power_of_two(uint64_t value)
