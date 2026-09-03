@@ -428,14 +428,14 @@ jx_sorted_find_u64:
     jb .absent_next
 
 .binary:
-    xor eax, eax                    ; low = 0
-    mov rdx, rcx                    ; high = count
+    xor eax, eax
+    mov rdx, rcx
 .bin_loop:
     cmp rax, rdx
     jae .bin_done
     mov r11, rax
     add r11, rdx
-    shr r11, 1                      ; mid
+    shr r11, 1
     cmp qword [r8 + r11*8], rsi
     jb .bin_right
     mov rdx, r11
@@ -456,7 +456,6 @@ jx_sorted_find_u64:
     mov edx, 1
     clc
     ret
-
 .found_cursor:
     mov edx, 1
     clc
@@ -494,8 +493,6 @@ jx_sorted_find_u64:
     clc
     ret
 
-; Shift keys right one slot from count-1 down to insertion index RAX.
-; RDI=binding, RAX=index. Clobbers RCX,R8,R9,R11.
 jx_sorted_shift_keys_right:
     mov r8, [rdi + B_BASE]
     mov r9, [rdi + B_TAIL]
@@ -510,7 +507,6 @@ jx_sorted_shift_keys_right:
 .keys_right_done:
     ret
 
-; Shift Map values right in lockstep. RAX=insertion index.
 jx_sorted_shift_values_right:
     mov r8, [rdi + B_AUX]
     mov r9, [rdi + B_TAIL]
@@ -525,7 +521,6 @@ jx_sorted_shift_values_right:
 .values_right_done:
     ret
 
-; Shift keys left after removal. RAX=removed index.
 jx_sorted_shift_keys_left:
     mov r8, [rdi + B_BASE]
     mov r9, [rdi + B_TAIL]
@@ -541,7 +536,6 @@ jx_sorted_shift_keys_left:
 .keys_left_done:
     ret
 
-; Shift Map values left after removal. RAX=removed index.
 jx_sorted_shift_values_left:
     mov r8, [rdi + B_AUX]
     mov r9, [rdi + B_TAIL]
@@ -557,7 +551,7 @@ jx_sorted_shift_values_left:
 .values_left_done:
     ret
 
-; RSI=key, RDX=value. Existing key returns its current value unchanged.
+; RSI=key, RDX=value; existing key returns its current value unchanged.
 jx_map_emplace_u64:
     mov r8, [rdi + B_BASE]
     mov r9, [rdi + B_TAIL]
@@ -569,8 +563,6 @@ jx_map_emplace_u64:
     test r10, r10
     jz jx_sorted_fail
     mov rcx, [r9]
-
-    ; Fast append/last-key path for monotonic or repeated inserts.
     test rcx, rcx
     jz .emplace_append
     mov rax, rcx
@@ -582,9 +574,12 @@ jx_map_emplace_u64:
     push rdx
     call jx_sorted_find_u64
     pop r10
+    jc jx_sorted_fail
     cmp edx, 1
     je .emplace_existing_index
-    cmp qword [r9], [rdi + B_CAP]
+    mov r9, [rdi + B_TAIL]
+    mov rcx, [r9]
+    cmp rcx, [rdi + B_CAP]
     jae jx_sorted_fail
     push rax
     call jx_sorted_shift_keys_right
@@ -594,6 +589,7 @@ jx_map_emplace_u64:
     pop rax
     mov r8, [rdi + B_BASE]
     mov r11, [rdi + B_AUX]
+    mov r9, [rdi + B_TAIL]
     mov [r8 + rax*8], rsi
     mov [r11 + rax*8], r10
     inc qword [r9]
@@ -629,8 +625,8 @@ jx_map_emplace_u64:
     clc
     ret
 
-; RSI=key, RDX=value. Existing key overwrites value memory; absent key inserts a
-; new synchronized key/value position into the 2D array.
+; RSI=key, RDX=value. Existing key overwrites its value cell. A missing key
+; instantiates a new synchronized position in keys[] and values[].
 jx_map_put_u64:
     mov r8, [rdi + B_BASE]
     mov r9, [rdi + B_TAIL]
@@ -653,9 +649,12 @@ jx_map_put_u64:
     push rdx
     call jx_sorted_find_u64
     pop r10
+    jc jx_sorted_fail
     cmp edx, 1
     je .put_replace_index
-    cmp qword [r9], [rdi + B_CAP]
+    mov r9, [rdi + B_TAIL]
+    mov rcx, [r9]
+    cmp rcx, [rdi + B_CAP]
     jae jx_sorted_fail
     push rax
     call jx_sorted_shift_keys_right
@@ -665,6 +664,7 @@ jx_map_put_u64:
     pop rax
     mov r8, [rdi + B_BASE]
     mov r11, [rdi + B_AUX]
+    mov r9, [rdi + B_TAIL]
     mov [r8 + rax*8], rsi
     mov [r11 + rax*8], r10
     inc qword [r9]
@@ -704,6 +704,7 @@ jx_map_put_u64:
 
 jx_map_get_u64:
     call jx_sorted_find_u64
+    jc jx_sorted_fail
     cmp edx, 1
     jne jx_sorted_fail
     mov r8, [rdi + B_AUX]
@@ -715,12 +716,14 @@ jx_map_get_u64:
 
 jx_map_has_u64:
     call jx_sorted_find_u64
+    jc jx_sorted_fail
     mov eax, edx
     clc
     ret
 
 jx_map_remove_u64:
     call jx_sorted_find_u64
+    jc jx_sorted_fail
     cmp edx, 1
     jne .map_not_found
     push rax
@@ -765,14 +768,18 @@ jx_set_add_u64:
     ja .set_append
 
     call jx_sorted_find_u64
+    jc jx_sorted_fail
     cmp edx, 1
     je .set_present
-    cmp qword [r9], [rdi + B_CAP]
+    mov r9, [rdi + B_TAIL]
+    mov rcx, [r9]
+    cmp rcx, [rdi + B_CAP]
     jae jx_sorted_fail
     push rax
     call jx_sorted_shift_keys_right
     pop rax
     mov r8, [rdi + B_BASE]
+    mov r9, [rdi + B_TAIL]
     mov [r8 + rax*8], rsi
     inc qword [r9]
     mov r10, [rdi + B_HEAD]
@@ -803,12 +810,14 @@ jx_set_add_u64:
 
 jx_set_has_u64:
     call jx_sorted_find_u64
+    jc jx_sorted_fail
     mov eax, edx
     clc
     ret
 
 jx_set_remove_u64:
     call jx_sorted_find_u64
+    jc jx_sorted_fail
     cmp edx, 1
     jne .set_not_found
     push rax
