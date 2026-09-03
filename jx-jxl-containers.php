@@ -13,7 +13,7 @@ use InvalidArgumentException;
  * method is being used.
  *
  * Map and Set have a hard native memory law:
- *   Map = ordered keys[] + values[] (2D array)
+ *   Map = ordered Vector<Entry>, Entry=[key,value]
  *   Set = ordered unique keys[] (1D array)
  * They are never prepared as hash tables.
  */
@@ -203,8 +203,8 @@ final class JxlContainerNative
             self::DEQUE_PUSHF=>'jx_deque_push_front_u64', self::DEQUE_PUSHB=>'jx_deque_push_back_u64',
             self::DEQUE_POPF=>'jx_deque_pop_front_u64', self::DEQUE_POPB=>'jx_deque_pop_back_u64',
             self::DEQUE_PEEKF=>'jx_deque_peek_front_u64', self::DEQUE_PEEKB=>'jx_deque_peek_back_u64',
-            self::MAP_EMPLACE=>'jx_map_emplace_u64', self::MAP_GET=>'jx_map_get_u64', self::MAP_PUT=>'jx_map_put_u64',
-            self::MAP_HAS=>'jx_map_has_u64', self::MAP_REMOVE=>'jx_map_remove_u64',
+            self::MAP_EMPLACE=>'jx_map_vector_emplace_u64', self::MAP_GET=>'jx_map_vector_get_u64', self::MAP_PUT=>'jx_map_vector_put_u64',
+            self::MAP_HAS=>'jx_map_vector_has_u64', self::MAP_REMOVE=>'jx_map_vector_remove_u64',
             self::SET_ADD=>'jx_set_add_u64', self::SET_HAS=>'jx_set_has_u64', self::SET_REMOVE=>'jx_set_remove_u64',
             self::VECTOR_RESERVE=>'jx_vector_reserve_u64', self::RING_RESERVE=>'jx_ring_reserve_u64', self::SORTED_RESERVE=>'jx_sorted_reserve_u64',
             self::BAG_DIRTY=>'jx_bag_dirty', self::BAG_SYNC=>'jx_bag_sync',
