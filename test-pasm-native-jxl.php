@@ -20,11 +20,11 @@ $cases = [
         'expected' => 2080,
     ],
     'for128' => [
-        'source' => '<?php $sum=0;$i=0;for($i=0;$i<128;$i++){$sum+=$i;}$result=$sum;',
+        'source' => '<?php $sum=0;$i=0;for($i=0;$i!=128;$i++){$sum+=$i;}$result=$sum;',
         'expected' => 8128,
     ],
     'signed128' => [
-        'source' => '<?php $sum=0;$i=-64;while($i<64){$sum+=$i;$i++;}$result=$sum;',
+        'source' => '<?php $sum=0;$i=-64;while($i!=64){$sum+=$i;$i++;}$result=$sum;',
         'expected' => -64,
     ],
     'bitmix' => [
