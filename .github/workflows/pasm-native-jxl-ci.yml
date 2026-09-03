@@ -1,0 +1,72 @@
+name: PASM Native JXL CI
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'pasm-expr.php'
+      - 'pasm-bytecode.php'
+      - 'pasm-native-jxl.php'
+      - 'php-jxl-driver.php'
+      - 'php-jxl-compile.php'
+      - 'test-pasm-native-jxl.php'
+      - 'tests/fixtures/php-native-jxl.php'
+      - 'native/x86_64/run_native_jxl.c'
+      - '.github/workflows/pasm-native-jxl-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  direct-native-jxl:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          ini-file: production
+
+      - name: PHP syntax
+        run: |
+          php -l pasm-native-jxl.php
+          php -l php-jxl-driver.php
+          php -l php-jxl-compile.php
+          php -l test-pasm-native-jxl.php
+
+      - name: Generate native JXL directly from PHP through PASM
+        run: |
+          rm -rf build/native-jxl-test
+          php test-pasm-native-jxl.php build/native-jxl-test
+          php php-jxl-compile.php tests/fixtures/php-native-jxl.php build/native-jxl-test/fixture.jxl
+          test -s build/native-jxl-test/fixture.jxl
+
+      - name: Build raw JXL loader
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Werror native/x86_64/run_native_jxl.c -o build/native-jxl-test/run_native_jxl
+
+      - name: Execute direct machine-code JXL
+        run: |
+          build/native-jxl-test/run_native_jxl build/native-jxl-test/scalar.jxl 8 200000
+          build/native-jxl-test/run_native_jxl build/native-jxl-test/while64.jxl 2080 200000
+          build/native-jxl-test/run_native_jxl build/native-jxl-test/for128.jxl 8128 100000
+          build/native-jxl-test/run_native_jxl build/native-jxl-test/signed128.jxl -64 100000
+          build/native-jxl-test/run_native_jxl build/native-jxl-test/bitmix.jxl 3866743 200000
+          build/native-jxl-test/run_native_jxl build/native-jxl-test/fixture.jxl 5050 100000
+
+      - name: Prove no assembler was used
+        run: |
+          if grep -R -E '\b(nasm|yasm|as|gcc -c .*\.s|clang -c .*\.s)\b' pasm-native-jxl.php php-jxl-driver.php php-jxl-compile.php; then
+            echo 'direct encoder unexpectedly invokes an assembler' >&2
+            exit 1
+          fi
+          echo 'PASM -> native JXL used direct byte encoding only.'
+
+      - name: Upload native JXL fixtures
+        uses: actions/upload-artifact@v4
+        with:
+          name: pasm-native-jxl
+          path: |
+            build/native-jxl-test/*.jxl
+            build/native-jxl-test/manifest.json
