@@ -7,7 +7,7 @@ require_once __DIR__ . '/pasm-jxl.php';
 /** PASL execution engine with JXL as the canonical prepared target. */
 final class Engine
 {
-    /** @var array<string,iterable> */
+    /** @var array<string,array{kind:'vector'|'map',keys:list<int|string>,values:list<mixed>}> */
     private array $collections = [];
     /** @var list<array{slot:int,collection:string,value_reg:int,key_reg:?int,reverse:bool}> */
     private array $lastIteratorBindings = [];
@@ -17,11 +17,35 @@ final class Engine
         private bool $verbose = false,
     ) {}
 
-    /** Bind a source-visible collection name before compiling foreach/reveach. */
+    /**
+     * Bind a source-visible collection name before compiling foreach/reveach.
+     *
+     * Canonical JX admission rule:
+     *   - flat/list arrays become numeric-indexed Vector traversal;
+     *   - keyed arrays/iterables become Map traversal with explicit keys.
+     *
+     * Admission happens once here so iteration never has to rediscover the
+     * collection shape inside the loop.
+     */
     public function bindCollection(string $name, iterable $collection): self
     {
         $name = $this->norm($name);
-        $this->collections[$name] = $collection;
+        $snapshot = is_array($collection) ? $collection : iterator_to_array($collection, true);
+
+        if (array_is_list($snapshot)) {
+            $values = array_values($snapshot);
+            $this->collections[$name] = [
+                'kind' => 'vector',
+                'keys' => array_keys($values),
+                'values' => $values,
+            ];
+        } else {
+            $this->collections[$name] = [
+                'kind' => 'map',
+                'keys' => array_keys($snapshot),
+                'values' => array_values($snapshot),
+            ];
+        }
         return $this;
     }
 
@@ -29,6 +53,12 @@ final class Engine
     {
         unset($this->collections[$this->norm($name)]);
         return $this;
+    }
+
+    /** Return the admitted foreach container kind for diagnostics/tests. */
+    public function collectionKind(string $name): ?string
+    {
+        return $this->collections[$this->norm($name)]['kind'] ?? null;
     }
 
     /** Compile PASL to canonical six-byte-cell .jxl. */
@@ -127,9 +157,8 @@ final class Engine
         foreach ($this->lastIteratorBindings as $binding) {
             $collection = $this->collections[$binding['collection']] ?? null;
             if ($collection === null) throw new LangException('Collection ' . $binding['collection'] . ' is no longer bound', 'foreach-bind');
-            $snapshot = is_array($collection) ? $collection : iterator_to_array($collection, true);
-            $keys = array_keys($snapshot);
-            $values = array_values($snapshot);
+            $keys = $collection['keys'];
+            $values = $collection['values'];
             $descriptor = new \pasm\PASMIteratorDescriptor(
                 $binding['slot'],
                 count($values),
