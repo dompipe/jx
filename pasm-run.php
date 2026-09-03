@@ -2,10 +2,11 @@
 <?php declare(strict_types=1);
 /**
  * PASL runner — silent by default.
- *   php pasm-run.php [--print] [-O0|-O1] [-o out.jxl] [--x86] [-c src|file]
+ *   php pasm-run.php [--print] [-O0|-O1] [-o out.pbc] [--x86] [-c src|file]
  *
- * .jxl is the canonical prepared PASL output. .pbc remains an explicit legacy
- * compatibility container.
+ * PASL/PASM is compiler-development infrastructure. Public .jxl files are native
+ * Jinx executable images and are produced by the native encoder pipeline, not
+ * by this prepared PASL runner.
  */
 namespace pasm\lang;
 
@@ -45,12 +46,15 @@ while ($argv !== []) {
     } elseif ($a === '-c') {
         $inline = array_shift($argv);
     } elseif ($a === '-h' || $a === '--help') {
-        fwrite(STDOUT, "Usage: pasm-run.php [--print|-v] [--x86] [-O0|-O1] [-o out.jxl] [-c 'src'] [file.pasl|file.jxl|file.pbc]\n");
-        fwrite(STDOUT, "       .jxl  canonical prepared PASL executable stream\n");
-        fwrite(STDOUT, "       .pbc  legacy PASM bytecode compatibility container\n");
+        fwrite(STDOUT, "Usage: pasm-run.php [--print|-v] [--x86] [-O0|-O1] [-o out.pbc] [-c 'src'] [file.pasl|file.pbc]\n");
+        fwrite(STDOUT, "       .pbc  PASM bytecode/prepared compatibility container\n");
+        fwrite(STDOUT, "       .jxl  is reserved for native Jinx executables; use jxl-native-compile.php\n");
         exit(0);
-    } elseif (is_string($a) && (str_ends_with(strtolower($a), '.jxl') || str_ends_with(strtolower($a), '.pbc'))) {
+    } elseif (is_string($a) && str_ends_with(strtolower($a), '.pbc')) {
         $preparedArg = $a;
+    } elseif (is_string($a) && str_ends_with(strtolower($a), '.jxl')) {
+        fwrite(STDERR, "pasm-run.php: .jxl is a native Jinx executable, not a PASL prepared file\n");
+        exit(2);
     } else {
         $sourceArg = $a;
     }
@@ -89,6 +93,10 @@ try {
 
     if ($inline !== null) {
         if ($outFile !== null) {
+            if (strtolower(pathinfo($outFile, PATHINFO_EXTENSION)) === 'jxl') {
+                fwrite(STDERR, "pasm-run.php: use jxl-native-compile.php for native .jxl output\n");
+                exit(2);
+            }
             $eng->compileFile($inline, $outFile);
             exit(0);
         }
@@ -110,6 +118,10 @@ try {
             exit(1);
         }
         if ($outFile !== null) {
+            if (strtolower(pathinfo($outFile, PATHINFO_EXTENSION)) === 'jxl') {
+                fwrite(STDERR, "pasm-run.php: use jxl-native-compile.php for native .jxl output\n");
+                exit(2);
+            }
             $eng->compileFile($src, $outFile);
             exit(0);
         }
