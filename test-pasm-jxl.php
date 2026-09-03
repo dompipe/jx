@@ -69,7 +69,9 @@ $roundTripAsm = $bridge->toPasmAssembly($jxl);
 $assembler = new PASMAssembler();
 assert($assembler->compile($roundTripAsm) === $assembler->compile($asm));
 
-$source = '$sum=0;$i=0;for($i=0;$i!=4;$i++){$sum+=$i;} $sum;';
+// PASL returns the most recently allocated source variable. Copy the loop sum
+// into an explicit final variable rather than using a bare expression statement.
+$source = '$sum=0;$i=0;for($i=0;$i!=4;$i++){$sum+=$i;}$result=$sum;';
 $engine = new Engine(true,false);
 $compiled = $engine->compile($source);
 assert(PASMJxlCompiler::isJxl($compiled));
