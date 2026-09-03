@@ -31,12 +31,21 @@ final class JxbArchive
     public static function create(string $path, array $members): void
     {
         if (!class_exists(ZipArchive::class)) throw new RuntimeException('JXB requires PHP ZipArchive support');
+        if (strtolower(pathinfo($path,PATHINFO_EXTENSION)) !== 'jxb') throw new RuntimeException('Canonical resource packages use .jxb');
+
+        $normalized=[];
+        foreach($members as $name=>$source){
+            $member=self::memberName((string)$name);
+            if($member==='jx-manifest.json')throw new RuntimeException('jx-manifest.json is reserved by JXB');
+            if(isset($normalized[$member]))throw new RuntimeException("Duplicate JXB member {$member}");
+            $normalized[$member]=(string)$source;
+        }
+
         $zip = new ZipArchive();
         $rc = $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
         if ($rc !== true) throw new RuntimeException("Cannot create JXB {$path}; ZipArchive code {$rc}");
         try {
-            foreach ($members as $name=>$source) {
-                $name = self::memberName((string)$name);
+            foreach ($normalized as $name=>$source) {
                 if (!is_file($source)) throw new RuntimeException("JXB source member does not exist: {$source}");
                 if (!$zip->addFile($source,$name)) throw new RuntimeException("Cannot add {$name} to JXB");
                 if (method_exists($zip,'setCompressionName')) $zip->setCompressionName($name, ZipArchive::CM_DEFLATE);
@@ -44,9 +53,10 @@ final class JxbArchive
             $manifest = [
                 'format'=>'jx.jxb/1',
                 'compression'=>'zip-deflate',
-                'members'=>array_keys($members),
+                'members'=>array_keys($normalized),
             ];
-            $zip->addFromString('jx-manifest.json', json_encode($manifest,JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR));
+            if(!$zip->addFromString('jx-manifest.json',json_encode($manifest,JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR)))throw new RuntimeException('Cannot add JXB manifest');
+            if(method_exists($zip,'setCompressionName'))$zip->setCompressionName('jx-manifest.json',ZipArchive::CM_DEFLATE);
         } finally {
             $zip->close();
         }
