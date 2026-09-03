@@ -9,13 +9,21 @@ on:
       - 'jx-jxl-bag-source.php'
       - 'jx-jxl-container-dirty.php'
       - 'jx-jxl-container-compile.php'
+      - 'jx-jxl-prepared.php'
+      - 'jx-jxl-global.php'
+      - 'jx-jxl-prepared-compile.php'
       - 'test-jx-jxl-containers.php'
       - 'test-jx-jxl-bag-source.php'
+      - 'test-jx-jxl-prepared-program.php'
       - 'test-jx-jxl-containers-native.sh'
       - 'test-jx-jxl-container-stream-native.sh'
+      - 'test-jx-jxl-prepared-program-native.sh'
       - 'tests/fixtures/jxl-container-native.jx'
+      - 'tests/fixtures/jxl-prepared-loop.jx'
       - 'native/x86_64/jxl_container*'
+      - 'native/x86_64/jxl_prepared_program.asm'
       - 'native/x86_64/test_jxl_container_stream.c'
+      - 'native/x86_64/test_jxl_prepared_program.c'
       - 'native/x86_64/build-jxl-containers.sh'
       - '.github/workflows/jxl-native-containers-ci.yml'
   pull_request:
@@ -25,13 +33,21 @@ on:
       - 'jx-jxl-bag-source.php'
       - 'jx-jxl-container-dirty.php'
       - 'jx-jxl-container-compile.php'
+      - 'jx-jxl-prepared.php'
+      - 'jx-jxl-global.php'
+      - 'jx-jxl-prepared-compile.php'
       - 'test-jx-jxl-containers.php'
       - 'test-jx-jxl-bag-source.php'
+      - 'test-jx-jxl-prepared-program.php'
       - 'test-jx-jxl-containers-native.sh'
       - 'test-jx-jxl-container-stream-native.sh'
+      - 'test-jx-jxl-prepared-program-native.sh'
       - 'tests/fixtures/jxl-container-native.jx'
+      - 'tests/fixtures/jxl-prepared-loop.jx'
       - 'native/x86_64/jxl_container*'
+      - 'native/x86_64/jxl_prepared_program.asm'
       - 'native/x86_64/test_jxl_container_stream.c'
+      - 'native/x86_64/test_jxl_prepared_program.c'
       - 'native/x86_64/build-jxl-containers.sh'
       - '.github/workflows/jxl-native-containers-ci.yml'
   workflow_dispatch:
@@ -50,16 +66,23 @@ jobs:
           php -l jx-jxl-containers.php
           php -l jx-jxl-bag-source.php
           php -l jx-jxl-container-dirty.php
+          php -l jx-jxl-prepared.php
+          php -l jx-jxl-global.php
           php -l jx-jxl-compiler.php
           php -l jx-jxl-container-compile.php
+          php -l jx-jxl-prepared-compile.php
           php -l test-jx-jxl-containers.php
           php -l test-jx-jxl-bag-source.php
+          php -l test-jx-jxl-prepared-program.php
 
       - name: Prepared JXL contract
         run: php -d zend.assertions=1 -d assert.exception=1 test-jx-jxl-containers.php
 
       - name: Canonical Bag source lowering
         run: php -d zend.assertions=1 -d assert.exception=1 test-jx-jxl-bag-source.php
+
+      - name: Mixed prepared JXL compiler contract
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-jxl-prepared-program.php
 
       - name: Assemble and link native runtime
         run: bash native/x86_64/build-jxl-containers.sh
@@ -69,3 +92,6 @@ jobs:
 
       - name: Canonical source native stream execution
         run: bash test-jx-jxl-container-stream-native.sh
+
+      - name: Mixed arithmetic control-flow and Bag native execution
+        run: bash test-jx-jxl-prepared-program-native.sh

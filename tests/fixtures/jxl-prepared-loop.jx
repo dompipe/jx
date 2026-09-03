@@ -1,0 +1,29 @@
+bag Jobs {
+    type: queue
+    of: int
+    capacity: 8
+    handle: 20
+}
+
+bag State {
+    type: record
+    total: int
+    handle: 21
+}
+
+int i = 0;
+while (i < 4) {
+    Jobs.enqueue(i);
+    i += 1;
+}
+
+int sum = 0;
+while (i > 0) {
+    int x = Jobs.dequeue();
+    sum += x;
+    i -= 1;
+}
+
+Jobs.checkpoint();
+State.total = sum;
+int out = State.total;
