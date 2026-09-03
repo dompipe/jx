@@ -37,11 +37,15 @@ $surface = JxAlias::canonicalizeSurface('x = deliver(root, "a.b")');
 $expect($surface, 'x = delivery(root, "a.b")', 'surface deliver');
 
 $map = PASMBagHotOp::lowering('emplace', 'map');
-$expect($map['kind'], 'probe-address-map-emplace', 'map emplace lowering');
-$expect($map['probe_once'], true, 'map single probe');
+$expect($map['kind'], 'ordered-2d-array-emplace', 'map emplace lowering');
+$expect($map['find_once'], true, 'map single position find');
+$expect($map['layout'], ['keys[]','values[]'], 'map 2D array layout');
+$expect($map['hashing'], false, 'map hashing prohibited');
 $expect($map['insert_if_absent'], true, 'map absent semantics');
 $set = PASMBagHotOp::lowering('insert', 'set');
-$expect($set['kind'], 'probe-address-set-emplace', 'set emplace lowering');
+$expect($set['kind'], 'ordered-unique-array-emplace', 'set emplace lowering');
+$expect($set['layout'], ['keys[]'], 'set 1D array layout');
+$expect($set['hashing'], false, 'set hashing prohibited');
 $vector = PASMBagHotOp::lowering('packin', 'vector');
 $expect($vector['bulk_move'], true, 'vector bulk pack');
 $expect(count($vector['asm']), 3, 'vector emplace three-line semantic lowering');
