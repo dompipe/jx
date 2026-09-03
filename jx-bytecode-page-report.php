@@ -9,6 +9,7 @@ final class JxBytecodePageReport
 {
     public const EXECUTABLE = 'jx.exe';
     public const TARGET_PASM = 'PASM';
+    public const TARGET_JXL = 'JXL';
 
     /** @param list<string> $dependencies @param array<string,string> $registers */
     public function __construct(
