@@ -82,7 +82,10 @@ final class PASMLoopFuser
 /**
  * Active compiler facade:
  * rich loop rhetoric -> collection-loop lowering -> bounded compiler ->
- * compact iterator controller rewrite -> loop fusion -> prepared JXL.
+ * compact iterator controller rewrite -> loop fusion -> PASM semantics.
+ *
+ * A historical six-byte prepared representation remains available below for
+ * compatibility and benchmark work. It is not the public .jxl file format.
  */
 final class PASMFusedCompiler
 {
@@ -122,24 +125,39 @@ final class PASMFusedCompiler
         return $asm;
     }
 
-    /** Canonical PASL prepared target: six-byte PASM-profile JXL cells. */
-    public function compileToJxl(string $source): string
+    /** Internal six-byte prepared representation retained for compatibility. */
+    public function compilePrepared(string $source): string
     {
         $asm = $this->compile($source);
         try { return (new \pasm\PASMJxlCompiler())->compile($asm); }
-        catch (\Throwable $e) { throw new LangException('JXL assemble failed: ' . $e->getMessage(), 'assemble-jxl', null, $e); }
+        catch (\Throwable $e) { throw new LangException('Prepared assemble failed: ' . $e->getMessage(), 'assemble-prepared', null, $e); }
     }
 
-    public function compileToJxlFile(string $source, string $path): string
+    /** @deprecated Historical method name; does not mean a public .jxl artifact. */
+    public function compileToJxl(string $source): string
     {
-        $code = $this->compileToJxl($source);
+        return $this->compilePrepared($source);
+    }
+
+    public function compilePreparedFile(string $source, string $path): string
+    {
+        if (strtolower(pathinfo($path,PATHINFO_EXTENSION)) === 'jxl') {
+            throw new LangException('Public .jxl is reserved for native executable images','io');
+        }
+        $code = $this->compilePrepared($source);
         $dir = dirname($path);
         if ($dir !== '.' && !is_dir($dir) && !mkdir($dir,0775,true) && !is_dir($dir)) throw new LangException("Cannot create {$dir}",'io');
         if (file_put_contents($path,$code)!==strlen($code)) throw new LangException("Cannot write {$path}",'io');
         return $code;
     }
 
-    /** Legacy compatibility target. New PASL executables should use .jxl. */
+    /** @deprecated Historical method name. Use compilePreparedFile with a non-.jxl internal path. */
+    public function compileToJxlFile(string $source, string $path): string
+    {
+        return $this->compilePreparedFile($source,$path);
+    }
+
+    /** PASM bytecode compatibility target. */
     public function compileToBytecode(string $source): string
     {
         $asm = $this->compile($source);
@@ -148,10 +166,13 @@ final class PASMFusedCompiler
         catch (\Throwable $e) { throw new LangException('Assemble failed: ' . $e->getMessage(), 'assemble', null, $e); }
     }
 
-    /** Legacy .pbc writer retained for compatibility. */
+    /** .pbc writer retained for PASM/PASL compatibility and development. */
     public function compileToFile(string $source, string $path): string
     {
-        if (strtolower(pathinfo($path,PATHINFO_EXTENSION)) === 'jxl') return $this->compileToJxlFile($source,$path);
+        $ext = strtolower(pathinfo($path,PATHINFO_EXTENSION));
+        if ($ext === 'jxl' || $ext === 'jll' || $ext === 'jxb') {
+            throw new LangException(".{$ext} is not a PASM prepared-file target",'io');
+        }
         $code = $this->compileToBytecode($source);
         $flags = $this->optimize ? PbcFile::FLAG_OPTIMIZED : 0;
         PbcFile::write($path, $code, $flags);
