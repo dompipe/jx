@@ -1,197 +1,352 @@
 # PASL Language Manual
 
-**PASM Language — PHP-like source language with prepared JXL output**  
-Version 1.1 · 2026 · dompipe/jx
+**PASM Language — readable low-level/compiler surface for JX**  
+Version 1.2 · 2026 · dompipe/jx
 
-Silent by default · Optimized by default · Canonical `.jxl` prepared stream
+PASL remains a compact PHP-like language for expressing arithmetic, control flow, registers, loops, and other operations that lower naturally into PASM. It is a compiler-development and bootstrap surface; it is **not** required between every `.jx` construct and native code.
 
-## 1. Overview
+## 1. Position in JX
 
-PASL is a restricted, PHP-like language whose front-end lowers source into PASM semantics. The normal prepared backend now encodes those semantics as fixed-width JXL rather than making `.pbc` the primary executable representation.
+Canonical compilation is:
 
 ```text
-PASL
-  ↓
-parser / variables / loop-space / foreach lowering
-  ↓
-PASM semantic assembly
-  ↓
-optimizer + loop fuser
-  ↓
-JXL six-byte cells
+.jx source
+  -> PHP-backed JX parser/canonicalizer
+  -> JX IR
+  -> PASM directly where appropriate
+  -> optional PASL-assisted lowering where useful
+  -> direct native encoder
+  -> JXNI native image
+       entrypoint    -> .jxl
+       no entrypoint -> .jll
 ```
 
-Goals:
+PASL can also be compiled into the historical prepared/PASM compatibility representation for tests and bootstrap execution.
 
-1. Keep source compact and readable.
-2. Preserve PASM's explicit register and operation semantics.
-3. Give every supported PASM operation a canonical JXL representation.
-4. Make `.jxl` the prepared executable stream used by new code.
-5. Keep `.pbc` readable and explicitly producible for compatibility.
-6. Allow `.jxl` to be packaged inside `.jxb` compiled Books.
+The key rule is:
+
+> **PASL helps lower JX; PASL does not define what JX is allowed to express.**
 
 ## 2. File roles
 
 | Extension | Role |
 |---|---|
 | `.pasl` | PASL source |
-| `.jxl` | Canonical prepared executable stream |
-| `.jxb` | Compiled Book/container; may carry JXL, metadata, bindings and native sections |
-| `.pbc` | Legacy PASM bytecode container |
-| `.64B` | Legacy JXB filename only; never the preferred new output name |
+| `.jx` | canonical Jinx source |
+| `.jxl` | native Jinx executable image with entrypoint |
+| `.jll` | native Jinx Loadable Library, same image format and normally no entrypoint |
+| `.jxb` | indexed ZIP-compatible Deflate resource archive |
+| `.pbc` | PASM bytecode/prepared compatibility container |
+| `.8B` | historical/internal six-byte prepared stream when persisted explicitly |
+| `.64B` | historical compiled-Book/package generation |
 
-`.b64` files elsewhere in the repository are Base64 shards and are unrelated to the old `.64B` Book suffix.
+The six-byte prepared format was historically called JXL in code and benchmark names. It remains available internally, but new `.jxl` files contain JXNI native executable images.
 
-## 3. JXL semantic profile
+## 3. PASL to PASM
 
-The PASM-profile JXL band is reserved directly above the native Bag/container band:
+PASL lowers readable statements into explicit PASM semantics:
 
 ```text
-0x20..0x37  prepared JXL arithmetic/control core
-0x40..0x50  native Bag/container operations
-0x51..0x76  PASM semantic operations
-0x77        MOVI 64-bit continuation cell
+PASL
+  -> parser / variables / loop lowering
+  -> PASM semantic assembly
+  -> optimization / loop fusion / iterator preparation
 ```
 
-PASM's current `0x00..0x25` operation set maps one-for-one to JXL `0x51..0x76`.
+PASM is intentionally short and resolved. For admitted operations it can feed the direct native encoder without a second general-purpose assembler.
 
-The profile covers all current PASM semantic possibilities:
+## 4. Registers
 
-- `HALT`
-- `MOVI`, `MOVR`
-- `ADD`, `SUB`, `MUL`, `DIV`, `MOD`
-- `AND`, `OR`, `XOR`, `SHL`, `SHR`
-- `CMP`
-- `JMP`, `JZ`, `JNZ`, `JL`, `JLE`, `JG`, `JGE`
-- `PUSH`, `POP`
-- `LOAD32`, `STORE32`
-- `INC`, `DEC`, `NEG`
-- `RET`
-- `ITERF`, `ITERR`, `IRESET`
-- `NLOAD`, `NSTORE`
-- `MCALL0`, `MCALL1`, `MCALL2`, `MCALL3`
-
-Each normal instruction occupies exactly six bytes. The first byte is the opcode and the remaining five bytes are JXL attachment bytes with the high bit set. `MOVI` uses a second six-byte continuation cell so signed 64-bit immediates are not truncated.
-
-## 4. Invocation and embedding
-
-### New prepared path
-
-```php
-use pasm\lang\Engine;
-
-$engine = new Engine(optimize: true, verbose: false);
-
-$source = '$sum=0;$i=0;for($i=0;$i!=4;$i++){$sum+=$i;}$result=$sum;';
-$jxl = $engine->compile($source);
-$result = $engine->runCode($jxl); // 6
-
-$engine->compileFile($source, 'program.jxl');
-$result = $engine->runFile('program.jxl');
-```
-
-`Engine::compile()` returns JXL. `Engine::compileFile()` writes JXL unless the requested filename explicitly ends in `.pbc`.
-
-### Explicit PBC compatibility
-
-```php
-$pbc = $engine->compilePbc($source);
-$engine->compileFile($source, 'program.pbc');
-```
-
-PBC is no longer the default new prepared format.
-
-## 5. Types and registers
-
-### Integer
-
-The PASM register window remains:
+The current PASM logical register window is:
 
 ```text
 ecx, ah, adx, bdx, cdx, ddx, edx, rdx
 ```
 
-Example:
+These names are PASM logical registers, not a promise that the native target uses the identically named CPU registers.
+
+The direct native encoder maps them deterministically to target registers for the selected ABI.
+
+## 5. Basic statements
+
+### Assignment
 
 ```pasl
-$addedto = 0;
-$addedto = $addedto + 1;
-$addedto++;
-$addedto += 1;
-$addedto = $addedto * 2;
+$x = 10;
+$y = $x;
 ```
 
-### Complex
-
-Complex values use paired registers in the existing PASL lowering. Literals include `3+4i`, `1-2i`, `i`, and `-i` where supported by the source compiler.
-
-## 6. Control flow
-
-PASL lowers structured source into explicit PASM comparisons and branches, then relocates those branch targets to JXL byte offsets.
+### Arithmetic
 
 ```pasl
-while ($i) {
-    $sum += $i;
-    $i--;
-}
+$x = $a + $b;
+$x = $a - $b;
+$x = $a * $b;
+$x = $a / $b;
+$x = $a % $b;
+```
 
-for ($k = 0; $k != 4; $k++) {
-    $sum += $k;
-}
+Support in a specific backend depends on whether the relevant PASM operation is admitted by that backend. The direct native x86-64 encoder is deliberately fail-closed for operations not yet implemented.
 
-if ($mode == 2) {
-    $result = 20;
+### Mutation
+
+```pasl
+$x++;
+$x--;
+$x += 4;
+$x -= 4;
+$x *= 2;
+$x ^= 3;
+```
+
+### Bit operations
+
+```pasl
+$x = $a & $b;
+$x = $a | $b;
+$x = $a ^ $b;
+$x = $a << $n;
+$x = $a >> $n;
+```
+
+## 6. Conditions
+
+```pasl
+if ($x > $y) {
+    $result = $x;
 } else {
-    $result = 10;
+    $result = $y;
 }
 ```
 
-Relational PASM branch operations `JL`, `JLE`, `JG`, and `JGE` also have dedicated JXL cells, so the prepared format no longer needs a separate bytecode vocabulary for them.
+PASM comparisons lower into `CMP` plus the applicable conditional branch.
 
-## 7. Iteration and named operations
-
-The prepared profile retains the PASM operations used by the richer PASL lowering:
-
-- `ITERF` — forward iterator step
-- `ITERR` — reverse iterator step
-- `IRESET` — iterator reset
-- `NLOAD` / `NSTORE` — named memory access
-- `MCALL0..3` — fast method-call forms
-
-These are encoded as JXL rather than being hidden inside an opaque PBC payload.
-
-## 8. Optimization
-
-The existing optimizer remains before JXL emission. Current transformations include constant simplification, simple identity removal, register-level lowering, iterator rewrites and loop-block fusion where valid.
-
-The important distinction is that optimization now feeds one canonical prepared representation:
+Current branch family includes:
 
 ```text
-optimized PASM semantics -> JXL
+JZ
+JNZ
+JL
+JLE
+JG
+JGE
 ```
 
-rather than requiring a separate PASM bytecode file format for normal execution.
+## 7. Loops
 
-## 9. Execution status
+### While
 
-The JXL representation is canonical and is the default PASL prepared output. The current PASL host can execute it by admitting the JXL profile and reconstructing the existing PASM runtime semantics.
+```pasl
+while ($x > 0) {
+    $x--;
+}
+```
 
-The native x86-64 JXL dispatcher already executes the existing arithmetic/control and native Bag bands. Direct native x86-64 handlers for the PASM-specific `0x51..0x77` profile are the next optimization layer; until those handlers are added, PASL-profile JXL uses the compatibility PASM runtime admission path.
+### For
 
-This distinction is intentional: **the file format migration is complete without falsely claiming every PASM-specific operation is already a native assembly instruction.**
+```pasl
+for ($i = 0; $i < 10; $i++) {
+    $sum += $i;
+}
+```
 
-## 10. JXB packaging
+Loop lowering can move bounded bodies into compiled loop blocks and fuse unnecessary transfers before low-level emission.
 
-A compiled Book uses `.jxb`:
+### Break and continue
+
+```pasl
+for ($i = 0; $i < 100; $i++) {
+    if ($i == 4) continue;
+    if ($i == 20) break;
+    $sum += $i;
+}
+```
+
+## 8. Collection loops
+
+The JX/PASL collection-loop family includes:
 
 ```text
-program.jxb
-  ├─ JX64/header.bin      stable v1 package identity
-  ├─ JX64/manifest.json
-  ├─ CODE/program.jxl
-  └─ metadata / bindings / optional native sections
+foreach
+reveach
+forif
+revif
 ```
 
-The internal `JX64B001` magic and `jx.64B/1` manifest identifier remain stable for binary compatibility. They are internal version identifiers, not the public filename extension.
+The compact PASM iterator controller uses forward/reverse iterator operations and a prelinked iterator descriptor.
 
-New tools emit `.jxb`. Existing `.64B` files remain readable by their internal package identity.
+Rich row destructuring such as:
+
+```jx
+_, no1, no2, no3 = forif ($value in $values if no1 < _)
+```
+
+is **not** an array feature of PASM. The PHP/JX front end normalizes that rare source form before PASM/native lowering.
+
+## 9. Selection
+
+PASL supports structured selection through the active compiler surface:
+
+```pasl
+select ($x) {
+    case 1:
+        $result = 10;
+    case 2:
+        $result = 20;
+    default:
+        $result = 0;
+}
+```
+
+`switch` may be accepted as a surface spelling where the compiler aliases it to the same canonical selection semantics.
+
+## 10. Complex values
+
+The PASL compiler retains complex-value support using paired logical registers where applicable:
+
+```pasl
+complex $z = 3+4i;
+complex $w = 1-2i;
+complex $p;
+$p = $z * $w;
+```
+
+Complex values consume two logical register positions and therefore affect register pressure differently from scalar values.
+
+## 11. Prepared compatibility execution
+
+The repository retains a fixed-width prepared execution representation historically named JXL. It is useful for:
+
+- regression tests,
+- benchmark reproducibility,
+- bootstrap execution,
+- prepared-dispatch versus direct-native comparisons,
+- container-operation benchmarking.
+
+Persisted output from this compatibility subsystem should use `.pbc`, `.8B`, or another explicitly internal filename—not public `.jxl`.
+
+The PASL development engine therefore uses `.pbc` for ordinary persisted prepared output:
+
+```bash
+php pasm-run.php -o program.pbc program.pasl
+php pasm-run.php --print program.pbc
+```
+
+In-memory APIs may retain historical method/class names such as `compileJxl()` or `PASMJxlCompiler` while migration proceeds. Those identifiers do not define the public file extension.
+
+## 12. Native executable output
+
+For the current admitted direct-native subset:
+
+```bash
+php jxl-native-compile.php program.jx program.jxl
+```
+
+Pipeline:
+
+```text
+source
+ -> PASM
+ -> PASMNativeEncoder
+ -> x86-64 CODE bytes
+ -> JxNativeImage(entrypoint=0)
+ -> program.jxl
+```
+
+The historical implementation class `PASMNativeJxlEncoder` remains underneath the canonical `PASMNativeEncoder` facade because it already contains tested direct x86-64 templates.
+
+## 13. Native library output
+
+A library uses the same code generator and native-image ABI:
+
+```bash
+php jll-native-compile.php math.jx math.jll exports.json
+php jll-inspect.php math.jll
+```
+
+A JLL normally has no entrypoint and may ship:
+
+```text
+CODE
+STRINGS
+SIGNATURES
+EXPORTS
+```
+
+so a native loader can map it, resolve a public function, inspect the parameter/return contract, and jump directly to its CODE offset.
+
+## 14. JXNI image relationship
+
+JXL and JLL are one image family:
+
+```text
+JXNI image
+  + entrypoint -> .jxl
+  - entrypoint -> .jll
+```
+
+The current binary ABI is defined in `docs/JX-FILE-FORMATS.md` and implemented in:
+
+```text
+jx-native-image.php
+host/common/jx-native-image.h
+host/common/jx-native-image.c
+```
+
+Native JLL loaders exist for Linux and Windows. Minimal native JXL launchers also exist under the corresponding host directories.
+
+## 15. JXB relationship
+
+JXB is independent of PASL execution. It is the resource boundary:
+
+```text
+images / models / fonts / tables / dictionaries / other resources
+ -> indexed per-member Deflate archive
+ -> assets.jxb
+```
+
+A JXB may contain a `.jxl` or `.jll` as a resource, but the archive itself does not become executable code.
+
+## 16. Direct-native admission rule
+
+The native encoder must not fake support for a PASM opcode by silently routing through a hidden interpreter.
+
+Current policy:
+
+```text
+supported PASM op
+ -> deterministic native byte template
+
+unsupported PASM op
+ -> compiler error
+```
+
+This keeps native `.jxl/.jll` output accurate and makes missing encoder work visible.
+
+## 17. Development command summary
+
+```bash
+# Run PASL through the compatibility engine
+php pasm-run.php --print program.pasl
+
+# Persist PASM/prepared compatibility output
+php pasm-run.php -o program.pbc program.pasl
+
+# Generate diagnostic x86 assembly through the separate NASM-oriented backend
+php pasm-run.php --x86 -o program.s program.pasl
+
+# Generate a native JXNI executable using the direct encoder
+php jxl-native-compile.php program.jx program.jxl
+
+# Generate a JXNI library with public signatures
+php jll-native-compile.php library.jx library.jll exports.json
+php jll-inspect.php library.jll
+```
+
+## 18. Compiler law
+
+The permanent architecture is:
+
+> **JX IR is universal. PASM is the usual low-level language. PASL is optional. Native JXL/JLL are generated by the direct encoder.**
+
+That prevents uncommon source features from forcing complexity into PASL or PASM while preserving a small, fast low-level execution model.
