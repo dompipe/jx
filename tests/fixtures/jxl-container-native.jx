@@ -1,0 +1,28 @@
+bag Jobs {
+    type: queue
+    of: Task
+    capacity: 1024
+    handle: 10
+}
+
+bag Seen {
+    type: set
+    of: int
+    capacity: 128
+    handle: 11
+}
+
+bag State {
+    type: record
+    health: int
+    phi: int
+    handle: 12
+}
+
+int task = 42;
+Jobs.enqueue(task);
+int next = Jobs.dequeue();
+int added = Seen.add(task);
+State.health = next;
+int hp = State.health;
+Jobs.checkpoint();
