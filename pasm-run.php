@@ -2,7 +2,10 @@
 <?php declare(strict_types=1);
 /**
  * PASL runner — silent by default.
- *   php pasm-run.php [--print] [-O0|-O1] [-o out] [--x86] [-c src|file]
+ *   php pasm-run.php [--print] [-O0|-O1] [-o out.jxl] [--x86] [-c src|file]
+ *
+ * .jxl is the canonical prepared PASL output. .pbc remains an explicit legacy
+ * compatibility container.
  */
 namespace pasm\lang;
 
@@ -17,7 +20,7 @@ $print = false;
 $optimize = true;
 $outFile = null;
 $sourceArg = null;
-$pbcArg = null;
+$preparedArg = null;
 $inline = null;
 $x86 = false;
 
@@ -42,10 +45,12 @@ while ($argv !== []) {
     } elseif ($a === '-c') {
         $inline = array_shift($argv);
     } elseif ($a === '-h' || $a === '--help') {
-        fwrite(STDOUT, "Usage: pasm-run.php [--print|-v] [--x86] [-O0|-O1] [-o out] [-c 'src'] [file.pasl|file.pbc]\n");
+        fwrite(STDOUT, "Usage: pasm-run.php [--print|-v] [--x86] [-O0|-O1] [-o out.jxl] [-c 'src'] [file.pasl|file.jxl|file.pbc]\n");
+        fwrite(STDOUT, "       .jxl  canonical prepared PASL executable stream\n");
+        fwrite(STDOUT, "       .pbc  legacy PASM bytecode compatibility container\n");
         exit(0);
-    } elseif (is_string($a) && str_ends_with($a, '.pbc')) {
-        $pbcArg = $a;
+    } elseif (is_string($a) && (str_ends_with(strtolower($a), '.jxl') || str_ends_with(strtolower($a), '.pbc'))) {
+        $preparedArg = $a;
     } else {
         $sourceArg = $a;
     }
@@ -61,9 +66,7 @@ try {
                 file_put_contents($outFile, $asm);
                 exit(0);
             }
-            if ($print) {
-                echo $asm;
-            }
+            if ($print) echo $asm;
             exit(0);
         }
         if ($sourceArg !== null) {
@@ -75,9 +78,7 @@ try {
             $asm = $xc->compile($src);
             $out = $outFile ?? (preg_replace('/\.pasl$/', '', $sourceArg) . '.s');
             file_put_contents($out, $asm);
-            if ($print) {
-                echo $asm;
-            }
+            if ($print) echo $asm;
             exit(0);
         }
         fwrite(STDERR, "x86 mode needs -c or a .pasl file\n");
@@ -92,17 +93,13 @@ try {
             exit(0);
         }
         $result = $eng->runSource($inline);
-        if ($print) {
-            echo $result, "\n";
-        }
+        if ($print) echo $result, "\n";
         exit(0);
     }
 
-    if ($pbcArg !== null) {
-        $result = $eng->runFile($pbcArg);
-        if ($print) {
-            echo $result, "\n";
-        }
+    if ($preparedArg !== null) {
+        $result = $eng->runFile($preparedArg);
+        if ($print) echo $result, "\n";
         exit(0);
     }
 
@@ -117,9 +114,7 @@ try {
             exit(0);
         }
         $result = $eng->runSource($src);
-        if ($print) {
-            echo $result, "\n";
-        }
+        if ($print) echo $result, "\n";
         exit(0);
     }
 
