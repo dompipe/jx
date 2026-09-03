@@ -302,41 +302,193 @@ final class DequeBag extends QueueBag
     public function nativeLayout(): array { return ['strategy'=>'double-ended-power-of-two-ring','slot'=>'index & mask','capacity'=>$this->mask+1,'element_type'=>$this->elementType]; }
 }
 
+/**
+ * Map is canonically a two-dimensional ordered array. The PHP host mirrors the
+ * native law with synchronized keys[] and values[] dimensions; it never uses an
+ * associative array as the Map's internal storage.
+ */
 class MapBag extends BagContainer
 {
+    /** @var list<string|int> */
+    protected array $keys=[];
+    /** @var list<mixed> */
     protected array $values=[];
-    public function __construct(Bag $bag, ?string $elementType=null, string $kind=BagDiscipline::MAP){parent::__construct($bag,$kind,$elementType);}
-    public function count(): int{return count($this->values);}
-    public function put(string|int $key,mixed $value): static{$this->values[$key]=$value;$this->changed();return $this;}
-    /** Map BEMPLACE: emplace(key, value), insert only when absent. */
+    protected int $cursor=0;
+
+    public function __construct(Bag $bag, ?string $elementType=null, string $kind=BagDiscipline::MAP)
+    {
+        parent::__construct($bag,$kind,$elementType);
+    }
+
+    public function count(): int{return count($this->keys);}
+
+    private static function compareKey(string|int $a,string|int $b): int
+    {
+        if (is_int($a) && is_int($b)) return $a <=> $b;
+        if (is_int($a)) return -1;
+        if (is_int($b)) return 1;
+        return strcmp($a,$b);
+    }
+
+    /** @return array{0:int,1:bool} lower_bound index + found */
+    protected function findPosition(string|int $key): array
+    {
+        $n=count($this->keys);
+        if($n===0){$this->cursor=0;return [0,false];}
+
+        if($this->cursor<$n){
+            $cmp=self::compareKey($this->keys[$this->cursor],$key);
+            if($cmp===0)return [$this->cursor,true];
+            if($cmp<0){
+                $next=$this->cursor+1;
+                if($next>=$n){$this->cursor=$n;return [$n,false];}
+                $cmpNext=self::compareKey($this->keys[$next],$key);
+                if($cmpNext===0){$this->cursor=$next;return [$next,true];}
+                if($cmpNext>0){$this->cursor=$next;return [$next,false];}
+            }
+        }
+
+        $lo=0;$hi=$n;
+        while($lo<$hi){
+            $mid=($lo+$hi)>>1;
+            if(self::compareKey($this->keys[$mid],$key)<0)$lo=$mid+1;else$hi=$mid;
+        }
+        $this->cursor=$lo;
+        return [$lo,$lo<$n && self::compareKey($this->keys[$lo],$key)===0];
+    }
+
+    public function put(string|int $key,mixed $value): static
+    {
+        [$i,$found]=$this->findPosition($key);
+        if($found){
+            $this->values[$i]=$value;
+        }else{
+            array_splice($this->keys,$i,0,[$key]);
+            array_splice($this->values,$i,0,[$value]);
+            $this->cursor=$i;
+        }
+        $this->changed();
+        return $this;
+    }
+
+    /** Map BEMPLACE: find key; insert only when absent. */
     public function emplace(mixed ...$args): mixed
     {
-        if (count($args) !== 2 || (!is_string($args[0]) && !is_int($args[0]))) {
+        if(count($args)!==2 || (!is_string($args[0]) && !is_int($args[0]))) {
             throw new \InvalidArgumentException('MapBag::emplace expects (string|int key, mixed value)');
         }
         $key=$args[0];$value=$args[1];
-        if (array_key_exists($key, $this->values)) return $this->values[$key];
-        $this->values[$key] = $value;
+        [$i,$found]=$this->findPosition($key);
+        if($found)return $this->values[$i];
+        array_splice($this->keys,$i,0,[$key]);
+        array_splice($this->values,$i,0,[$value]);
+        $this->cursor=$i;
         $this->changed();
         return $value;
     }
-    public function get(string|int $key,mixed $default=null): mixed{return array_key_exists($key,$this->values)?$this->values[$key]:$default;}
-    public function has(string|int $key): bool{return array_key_exists($key,$this->values);}
-    public function remove(string|int $key): bool{if(!array_key_exists($key,$this->values))return false;unset($this->values[$key]);$this->changed();return true;}
-    public function clear(): static{if($this->values!==[]){$this->values=[];$this->changed();}return $this;}
-    public function toArray(): array{return $this->values;}
-    public function nativeLayout(): array{return ['strategy'=>'native-hash','emplace'=>'probe once; insert if absent','element_type'=>$this->elementType];}
-    protected function exportPayload(): array{return ['values'=>$this->values];}
-    protected function importPayload(array $payload): void{$this->values=$payload['values']??[];}
+
+    public function get(string|int $key,mixed $default=null): mixed
+    {
+        [$i,$found]=$this->findPosition($key);
+        return $found?$this->values[$i]:$default;
+    }
+
+    public function has(string|int $key): bool
+    {
+        [, $found]=$this->findPosition($key);
+        return $found;
+    }
+
+    public function remove(string|int $key): bool
+    {
+        [$i,$found]=$this->findPosition($key);
+        if(!$found)return false;
+        array_splice($this->keys,$i,1);
+        array_splice($this->values,$i,1);
+        $this->cursor=min($i,count($this->keys));
+        $this->changed();
+        return true;
+    }
+
+    public function clear(): static
+    {
+        if($this->keys!==[]){$this->keys=[];$this->values=[];$this->cursor=0;$this->changed();}
+        return $this;
+    }
+
+    public function toArray(): array
+    {
+        $out=[];
+        foreach($this->keys as $i=>$key)$out[$key]=$this->values[$i];
+        return $out;
+    }
+
+    public function nativeLayout(): array
+    {
+        return [
+            'strategy'=>'ordered-2d-array',
+            'dimensions'=>['keys[]','values[]'],
+            'find'=>'cursor marquee then lower_bound',
+            'put'=>'overwrite value at found index; otherwise insert key/value at lower_bound',
+            'element_type'=>$this->elementType,
+        ];
+    }
+
+    protected function exportPayload(): array{return ['keys'=>$this->keys,'values'=>$this->values];}
+
+    protected function importPayload(array $payload): void
+    {
+        $keys=$payload['keys']??null;$values=$payload['values']??null;
+        if(is_array($keys)&&is_array($values)&&count($keys)===count($values)){
+            $pairs=[];
+            foreach(array_values($keys) as $i=>$key){
+                if(!is_int($key)&&!is_string($key))continue;
+                $pairs[]=['key'=>$key,'value'=>array_values($values)[$i]??null];
+            }
+            usort($pairs,static fn(array $a,array $b):int=>self::compareKey($a['key'],$b['key']));
+            $this->keys=[];$this->values=[];
+            foreach($pairs as $pair){
+                $n=count($this->keys);
+                if($n>0 && self::compareKey($this->keys[$n-1],$pair['key'])===0){
+                    $this->values[$n-1]=$pair['value'];
+                }else{
+                    $this->keys[]=$pair['key'];$this->values[]=$pair['value'];
+                }
+            }
+        }else{
+            // Backward-compatible restore of the old associative payload. The
+            // restored live representation is immediately converted to 2D arrays.
+            $legacy=is_array($payload['values']??null)?$payload['values']:[];
+            $this->keys=[];$this->values=[];
+            foreach($legacy as $key=>$value){
+                $this->keys[]=$key;$this->values[]=$value;
+            }
+            $order=array_keys($this->keys);
+            usort($order,fn(int $a,int $b):int=>self::compareKey($this->keys[$a],$this->keys[$b]));
+            $sortedKeys=[];$sortedValues=[];
+            foreach($order as $i){$sortedKeys[]=$this->keys[$i];$sortedValues[]=$this->values[$i];}
+            $this->keys=$sortedKeys;$this->values=$sortedValues;
+        }
+        $this->cursor=0;
+    }
 }
 
-final class SetBag extends MapBag
+/** Set is the ordered one-dimensional unique-key form of Map's array law. */
+final class SetBag extends BagContainer
 {
-    public function __construct(Bag $bag, ?string $elementType=null){parent::__construct($bag,$elementType,BagDiscipline::SET);}
+    /** @var list<mixed> */
+    private array $values=[];
+    private int $cursor=0;
+
+    public function __construct(Bag $bag, ?string $elementType=null)
+    {
+        parent::__construct($bag,BagDiscipline::SET,$elementType);
+    }
+
     private function keyOf(mixed $value): string
     {
         return match(true){
-            is_int($value)=>'i:'.$value,
+            is_int($value)=>'i:'.sprintf('%020d',$value),
             is_string($value)=>'s:'.$value,
             is_float($value)=>'f:'.sprintf('%.17g',$value),
             is_bool($value)=>'b:'.($value?'1':'0'),
@@ -344,27 +496,83 @@ final class SetBag extends MapBag
             default=>'x:'.hash('xxh3',serialize($value)),
         };
     }
+
+    /** @return array{0:int,1:bool} */
+    private function findPosition(mixed $value): array
+    {
+        $needle=$this->keyOf($value);$n=count($this->values);
+        if($n===0){$this->cursor=0;return [0,false];}
+        if($this->cursor<$n){
+            $cur=strcmp($this->keyOf($this->values[$this->cursor]),$needle);
+            if($cur===0)return [$this->cursor,true];
+            if($cur<0){
+                $next=$this->cursor+1;
+                if($next>=$n){$this->cursor=$n;return [$n,false];}
+                $cmp=strcmp($this->keyOf($this->values[$next]),$needle);
+                if($cmp===0){$this->cursor=$next;return [$next,true];}
+                if($cmp>0){$this->cursor=$next;return [$next,false];}
+            }
+        }
+        $lo=0;$hi=$n;
+        while($lo<$hi){
+            $mid=($lo+$hi)>>1;
+            if(strcmp($this->keyOf($this->values[$mid]),$needle)<0)$lo=$mid+1;else$hi=$mid;
+        }
+        $this->cursor=$lo;
+        return [$lo,$lo<$n && strcmp($this->keyOf($this->values[$lo]),$needle)===0];
+    }
+
+    public function count(): int{return count($this->values);}
+
     public function put(string|int $key,mixed $value): static
     {
         throw new LogicException('SetBag does not expose map-key put(); use add() or emplace(value)');
     }
+
     public function remove(string|int $key): bool
     {
         throw new LogicException('SetBag does not expose map-key remove(); use discard(value)');
     }
-    /** Set BEMPLACE: emplace(value), insert only when absent. */
+
+    /** Set BEMPLACE: find value; drop duplicate or insert at its ordered position. */
     public function emplace(mixed ...$args): mixed
     {
-        if (count($args) !== 1) throw new \InvalidArgumentException('SetBag::emplace expects (mixed value)');
-        $value=$args[0];$k=$this->keyOf($value);
-        if(array_key_exists($k,$this->values)) return $this->values[$k];
-        $this->values[$k]=$value;$this->changed();return $value;
+        if(count($args)!==1)throw new \InvalidArgumentException('SetBag::emplace expects (mixed value)');
+        $value=$args[0];[$i,$found]=$this->findPosition($value);
+        if($found)return $this->values[$i];
+        array_splice($this->values,$i,0,[$value]);
+        $this->cursor=$i;$this->changed();return $value;
     }
+
     public function add(mixed $value): static{$this->emplace($value);return $this;}
-    public function contains(mixed $value): bool{return array_key_exists($this->keyOf($value),$this->values);}
-    public function discard(mixed $value): bool{$k=$this->keyOf($value);if(!array_key_exists($k,$this->values))return false;unset($this->values[$k]);$this->changed();return true;}
-    public function toArray(): array{return array_values($this->values);}
-    public function nativeLayout(): array{return ['strategy'=>'native-hash-set','emplace'=>'probe once; insert key if absent','element_type'=>$this->elementType];}
+    public function contains(mixed $value): bool{[, $found]=$this->findPosition($value);return $found;}
+    public function discard(mixed $value): bool
+    {
+        [$i,$found]=$this->findPosition($value);if(!$found)return false;
+        array_splice($this->values,$i,1);$this->cursor=min($i,count($this->values));$this->changed();return true;
+    }
+    public function clear(): static{if($this->values!==[]){$this->values=[];$this->cursor=0;$this->changed();}return $this;}
+    public function toArray(): array{return $this->values;}
+    public function nativeLayout(): array
+    {
+        return [
+            'strategy'=>'ordered-unique-array',
+            'dimensions'=>['keys[]'],
+            'find'=>'cursor marquee then lower_bound',
+            'emplace'=>'drop if found; otherwise insert at lower_bound',
+            'element_type'=>$this->elementType,
+        ];
+    }
+    protected function exportPayload(): array{return ['values'=>$this->values];}
+    protected function importPayload(array $payload): void
+    {
+        $input=array_values($payload['values']??[]);$this->values=[];$this->cursor=0;
+        foreach($input as $value){
+            [$i,$found]=$this->findPosition($value);
+            if(!$found)array_splice($this->values,$i,0,[$value]);
+        }
+        $this->cursor=0;
+    }
 }
 
 final class BagContainers
