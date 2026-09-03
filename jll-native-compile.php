@@ -1,12 +1,12 @@
 <?php declare(strict_types=1);
 
 require_once __DIR__ . '/pasm-expr.php';
-require_once __DIR__ . '/pasm-native-jxl.php';
+require_once __DIR__ . '/pasm-native-encoder.php';
 require_once __DIR__ . '/jx-native-image.php';
 
 use jx\JxNativeImage;
 use pasm\PASMExprCompiler;
-use pasm\PASMNativeJxlEncoder;
+use pasm\PASMNativeEncoder;
 
 $args=$_SERVER['argv']??[];array_shift($args);
 if($args===[]||in_array($args[0]??'',['-h','--help'],true)){
@@ -16,7 +16,7 @@ if($args===[]||in_array($args[0]??'',['-h','--help'],true)){
 }
 $input=$args[0];$output=$args[1]??preg_replace('/\.[^.]+$/','',$input).'.jll';$exportsPath=$args[2]??null;
 $source=file_get_contents($input);if($source===false)throw new RuntimeException("Cannot read {$input}");
-$compiler=new PASMExprCompiler();$pasm=$compiler->compile($source);$code=(new PASMNativeJxlEncoder())->compile($pasm);
+$compiler=new PASMExprCompiler();$pasm=$compiler->compile($source);$code=(new PASMNativeEncoder())->compileCode($pasm);
 $image=JxNativeImage::library($code,JxNativeImage::ARCH_X86_64_SYSV);
 if($exportsPath!==null){
     $raw=file_get_contents($exportsPath);if($raw===false)throw new RuntimeException("Cannot read {$exportsPath}");
