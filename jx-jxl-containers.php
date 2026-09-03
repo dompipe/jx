@@ -8,9 +8,9 @@ use InvalidArgumentException;
  * Prepared JXL container operations.
  *
  * Canonical JX/container names disappear before this layer. A JXL instruction
- * references a binding that was resolved at admission to one native x86-64
- * routine. The repeat path therefore never asks which discipline, alias, type,
- * or method is being used.
+ * references an operation-specific binding already resolved to one native
+ * x86-64 routine. The repeat path never asks which discipline, alias, type, or
+ * method is being used.
  */
 final class JxlContainerOpcode
 {
@@ -32,49 +32,58 @@ final class JxlContainerOpcode
     public const DIRTY   = 0x4F;
     public const SYNC    = 0x50;
 
-    /** @return array<int,array{name:string,args:int}> */
+    /** @return array<int,array{name:string,sources:int,result:bool}> */
     public static function specs(): array
     {
         return [
-            self::PUSH    => ['name'=>'PUSH','args'=>1],
-            self::POP     => ['name'=>'POP','args'=>1],
-            self::PUSHF   => ['name'=>'PUSHF','args'=>1],
-            self::PUSHB   => ['name'=>'PUSHB','args'=>1],
-            self::POPF    => ['name'=>'POPF','args'=>1],
-            self::POPB    => ['name'=>'POPB','args'=>1],
-            self::EMPLACE => ['name'=>'EMPLACE','args'=>2],
-            self::GET     => ['name'=>'GET','args'=>2],
-            self::PUT     => ['name'=>'PUT','args'=>2],
-            self::HAS     => ['name'=>'HAS','args'=>2],
-            self::REMOVE  => ['name'=>'REMOVE','args'=>2],
-            self::PEEK    => ['name'=>'PEEK','args'=>1],
-            self::PEEKF   => ['name'=>'PEEKF','args'=>1],
-            self::PEEKB   => ['name'=>'PEEKB','args'=>1],
-            self::RESERVE => ['name'=>'RESERVE','args'=>1],
-            self::DIRTY   => ['name'=>'DIRTY','args'=>0],
-            self::SYNC    => ['name'=>'SYNC','args'=>0],
+            self::PUSH    => ['name'=>'PUSH',    'sources'=>1, 'result'=>false],
+            self::POP     => ['name'=>'POP',     'sources'=>0, 'result'=>true],
+            self::PUSHF   => ['name'=>'PUSHF',   'sources'=>1, 'result'=>false],
+            self::PUSHB   => ['name'=>'PUSHB',   'sources'=>1, 'result'=>false],
+            self::POPF    => ['name'=>'POPF',    'sources'=>0, 'result'=>true],
+            self::POPB    => ['name'=>'POPB',    'sources'=>0, 'result'=>true],
+            self::EMPLACE => ['name'=>'EMPLACE', 'sources'=>2, 'result'=>true],
+            self::GET     => ['name'=>'GET',     'sources'=>1, 'result'=>true],
+            self::PUT     => ['name'=>'PUT',     'sources'=>2, 'result'=>false],
+            self::HAS     => ['name'=>'HAS',     'sources'=>1, 'result'=>true],
+            self::REMOVE  => ['name'=>'REMOVE',  'sources'=>1, 'result'=>true],
+            self::PEEK    => ['name'=>'PEEK',    'sources'=>0, 'result'=>true],
+            self::PEEKF   => ['name'=>'PEEKF',   'sources'=>0, 'result'=>true],
+            self::PEEKB   => ['name'=>'PEEKB',   'sources'=>0, 'result'=>true],
+            self::RESERVE => ['name'=>'RESERVE', 'sources'=>1, 'result'=>false],
+            self::DIRTY   => ['name'=>'DIRTY',   'sources'=>0, 'result'=>false],
+            self::SYNC    => ['name'=>'SYNC',    'sources'=>0, 'result'=>true],
         ];
     }
 
     public static function name(int $opcode): string
     {
         $spec = self::specs()[$opcode] ?? null;
-        if ($spec === null) throw new InvalidArgumentException("Unknown JXL container opcode 0x" . dechex($opcode));
+        if ($spec === null) throw new InvalidArgumentException('Unknown JXL container opcode 0x' . dechex($opcode));
         return $spec['name'];
     }
 
     public static function opcode(string $name): int
     {
         $name = strtoupper(trim($name));
-        foreach (self::specs() as $opcode => $spec) if ($spec['name'] === $name) return $opcode;
+        foreach (self::specs() as $opcode => $spec) {
+            if ($spec['name'] === $name) return $opcode;
+        }
         throw new InvalidArgumentException("Unknown JXL container operation {$name}");
     }
 
-    public static function argCount(int $opcode): int
+    public static function sourceCount(int $opcode): int
     {
         $spec = self::specs()[$opcode] ?? null;
-        if ($spec === null) throw new InvalidArgumentException("Unknown JXL container opcode");
-        return $spec['args'];
+        if ($spec === null) throw new InvalidArgumentException('Unknown JXL container opcode');
+        return $spec['sources'];
+    }
+
+    public static function returnsResult(int $opcode): bool
+    {
+        $spec = self::specs()[$opcode] ?? null;
+        if ($spec === null) throw new InvalidArgumentException('Unknown JXL container opcode');
+        return $spec['result'];
     }
 
     public static function isContainer(int $opcode): bool
@@ -92,7 +101,7 @@ final class JxlContainerSemantic
         'BPUSHB'=>'PUSHB','PUSHB'=>'PUSHB','PUSHBACK'=>'PUSHB','DPUSHB'=>'PUSHB',
         'BPOPF'=>'POPF','POPF'=>'POPF','POPFRONT'=>'POPF','SHIFT'=>'POPF','DPOPF'=>'POPF',
         'BPOPB'=>'POPB','POPB'=>'POPB','POPBACK'=>'POPB','DPOPB'=>'POPB',
-        'BEMPLACE'=>'EMPLACE','EMPLACE'=>'EMPLACE','INSERT'=>'EMPLACE','PUTIFABSENT'=>'EMPLACE','ADDIFABSENT'=>'EMPLACE',
+        'BEMPLACE'=>'EMPLACE','EMPLACE'=>'EMPLACE','INSERT'=>'EMPLACE','BINSERT'=>'EMPLACE','PACKIN'=>'EMPLACE','PUTIFABSENT'=>'EMPLACE','ADDIFABSENT'=>'EMPLACE',
         'BGET'=>'GET','GET'=>'GET','READ'=>'GET','LOOKUP'=>'GET',
         'BPUT'=>'PUT','PUT'=>'PUT','WRITE'=>'PUT','SET'=>'PUT',
         'BHAS'=>'HAS','HAS'=>'HAS','CONTAINS'=>'HAS','EXISTS'=>'HAS',
@@ -110,7 +119,7 @@ final class JxlContainerSemantic
         'vector' => ['PUSH','POP','EMPLACE','GET','PUT','PEEK','RESERVE','DIRTY','SYNC'],
         'stack'  => ['PUSH','POP','EMPLACE','PEEK','RESERVE','DIRTY','SYNC'],
         'queue'  => ['PUSH','POP','PEEK','RESERVE','DIRTY','SYNC'],
-        'deque'  => ['PUSH','POP','PUSHF','PUSHB','POPF','POPB','PEEK','PEEKF','PEEKB','RESERVE','DIRTY','SYNC'],
+        'deque'  => ['PUSHF','PUSHB','POPF','POPB','PEEKF','PEEKB','RESERVE','DIRTY','SYNC'],
         'map'    => ['EMPLACE','GET','PUT','HAS','REMOVE','RESERVE','DIRTY','SYNC'],
         'set'    => ['EMPLACE','HAS','REMOVE','RESERVE','DIRTY','SYNC'],
     ];
@@ -118,19 +127,24 @@ final class JxlContainerSemantic
     public static function canonical(string $operation, string $discipline): string
     {
         $key = strtoupper(trim($operation));
-        $op = self::ALIASES[$key] ?? null;
-        if ($op === null) throw new InvalidArgumentException("Unknown container operation {$operation}");
         $discipline = strtolower(trim($discipline));
         $valid = self::VALID[$discipline] ?? null;
         if ($valid === null) throw new InvalidArgumentException("Unknown Bag discipline {$discipline}");
 
-        // Discipline-specific aliases collapse before the binding is emitted.
+        // Context wins over global vocabulary. In a Set, add/push/put means
+        // insert-if-absent; in a Deque, ordinary push/pop/peek mean back/front.
+        if ($discipline === 'set' && in_array($key, ['ADD','PUSH','BPUSH','PUT','BPUT'], true)) {
+            $op = 'EMPLACE';
+        } else {
+            $op = self::ALIASES[$key] ?? null;
+            if ($op === null) throw new InvalidArgumentException("Unknown container operation {$operation}");
+        }
+
         if ($discipline === 'deque') {
             if ($op === 'PUSH') $op = 'PUSHB';
             if ($op === 'POP') $op = 'POPF';
             if ($op === 'PEEK') $op = 'PEEKF';
         }
-        if ($discipline === 'set' && $op === 'PUT') $op = 'EMPLACE';
 
         if (!in_array($op, $valid, true)) {
             throw new InvalidArgumentException("{$operation} is not valid for {$discipline}");
@@ -197,10 +211,15 @@ final class JxlContainerNative
     {
         $discipline = strtolower($discipline);
         $op = JxlContainerSemantic::canonical($operation, $discipline);
-        if ($width !== 8) throw new InvalidArgumentException('JXL native container v1 binds fixed 64-bit payloads; use a prepared copy helper for wider records');
+        if ($width !== 8) {
+            throw new InvalidArgumentException('JXL native container v1 binds fixed 64-bit payloads; use a prepared copy helper for wider records');
+        }
 
         $id = match ($discipline) {
-            'record' => match ($op) { 'GET'=>self::RECORD_GET, 'PUT'=>self::RECORD_PUT, 'DIRTY'=>self::BAG_DIRTY, 'SYNC'=>self::BAG_SYNC },
+            'record' => match ($op) {
+                'GET'=>self::RECORD_GET, 'PUT'=>self::RECORD_PUT,
+                'DIRTY'=>self::BAG_DIRTY, 'SYNC'=>self::BAG_SYNC,
+            },
             'vector' => match ($op) {
                 'PUSH'=>self::VECTOR_PUSH,'POP'=>self::VECTOR_POP,'GET'=>self::VECTOR_GET,'PUT'=>self::VECTOR_PUT,
                 'EMPLACE'=>self::VECTOR_EMPLACE,'PEEK'=>self::VECTOR_PEEK,'RESERVE'=>self::VECTOR_RESERVE,
@@ -263,14 +282,16 @@ final class PreparedContainerBindings
 {
     public const FORMAT = 'JXCBIND1';
     public const MAX_BINDINGS = 0x3FFF;
-    /** @var list<PreparedContainerBinding> */ private array $bindings = [];
-    /** @var array<string,int> */ private array $dedupe = [];
+
+    /** @var list<PreparedContainerBinding> */
+    private array $bindings = [];
+    /** @var array<string,int> */
+    private array $dedupe = [];
 
     public function bind(
         int $bagHandle,
         string $discipline,
         string $operation,
-        *,
         int $width = 8,
         int $capacity = 0,
         int $mask = 0,
@@ -280,17 +301,25 @@ final class PreparedContainerBindings
         if ($capacity < 0 || $mask < 0) throw new InvalidArgumentException('capacity/mask must be non-negative');
         $discipline = strtolower(trim($discipline));
         $op = JxlContainerSemantic::canonical($operation, $discipline);
+
         if (in_array($discipline, ['queue','deque','map','set'], true) && $capacity > 0) {
-            if (($capacity & ($capacity - 1)) !== 0) throw new InvalidArgumentException("{$discipline} capacity must be a power of two");
+            if (($capacity & ($capacity - 1)) !== 0) {
+                throw new InvalidArgumentException("{$discipline} capacity must be a power of two");
+            }
             if ($mask === 0) $mask = $capacity - 1;
         }
+
         $native = JxlContainerNative::resolve($discipline, $op, $width);
         $key = implode('|', [$bagHandle,$discipline,$op,$width,$capacity,$mask,$flags,$native['id']]);
         if (isset($this->dedupe[$key])) return $this->bindings[$this->dedupe[$key]];
+
         $id = count($this->bindings);
-        if ($id > self::MAX_BINDINGS) throw new InvalidArgumentException('JXL container binding table exhausted (14-bit binding id)');
+        if ($id > self::MAX_BINDINGS) {
+            throw new InvalidArgumentException('JXL container binding table exhausted (14-bit binding id)');
+        }
         $binding = new PreparedContainerBinding(
-            $id,$bagHandle,$discipline,$op,JxlContainerOpcode::opcode($op),$native['id'],$native['symbol'],$width,$capacity,$mask,$flags
+            $id,$bagHandle,$discipline,$op,JxlContainerOpcode::opcode($op),
+            $native['id'],$native['symbol'],$width,$capacity,$mask,$flags
         );
         $this->dedupe[$key] = $id;
         $this->bindings[] = $binding;
@@ -306,6 +335,7 @@ final class PreparedContainerBindings
             'format'=>'jx.jxl-container-bindings/1',
             'target'=>'x86_64-sysv',
             'payload'=>'u64',
+            'instruction_bytes'=>JxlContainerInstruction::BYTES,
             'bindings'=>array_map(static fn(PreparedContainerBinding $b): array => $b->metadata(), $this->bindings),
         ];
     }
@@ -350,55 +380,88 @@ final class PreparedContainerBindings
 
 final class JxlContainerInstruction
 {
-    public static function emit(PreparedContainerBinding $binding, int ...$selectors): string
-    {
-        $opcode = $binding->opcode;
-        $expected = JxlContainerOpcode::argCount($opcode);
-        if (count($selectors) !== $expected) {
-            throw new InvalidArgumentException("{$binding->operation} expects {$expected} JXL local selector(s)");
+    public const BYTES = 6;
+    public const UNUSED_SELECTOR = 0x7F;
+
+    /**
+     * Fixed six-byte instruction:
+     *   opcode, binding-low, binding-high, src0, src1, dst
+     *
+     * Every operand byte is an attached JXL byte (bit 7 set). Payload 0x7F is
+     * the prepared "unused selector" sentinel. The fixed shape lets the native
+     * decoder execute container traffic without a variable-length parser.
+     */
+    public static function emit(
+        PreparedContainerBinding $binding,
+        ?int $src0 = null,
+        ?int $src1 = null,
+        ?int $dst = null,
+    ): string {
+        $sources = JxlContainerOpcode::sourceCount($binding->opcode);
+        if ($sources >= 1 && $src0 === null) throw new InvalidArgumentException("{$binding->operation} requires source selector 0");
+        if ($sources >= 2 && $src1 === null) throw new InvalidArgumentException("{$binding->operation} requires source selector 1");
+        if ($sources === 0 && ($src0 !== null || $src1 !== null)) throw new InvalidArgumentException("{$binding->operation} takes no source selectors");
+        if ($sources === 1 && $src1 !== null) throw new InvalidArgumentException("{$binding->operation} takes one source selector");
+        if (!JxlContainerOpcode::returnsResult($binding->opcode) && $dst !== null) {
+            throw new InvalidArgumentException("{$binding->operation} does not produce a JXL result selector");
         }
-        $out = chr($opcode);
-        $out .= self::attachment($binding->id & 0x7F);
-        $out .= self::attachment(($binding->id >> 7) & 0x7F);
-        foreach ($selectors as $selector) {
-            if ($selector < 0 || $selector > 7) throw new InvalidArgumentException('JXL local register selector must be 0..7');
-            $out .= self::attachment($selector);
-        }
-        return $out;
+
+        return chr($binding->opcode)
+            . self::attachment($binding->id & 0x7F)
+            . self::attachment(($binding->id >> 7) & 0x7F)
+            . self::selector($src0)
+            . self::selector($src1)
+            . self::selector($dst);
     }
 
-    /** @return array{opcode:int,operation:string,binding_id:int,selectors:list<int>,next:int} */
+    /** @return array{opcode:int,operation:string,binding_id:int,src0:?int,src1:?int,dst:?int,next:int} */
     public static function decode(string $bytes, int $offset = 0): array
     {
-        if (!isset($bytes[$offset])) throw new InvalidArgumentException('Missing JXL container opcode');
+        if (strlen($bytes) - $offset < self::BYTES) throw new InvalidArgumentException('Truncated JXL container instruction');
         $opcode = ord($bytes[$offset]);
         if (($opcode & 0x80) !== 0 || !JxlContainerOpcode::isContainer($opcode)) {
             throw new InvalidArgumentException('Not a JXL container opcode');
         }
-        $p = $offset + 1;
-        $lo = self::readAttachment($bytes, $p++);
-        $hi = self::readAttachment($bytes, $p++);
-        $selectors = [];
-        for ($i=0,$n=JxlContainerOpcode::argCount($opcode); $i<$n; $i++) {
-            $selector = self::readAttachment($bytes, $p++);
-            if ($selector > 7) throw new InvalidArgumentException('Prepared selector outside local register window');
-            $selectors[] = $selector;
-        }
+        $lo = self::readAttachment($bytes, $offset + 1);
+        $hi = self::readAttachment($bytes, $offset + 2);
+
         return [
-            'opcode'=>$opcode,'operation'=>JxlContainerOpcode::name($opcode),
-            'binding_id'=>$lo | ($hi << 7),'selectors'=>$selectors,'next'=>$p,
+            'opcode'=>$opcode,
+            'operation'=>JxlContainerOpcode::name($opcode),
+            'binding_id'=>$lo | ($hi << 7),
+            'src0'=>self::decodeSelector(self::readAttachment($bytes, $offset + 3)),
+            'src1'=>self::decodeSelector(self::readAttachment($bytes, $offset + 4)),
+            'dst'=>self::decodeSelector(self::readAttachment($bytes, $offset + 5)),
+            'next'=>$offset + self::BYTES,
         ];
+    }
+
+    private static function selector(?int $selector): string
+    {
+        if ($selector === null) return self::attachment(self::UNUSED_SELECTOR);
+        if ($selector < 0 || $selector > 7) {
+            throw new InvalidArgumentException('JXL local register selector must be 0..7');
+        }
+        return self::attachment($selector);
+    }
+
+    private static function decodeSelector(int $payload): ?int
+    {
+        if ($payload === self::UNUSED_SELECTOR) return null;
+        if ($payload > 7) throw new InvalidArgumentException('Prepared selector outside local register window');
+        return $payload;
     }
 
     private static function attachment(int $payload): string
     {
-        if ($payload < 0 || $payload > 0x7F) throw new InvalidArgumentException('JXL attachment payload must fit 7 bits');
+        if ($payload < 0 || $payload > 0x7F) {
+            throw new InvalidArgumentException('JXL attachment payload must fit 7 bits');
+        }
         return chr(0x80 | $payload);
     }
 
     private static function readAttachment(string $bytes, int $offset): int
     {
-        if (!isset($bytes[$offset])) throw new InvalidArgumentException('Truncated JXL container attachment');
         $b = ord($bytes[$offset]);
         if (($b & 0x80) === 0) throw new InvalidArgumentException('JXL container operand is not an attached byte');
         return $b & 0x7F;
