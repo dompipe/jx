@@ -19,6 +19,7 @@ NASM_BIN="${NASM_BIN:-nasm}"
 CC_BIN="${CC_BIN:-cc}"
 PREPARED_OBJ="$OUT_DIR/jxl_prepared_program.o"
 HARNESS="$OUT_DIR/test_jxl_prepared_program"
+MAP_HARNESS="$OUT_DIR/test_jxl_map_vector"
 
 "$NASM_BIN" -Wall -f elf64 native/x86_64/jxl_prepared_program.asm -o "$PREPARED_OBJ"
 
@@ -35,3 +36,14 @@ HARNESS="$OUT_DIR/test_jxl_prepared_program"
   "$PREFIX.jxl" \
   "$PREFIX.jxcb" \
   "$PREFIX.jxrw"
+
+# Correctness-only keyed-vector Map check. Performance comparison against the
+# retained split-array backend is intentionally a separate benchmark step.
+"$CC_BIN" \
+  -std=c11 -O2 -Wall -Wextra -Werror -no-pie \
+  -Inative/x86_64 \
+  native/x86_64/test_jxl_map_vector.c \
+  "$OUT_DIR/jxl_container_runtime.o" \
+  -o "$MAP_HARNESS"
+
+"$MAP_HARNESS"
