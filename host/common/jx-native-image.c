@@ -68,14 +68,18 @@ int jx_native_image_open(const void *bytes, size_t size, jx_native_image_view *o
         const uint8_t *row = out->directory + ((size_t)i * JX_NATIVE_IMAGE_DIRECTORY_ENTRY_SIZE);
         uint64_t offset = rd64(row + 16);
         uint64_t length = rd64(row + 24);
-        int terminated = 0;
+        size_t name_end = 16;
 
+        if (row[0] == 0) return -6;
         for (size_t j = 0; j < 16; ++j) {
             uint8_t c = row[j];
-            if (c == 0) { terminated = 1; break; }
+            if (c == 0) { name_end = j; break; }
             if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) return -6;
         }
-        if (!terminated && row[0] == 0) return -6;
+        /* Short names are NUL padded; reject hidden bytes after the terminator. */
+        if (name_end < 16) {
+            for (size_t j = name_end; j < 16; ++j) if (row[j] != 0) return -6;
+        }
         if (offset > out->payload_size || length > out->payload_size - (size_t)offset) return -7;
 
         for (uint32_t k = 0; k < i; ++k) {
