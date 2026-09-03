@@ -14,30 +14,35 @@ JX is pronounced **jinx**.
 
 ## Current measured result
 
-The native container path is now fast enough that the seven Bag disciplines cluster tightly instead of Map and Set being large outliers.
+The seven native Bag disciplines now cluster in the same performance range instead of Map and Set being large outliers.
 
-Latest unified CI snapshot, **September 3, 2026**, commit `b64b3662de474ec2df7cbdddb1442d9102c0edbc`:
+Latest corrected unified CI snapshot, **September 3, 2026**, commit `e465f314c53f7801a90b64db80df8139ad6cfd5b`, GitHub Actions run `33731702206`:
 
 - Ubuntu 24.04.4 x86-64
 - PHP 8.3.33
 - NASM 2.16.01
-- 1,000,000 logical operations per workload
+- 1,000,000 logical operations per master workload
 - 5 measured repetitions
 - 1 warmup
 - actual six-byte prepared JXL executor
 - actual x86-64 assembly container routines
+- the master `Map` row now measures the production **keyed-Vector Map**, not the retained split comparator
 
-| Container | PHP array ms | JXL native ms | Relationship |
-|---|---:|---:|---:|
-| Record | 2.071 | 3.777 | PHP assoc baseline faster; not fixed-slot vs fixed-slot |
-| Vector | 3.919 | 3.892 | near parity; JXL ~0.7% faster |
-| Stack | 8.141 | 3.852 | JXL ~2.11x faster |
-| Queue | 3.987 | 3.911 | near parity; JXL ~1.02x faster |
-| Deque | 3.987 | 4.004 | effectively parity |
-| **Map** | **3.686** | **5.083** | JXL is ~1.38x the PHP-array time |
-| **Set** | **5.207** | **4.938** | JXL ~1.05x faster |
+| Container | PHP array ms | JXL native ms | Relationship in this run |
+|---|---:|---:|---|
+| Record | 2.800 | 5.202 | PHP assoc baseline faster; not fixed-slot vs fixed-slot |
+| Vector | 5.076 | 5.265 | near parity; JXL ~3.7% slower |
+| Stack | 10.548 | 5.109 | JXL ~2.06x faster |
+| Queue | 5.169 | 5.352 | near parity; JXL ~3.5% slower |
+| Deque | 4.942 | 5.506 | JXL ~11.4% slower |
+| **Map** | **4.497** | **6.986** | production keyed Vector; JXL ~1.55x PHP-array time |
+| **Set** | **6.806** | **6.882** | effectively parity |
 
-The active native Map is now a **keyed Vector**:
+Absolute times vary between hosted CI runners, so **same-run A/B ratios are more authoritative for layout decisions than comparing milliseconds from different GitHub runners**.
+
+### Map is now measured as the Map that JXL actually uses
+
+The active native Map is an ordered **keyed Vector**:
 
 ```text
 Map = Vector<Entry>
@@ -53,9 +58,44 @@ key      = entry + 0
 value    = entry + 8
 ```
 
-The older synchronized `keys[] + values[]` native Map implementation is intentionally still linked as a comparison backend. It is **not** the active canonical Map target. This lets the repository later benchmark split-vs-interleaved Map layouts in the same build without pretending that a change between commits proves causality.
+The older synchronized split representation remains linked in the same runtime image solely for comparison:
 
-The first unified native container snapshot had Map at `32.793 ms` and Set at `33.359 ms` per million operations. The current native path is `5.083 ms` for Map and `4.938 ms` for Set: roughly **6.45x** and **6.76x** faster than that first snapshot respectively. That is progress of the overall Map/Set native path; the exact contribution of the keyed-Vector layout versus the preserved split-array layout requires the dedicated A/B benchmark.
+```text
+keys:   [K0][K1][K2]...
+values: [V0][V1][V2]...
+```
+
+Production JXL Map IDs resolve to the keyed-Vector routines.
+
+### Split Map vs keyed-Vector Map — same executable, same runner
+
+The dedicated A/B benchmark runs both layouts through the **same six-byte JXL decoder/dispatcher**, the same 80-byte admitted binding ABI, and the same native build. That isolates the memory-layout choice far better than comparing separate commits or runners.
+
+Dedicated A/B run inside GitHub Actions run `33731702206`: 7 reps, 1 warmup.
+
+| Workload | Logical ops | Split `keys[] + values[]` | Keyed `Vector<Entry>` | Vector / split | Winner |
+|---|---:|---:|---:|---:|---|
+| ordered append + get | 1,000,000 | 7.429 ms | **6.870 ms** | **0.925x** | **keyed Vector** |
+| random update + get | 1,000,000 | **167.064 ms** | 189.129 ms | 1.132x | **split** |
+| descending insert + get | 20,000 | 51.025 ms | **34.334 ms** | **0.673x** | **keyed Vector** |
+| shuffled insert + get | 20,000 | 27.122 ms | **18.565 ms** | **0.685x** | **keyed Vector** |
+
+The keyed Vector wins **three of four** measured layouts:
+
+- standard ordered append/get: about **7.5% lower time**;
+- descending insertion: about **32.7% lower time**, or roughly **1.49x faster**;
+- shuffled insertion: about **31.5% lower time**, or roughly **1.46x faster**;
+- random update/get is the exception: the split representation is about **11.7% lower time** than the keyed Vector in that workload.
+
+That result supports the keyed Vector as the production Map. The split layout's random-update advantage is still useful evidence: its dense key-only array reduces the cache footprint of key searches. A future optimization can target that lookup weakness without giving up the keyed Vector's single-entry insertion and movement law.
+
+### Benchmark-attribution correction
+
+An earlier version of this README labeled a roughly `5.08 ms` Map result as keyed-Vector performance. Inspection of the harness found that `benchmark_jxl_containers.c` was still directly binding the retained split `jx_map_put_u64` / `jx_map_get_u64` comparison routines.
+
+That number was therefore a **split-Map measurement**, not a keyed-Vector measurement.
+
+The provider is now corrected: `benchmark-jxl-containers.php` runs the same-build A/B benchmark and uses the keyed-Vector result for the authoritative `native.map` metric. The split result remains available under the A/B data for provenance. The benchmark contract test and the corrected container workflow both pass.
 
 Full benchmark tables and methodology are below.
 
@@ -563,30 +603,30 @@ The current master columns are:
 
 `N/A` means the comparison does not exist or is not semantically appropriate. `TBD` means it is not implemented/measured and is never estimated.
 
-## Unified 1,000,000-operation matrix — September 3, 2026
+## Corrected unified 1,000,000-operation matrix — September 3, 2026
 
-Measured on GitHub Actions run `33729967538`, job `container-matrix`, commit `b64b3662de474ec2df7cbdddb1442d9102c0edbc`.
+Measured on GitHub Actions run `33731702206`, job `container-matrix`, commit `e465f314c53f7801a90b64db80df8139ad6cfd5b`.
 
 Times are median milliseconds for **1,000,000 total logical operations**, 5 reps, 1 warmup.
 
 | Container | Legacy PASM/PHP | Canonical PASM/PHP | Bag/PHP | PHP array | PHP SPL | JXL VM | **JXL native** |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Record | N/A | N/A | 34.324 | **2.071** | 7.230 | TBD | **3.777** |
-| Vector | 29.140 | 21.647 | 24.284 | 3.919 | 8.970 | TBD | **3.892** |
-| Stack | 42.606 | 26.166 | 35.967 | 8.141 | 13.365 | TBD | **3.852** |
-| Queue | 41.165 | 37.543 | 59.393 | 3.987 | 13.481 | TBD | **3.911** |
-| Deque | 48.960 | 41.306 | 65.926 | **3.987** | 13.256 | TBD | **4.004** |
-| **Map** | 24.899 | 24.064 | 160.506 | **3.686** | N/A | TBD | **5.083** |
-| **Set** | 143.611 | 71.931 | 282.828 | 5.207 | N/A | TBD | **4.938** |
+| Record | N/A | N/A | 46.996 | **2.800** | 10.674 | TBD | **5.202** |
+| Vector | 38.066 | 28.609 | 37.031 | 5.076 | 12.252 | TBD | **5.265** |
+| Stack | 56.523 | 35.251 | 52.779 | 10.548 | 19.929 | TBD | **5.109** |
+| Queue | 53.731 | 46.259 | 79.474 | 5.169 | 20.265 | TBD | **5.352** |
+| Deque | 64.845 | 57.312 | 90.693 | **4.942** | 19.154 | TBD | **5.506** |
+| **Map** | 33.226 | 31.373 | 215.601 | **4.497** | N/A | TBD | **6.986** |
+| **Set** | 200.277 | 102.636 | 404.027 | 6.806 | N/A | TBD | **6.882** |
 
 ### What this matrix says
 
-- **Vector:** native JXL and PHP array are essentially tied; JXL is ~0.7% faster in this run.
-- **Stack:** native JXL is about **2.11x faster** than the PHP-array baseline for this workload.
-- **Queue:** native JXL is about **1.02x faster**; effectively parity.
-- **Deque:** native JXL is within about **0.4%** of the PHP-array baseline; effectively parity.
-- **Set:** native JXL is about **1.05x faster** than the PHP-array baseline.
-- **Map:** native JXL is now only about **1.38x the PHP-array time**, instead of being an order-class outlier.
+- **Vector:** native JXL is within about 4% of the PHP-array baseline in this run.
+- **Stack:** native JXL is about **2.06x faster** than the PHP-array baseline for this workload.
+- **Queue:** native JXL is within about 4% of PHP array.
+- **Deque:** native JXL is about 11% slower than PHP array on this runner.
+- **Set:** native JXL and PHP array are effectively tied.
+- **Map:** production keyed-Vector JXL is about **1.55x the PHP-array time** in the master workload.
 - **Record:** the PHP baseline is an associative-array workload, while JXL Record uses resolved fixed slots. A dedicated fixed-offset-vs-fixed-offset benchmark is still needed before making a broad Record claim.
 
 The PHP `Bag/PHP` Map and Set numbers are deliberately not hidden. PHP arrays-of-entry arrays are expensive and are a semantic/reference mirror, not the physical native representation. The native keyed-Vector Map is one contiguous 16-byte-entry region; PHP nested arrays are not.
@@ -603,34 +643,48 @@ The master suite also invokes the native provider directly. The timed path is:
         -> Bag memory
 ```
 
-Direct provider results from the same run:
+Direct production-provider results from run `33731702206`:
 
 | Container | Median ms | Min ms | p95 ms | Mops/s | ns/op |
 |---|---:|---:|---:|---:|---:|
-| Record | 3.849 | 3.676 | 3.957 | 259.80 | 3.85 |
-| Vector | 3.899 | 3.824 | 4.638 | 256.48 | 3.90 |
-| Stack | 3.909 | 3.783 | 3.964 | 255.83 | 3.91 |
-| Queue | 3.972 | 3.914 | 4.023 | 251.79 | 3.97 |
-| Deque | 3.958 | 3.922 | 3.987 | 252.66 | 3.96 |
-| **Map** | **5.217** | **5.081** | 7.397 | **191.68** | **5.22** |
-| **Set** | **5.023** | **4.912** | 5.140 | **199.10** | **5.02** |
+| Record | 5.292 | 5.129 | 5.304 | 188.98 | 5.29 |
+| Vector | 5.405 | 5.222 | 6.156 | 185.02 | 5.40 |
+| Stack | 5.126 | 4.948 | 5.270 | 195.07 | 5.13 |
+| Queue | 5.460 | 5.272 | 5.966 | 183.14 | 5.46 |
+| Deque | 5.371 | 5.225 | 5.496 | 186.19 | 5.37 |
+| **Map — keyed Vector** | **6.775** | **6.767** | 7.437 | **147.59** | **6.78** |
+| Set | 6.809 | 6.718 | 7.199 | 146.87 | 6.81 |
 
-The direct native Map therefore executes roughly **192 million logical operations per second** in this workload; Set is roughly **199 million ops/s**.
+The provider's same-build comparison during that pass measured the split Map at `7.701 ms` and keyed Vector at `6.775 ms`, a `0.880x` vector/split ratio. The dedicated 7-repetition A/B table above is the preferred layout comparison because it uses more repetitions and includes additional workloads.
 
-## Progress from the first unified native snapshot
+## Map layout A/B benchmark
 
-The first unified 1,000,000-operation native snapshot recorded:
+Run it directly with:
 
-| Container | First native snapshot ms | Current native ms | Current / first |
-|---|---:|---:|---:|
-| Map | 32.793 | 5.083 | **6.45x faster** |
-| Set | 33.359 | 4.938 | **6.76x faster** |
+```bash
+php benchmark-jxl-map-layouts.php 1000000 20000 7 1
+```
 
-This comparison measures evolution of the overall native path. It does **not** by itself prove that interleaving `[key,value]` caused the entire Map improvement. The split ordered Map backend is preserved specifically so that layout question can be measured head-to-head.
+The benchmark intentionally has two operation scales:
+
+- `1,000,000` operations for ordered append/get and random update/get;
+- `20,000` operations for descending and shuffled insertion, because flat ordered-array middle insertion is intentionally O(n) movement and a one-million-operation worst-case shift test would mostly measure enormous copying rather than the hot comparison law.
+
+Both layouts use identical logical keys, identical deterministic ordering, identical executor admission, and cross-check their checksums.
+
+## Historical progress and runner variance
+
+The first unified native container snapshot recorded Map at `32.793 ms` and Set at `33.359 ms` per million operations. Those numbers are useful as historical evidence that the native Map/Set path has improved substantially, but **they should not be used to infer the effect of the keyed-Vector layout by themselves**.
+
+The dedicated same-run A/B benchmark is the authoritative answer for the layout question.
+
+Hosted runners also differ materially. For example, recent runs of otherwise identical container code have moved the core native containers between roughly 4 and 8 ns/op. For that reason:
+
+> **Use same-run ratios for architecture decisions; use absolute milliseconds to describe that measured run, not as a machine-independent constant.**
 
 ## Benchmark timing boundaries
 
-The native JXL benchmark intentionally excludes allocation, zeroing, binding construction, and instruction construction from the native timed region. That measures the admitted hot path.
+The native JXL benchmark intentionally excludes allocation, zeroing, binding construction, instruction construction, and deterministic key-order construction from the native timed region. That measures the admitted hot path.
 
 Some PHP/PASM/Bag closures create or grow structures inside their measured work, so the master matrix is not a claim that every column has identical cold-start accounting. Future reporting should continue separating:
 
@@ -648,8 +702,11 @@ The benchmark is also **not a whole-language benchmark**. It measures the stated
 # Unified cross-layer matrix
 php benchmark-container-suite.php 1000000 5 1
 
-# Direct six-byte JXL -> x86-64 assembly provider
+# Direct production six-byte JXL -> x86-64 assembly provider
 php benchmark-jxl-containers.php 1000000 5 1
+
+# Same-build split Map vs keyed-Vector Map
+php benchmark-jxl-map-layouts.php 1000000 20000 7 1
 
 # Bag/PHP semantic mirror
 php benchmark-jx-bag-containers.php 1000000 7
@@ -754,8 +811,10 @@ php pasm-run.php --print examples/pasl/complex-and-loops.pasl
 | `native/x86_64/jxl_containers.asm` | Core assembly containers and preserved split Map backend |
 | `native/x86_64/jxl_map_vector.asm` | Active keyed-Vector Map assembly backend |
 | `native/x86_64/jxl_container_native_table.asm` | Numeric native target table |
+| `native/x86_64/benchmark_jxl_map_layouts.c` | Native same-executor Map layout A/B harness |
 | `benchmark-container-suite.php` | Unified seven-discipline cross-layer benchmark matrix |
-| `benchmark-jxl-containers.php` | Actual six-byte JXL -> native assembly benchmark provider |
+| `benchmark-jxl-containers.php` | Production six-byte JXL -> native assembly benchmark provider |
+| `benchmark-jxl-map-layouts.php` | Split-vs-keyed-Vector Map benchmark runner |
 | `docs/CONTAINER-BENCHMARKS.md` | Benchmark contract and methodology |
 | `docs/JXL-NATIVE-CONTAINERS.md` | Native container memory laws and ABI |
 | `docs/BAG-CONTAINERS.md` | Bag/container architecture |
@@ -801,7 +860,7 @@ Major open areas include:
 - complete native/host semantic conformance,
 - larger realistic application benchmarks,
 - resident/batched JXL region benchmarks that separate host-call overhead,
-- split-vs-keyed-Vector Map A/B benchmarks,
+- Map random-lookup/update optimization without losing keyed-Vector insertion locality,
 - fixed-offset Record vs fixed-offset native/PHP/C baselines,
 - continued JX11 control/window integration,
 - continued SQL/NoSQL and plugin lowering.
