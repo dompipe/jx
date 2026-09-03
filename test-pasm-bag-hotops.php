@@ -49,13 +49,17 @@ $expect($vector['overlap_safe'],true,'vector emplace overlap safe');
 $expect(count($vector['asm']),3,'vector emplace semantic lines');
 
 $map = PASMBagHotOp::lowering('putifabsent','map');
-$expect($map['kind'],'probe-address-map-emplace','map emplace kind');
-$expect($map['probe_once'],true,'map probe once');
+$expect($map['kind'],'ordered-2d-array-emplace','map emplace kind');
+$expect($map['find_once'],true,'map find once');
+$expect($map['layout'],['keys[]','values[]'],'map 2D array layout');
+$expect($map['hashing'],false,'map cannot hash');
 $expect($map['insert_if_absent'],true,'map absent-only');
 
 $set = PASMBagHotOp::lowering('addifabsent','set');
-$expect($set['kind'],'probe-address-set-emplace','set emplace kind');
-$expect($set['probe_once'],true,'set probe once');
+$expect($set['kind'],'ordered-unique-array-emplace','set emplace kind');
+$expect($set['find_once'],true,'set find once');
+$expect($set['layout'],['keys[]'],'set 1D array layout');
+$expect($set['hashing'],false,'set cannot hash');
 $expect($set['insert_if_absent'],true,'set absent-only');
 
-echo "PASS PASM Bag hot ops aliases=" . count(PASMBagHotOp::aliases()) . "\n";
+echo "PASS PASM Bag hot ops aliases=" . count(PASMBagHotOp::aliases()) . " ordered-map-set\n";
