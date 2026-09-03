@@ -3,22 +3,17 @@
 /**
  * Master JX container benchmark matrix.
  *
- * This is the stable comparison surface for:
+ * Stable layers:
  *   legacy PASM/PHP
  *   canonical PASM/PHP
  *   JX Bag/PHP
  *   idiomatic PHP
  *   SPL structural baselines
  *   JXL VM (when implemented)
- *   JXL native (when implemented)
+ *   JXL native prepared execution
  *
- * JXL cells remain null/TBD until benchmark-jxl-containers.php exists and
- * returns measured data. This file never manufactures performance numbers.
- *
- * Usage:
- *   php benchmark-container-suite.php
- *   php benchmark-container-suite.php 1000,10000,100000,1000000 9 2
- *   php benchmark-container-suite.php --stress 9 2
+ * Missing measurements are never estimated. Historical PASM Record and SPL
+ * Map/Set are N/A; unimplemented execution paths remain TBD.
  */
 
 $arg1=$argv[1]??'';
@@ -30,20 +25,15 @@ $warmups=max(0,(int)($argv[3]??2));
 
 $disciplines=['record','vector','stack','queue','deque','map','set'];
 $nameMap=[
-    'Record put/get'=>'record',
-    'Vector add/get'=>'vector',
-    'Stack push/pop'=>'stack',
-    'Queue enq/deq'=>'queue',
-    'Deque back/front'=>'deque',
-    'Map put/get'=>'map',
-    'Set add/has'=>'set',
-    'record put/get'=>'record',
-    'vector append/get'=>'vector',
-    'stack push/pop'=>'stack',
-    'queue enqueue/dequeue'=>'queue',
-    'deque back/front'=>'deque',
-    'map put/get'=>'map',
-    'set add/contains'=>'set',
+    'Record put/get'=>'record','Vector add/get'=>'vector','Stack push/pop'=>'stack',
+    'Queue enq/deq'=>'queue','Deque back/front'=>'deque','Map put/get'=>'map','Set add/has'=>'set',
+    'record put/get'=>'record','vector append/get'=>'vector','stack push/pop'=>'stack',
+    'queue enqueue/dequeue'=>'queue','deque back/front'=>'deque','map put/get'=>'map','set add/contains'=>'set',
+];
+$notApplicable=[
+    'record'=>['legacy_pasm_php'=>true,'canonical_pasm_php'=>true],
+    'map'=>['php_spl'=>true],
+    'set'=>['php_spl'=>true],
 ];
 
 function suite_json_command(string $cmd): array
@@ -58,73 +48,56 @@ function suite_metric(?array $metric): ?array
 {
     if($metric===null)return null;
     return [
-        'median_ms'=>$metric['median_ms']??null,
-        'min_ms'=>$metric['min_ms']??null,
-        'p95_ms'=>$metric['p95_ms']??null,
-        'mops_s'=>$metric['mops_s']??null,
-        'ns_op'=>$metric['ns_op']??null,
-        'checksum'=>$metric['checksum']??null,
+        'median_ms'=>$metric['median_ms']??null,'min_ms'=>$metric['min_ms']??null,
+        'p95_ms'=>$metric['p95_ms']??null,'mops_s'=>$metric['mops_s']??null,
+        'ns_op'=>$metric['ns_op']??null,'checksum'=>$metric['checksum']??null,
     ];
 }
 
-$results=[];
+$results=[];$jxlStatuses=[];
 $jxlProvider=__DIR__.'/benchmark-jxl-containers.php';
-$jxlAvailable=is_file($jxlProvider);
+$jxlProviderPresent=is_file($jxlProvider);
 
 foreach($sizes as $ops){
     $low=[];
     foreach(['old','new','native','spl'] as $mode){
-        $cmd=escapeshellarg(PHP_BINARY).' -d opcache.enable_cli=1 '
-            .escapeshellarg(__DIR__.'/benchmark-pasm-oop-fast.php')
-            .' --child '.escapeshellarg($mode)
-            .' '.escapeshellarg((string)$ops)
-            .' '.escapeshellarg((string)$reps)
-            .' '.escapeshellarg((string)$warmups);
+        $cmd=escapeshellarg(PHP_BINARY).' -d opcache.enable_cli=1 '.escapeshellarg(__DIR__.'/benchmark-pasm-oop-fast.php')
+            .' --child '.escapeshellarg($mode).' '.escapeshellarg((string)$ops)
+            .' '.escapeshellarg((string)$reps).' '.escapeshellarg((string)$warmups);
         $low[$mode]=suite_json_command($cmd);
     }
 
-    $bagCmd=escapeshellarg(PHP_BINARY).' -d opcache.enable_cli=1 '
-        .escapeshellarg(__DIR__.'/benchmark-jx-bag-containers.php')
-        .' '.escapeshellarg((string)$ops)
-        .' '.escapeshellarg((string)$reps)
-        .' '.escapeshellarg((string)$warmups)
-        .' --json';
-    $bag=suite_json_command($bagCmd);
+    $bag=suite_json_command(
+        escapeshellarg(PHP_BINARY).' -d opcache.enable_cli=1 '.escapeshellarg(__DIR__.'/benchmark-jx-bag-containers.php')
+        .' '.escapeshellarg((string)$ops).' '.escapeshellarg((string)$reps).' '.escapeshellarg((string)$warmups).' --json'
+    );
 
     $jxl=null;
-    if($jxlAvailable){
-        $jxlCmd=escapeshellarg(PHP_BINARY).' '.escapeshellarg($jxlProvider)
-            .' '.escapeshellarg((string)$ops)
-            .' '.escapeshellarg((string)$reps)
-            .' '.escapeshellarg((string)$warmups)
-            .' --json';
-        $jxl=suite_json_command($jxlCmd);
+    if($jxlProviderPresent){
+        $jxl=suite_json_command(
+            escapeshellarg(PHP_BINARY).' '.escapeshellarg($jxlProvider)
+            .' '.escapeshellarg((string)$ops).' '.escapeshellarg((string)$reps).' '.escapeshellarg((string)$warmups).' --json'
+        );
+        $jxlStatuses[(string)$ops]=['status'=>$jxl['status']??'unknown','reason'=>$jxl['reason']??null];
     }
 
     $rows=[];
     foreach($disciplines as $discipline){
         $rows[$discipline]=[
-            'legacy_pasm_php'=>null,
-            'canonical_pasm_php'=>null,
-            'bag_php'=>null,
-            'php_array'=>null,
-            'php_spl'=>null,
-            'jxl_vm'=>null,
-            'jxl_native'=>null,
+            'legacy_pasm_php'=>null,'canonical_pasm_php'=>null,'bag_php'=>null,
+            'php_array'=>null,'php_spl'=>null,'jxl_vm'=>null,'jxl_native'=>null,
         ];
     }
 
     foreach(['old'=>'legacy_pasm_php','new'=>'canonical_pasm_php','native'=>'php_array','spl'=>'php_spl'] as $mode=>$column){
         foreach($low[$mode]['metrics'] as $name=>$metric){
-            if(!isset($nameMap[$name]))continue;
-            $rows[$nameMap[$name]][$column]=suite_metric($metric);
+            if(isset($nameMap[$name]))$rows[$nameMap[$name]][$column]=suite_metric($metric);
         }
     }
     foreach($bag['cases'] as $case){
         $name=$case['name']??'';
         if(isset($nameMap[$name]))$rows[$nameMap[$name]]['bag_php']=suite_metric($case);
     }
-
     if(is_array($jxl)){
         foreach(['vm'=>'jxl_vm','native'=>'jxl_native'] as $providerKey=>$column){
             foreach(($jxl[$providerKey]??[]) as $discipline=>$metric){
@@ -133,12 +106,10 @@ foreach($sizes as $ops){
         }
     }
 
-    // Verify semantic equivalence across every measured implementation. Null/TBD
-    // cells are ignored. A mismatched checksum invalidates the comparison.
     foreach($rows as $discipline=>$columns){
         $checks=[];
         foreach($columns as $column=>$metric){
-            if($metric!==null && array_key_exists('checksum',$metric) && $metric['checksum']!==null)$checks[$column]=$metric['checksum'];
+            if($metric!==null && ($metric['checksum']??null)!==null)$checks[$column]=$metric['checksum'];
         }
         if(count(array_unique($checks,SORT_REGULAR))>1){
             throw new RuntimeException('Checksum mismatch for '.$discipline.' at '.$ops.' ops: '.json_encode($checks));
@@ -146,31 +117,23 @@ foreach($sizes as $ops){
     }
 
     $results[(string)$ops]=[
-        'ops'=>$ops,
-        'rows'=>$rows,
-        'bag_checkpoint'=>$bag['checkpoint']??null,
+        'ops'=>$ops,'rows'=>$rows,'bag_checkpoint'=>$bag['checkpoint']??null,
         'process_peak_mb'=>[
-            'legacy_pasm_php'=>$low['old']['peak_mb']??null,
-            'canonical_pasm_php'=>$low['new']['peak_mb']??null,
-            'php_array'=>$low['native']['peak_mb']??null,
-            'php_spl'=>$low['spl']['peak_mb']??null,
+            'legacy_pasm_php'=>$low['old']['peak_mb']??null,'canonical_pasm_php'=>$low['new']['peak_mb']??null,
+            'php_array'=>$low['native']['peak_mb']??null,'php_spl'=>$low['spl']['peak_mb']??null,
             'bag_php'=>$bag['process_peak_mb']??null,
         ],
     ];
 }
 
 $report=[
-    'suite'=>'jx-container-master/1',
-    'generated_at'=>gmdate(DATE_ATOM),
-    'php_version'=>PHP_VERSION,
-    'reps'=>$reps,
-    'warmups'=>$warmups,
-    'sizes'=>$sizes,
+    'suite'=>'jx-container-master/1','generated_at'=>gmdate(DATE_ATOM),'php_version'=>PHP_VERSION,
+    'reps'=>$reps,'warmups'=>$warmups,'sizes'=>$sizes,
     'operation_law'=>'N writes/inserts + N reads/removals = total_ops',
+    'not_applicable'=>$notApplicable,
     'jxl_provider'=>[
-        'path'=>'benchmark-jxl-containers.php',
-        'available'=>$jxlAvailable,
-        'unavailable_cells'=>'null/TBD; never estimated',
+        'path'=>'benchmark-jxl-containers.php','present'=>$jxlProviderPresent,
+        'runs'=>$jxlStatuses,'missing_measurement'=>'null/TBD; never estimated',
     ],
     'specialized_regressions'=>[
         'benchmark-pasm-oop-fast-deque.php'=>'opposite-end deque algorithm regression',
@@ -178,20 +141,22 @@ $report=[
     ],
     'results'=>$results,
 ];
-
 file_put_contents(__DIR__.'/benchmark-container-suite-results.json',json_encode($report,JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR));
 
-echo "JX master container benchmark; reps={$reps}; warmups={$warmups}; JXL provider=".($jxlAvailable?'present':'TBD')."\n";
+echo "JX master container benchmark; reps={$reps}; warmups={$warmups}; JXL provider=".($jxlProviderPresent?'present':'absent')."\n";
 foreach($results as $ops=>$result){
     echo "\nTOTAL OPERATIONS: ",number_format((int)$ops),"\n";
     printf("%-9s %11s %11s %11s %11s %11s %11s %11s\n",'container','legacy','canonical','Bag/PHP','PHP array','PHP SPL','JXL VM','JXL native');
     foreach($result['rows'] as $discipline=>$columns){
-        $cell=static function(?array $m):string{return $m===null?'TBD':sprintf('%.3f',$m['median_ms']);};
+        $cell=static function(string $column,?array $m)use($discipline,$notApplicable):string{
+            if($m!==null)return sprintf('%.3f',$m['median_ms']);
+            return isset($notApplicable[$discipline][$column])?'N/A':'TBD';
+        };
         printf(
-            "%-9s %11s %11s %11s %11s %11s %11s %11s\n",
-            ucfirst($discipline),
-            $cell($columns['legacy_pasm_php']),$cell($columns['canonical_pasm_php']),$cell($columns['bag_php']),
-            $cell($columns['php_array']),$cell($columns['php_spl']),$cell($columns['jxl_vm']),$cell($columns['jxl_native'])
+            "%-9s %11s %11s %11s %11s %11s %11s %11s\n",ucfirst($discipline),
+            $cell('legacy_pasm_php',$columns['legacy_pasm_php']),$cell('canonical_pasm_php',$columns['canonical_pasm_php']),
+            $cell('bag_php',$columns['bag_php']),$cell('php_array',$columns['php_array']),$cell('php_spl',$columns['php_spl']),
+            $cell('jxl_vm',$columns['jxl_vm']),$cell('jxl_native',$columns['jxl_native'])
         );
     }
 }
