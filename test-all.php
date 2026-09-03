@@ -65,10 +65,16 @@ try {
         @unlink($tmpAsm);@unlink($tmpC);@unlink($tmpExe);
     }
 
-    // 5. Every root benchmark harness, normal/default entrypoint.
+    // 5. Every root benchmark harness, normal/default entrypoint. The master
+    // container orchestrator recursively invokes other benchmark harnesses, so
+    // its end-to-end path is exercised by test-container-benchmark-contract.php
+    // with a tiny workload rather than duplicated here at full benchmark sizes.
     $benches=glob($root.'/benchmark-*.php')?:[];sort($benches,SORT_STRING);
-    foreach($benches as $file)run_cmd('benchmark '.basename($file),[$php,$file],$root);
+    foreach($benches as $file){
+        if(basename($file)==='benchmark-container-suite.php')continue;
+        run_cmd('benchmark '.basename($file),[$php,$file],$root);
+    }
 
-    echo "\nPASS FULL RUNNABLE GATE standalone_files=".count($phpFiles)." fragments=".count($fragments)." steps=".count($ran)." tests=".(count($tests)-1)." examples=".count($examples)." benchmarks=".count($benches)."\n";
+    echo "\nPASS FULL RUNNABLE GATE standalone_files=".count($phpFiles)." fragments=".count($fragments)." steps=".count($ran)." tests=".(count($tests)-1)." examples=".count($examples)." benchmarks=".(count($benches)-1)."\n";
     exit(0);
 }catch(Throwable $e){fwrite(STDERR,"\nFULL GATE FAIL: {$e->getMessage()}\n");if($failures!==[])fwrite(STDERR,json_encode($failures,JSON_PRETTY_PRINT)."\n");exit(1);}
