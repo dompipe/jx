@@ -30,6 +30,8 @@ jobs:
         run: php test-hot-shadow.php
       - name: Deterministic native 64B Book package
         run: php test-native-book64.php
+      - name: PASM Media ABI v2 multi-stream
+        run: php -d zend.assertions=1 -d assert.exception=1 test-pasm-media-abi-v2-multistream.php
       - name: Native loader recognizes renamed 64B Book
         run: |
           php tests/make-jx64-fixture.php /tmp/compiled-book.renamed
@@ -80,7 +82,7 @@ jobs:
           /tmp/jx11-patch-module /tmp/jx11-sample-patch.so
       - name: Verify signed executable PUSH and ROLLBACK end to end
         run: |
-          cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-patch-service-e2e tests/jx11-patch-service-e2e.c host/linux/jx11-patch-service.c host/linux/jx11-patch-module.c host/linux/jx11-live-patch.c host/common/jx-live-patch.c host/common/jx-live-patch-wire.c host/common/jx-patch-ipc.c $(pkg-config --cflags --libs openssl) -ldl
+          cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-patch-service-e2e tests/jx11-patch-service-e2e.c host/linux/jx11-patch-service.c host/linux/jx11-patch-module.c host/linux/jx11-live-patch.c host/common/jx-live-patch.c host/common/jx-patch-ipc.c host/common/jx-patch-ssh.c
           /tmp/jx11-patch-service-e2e /tmp/jx11-sample-patch.so
       - name: Verify native generic hot-event ABI
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx-hot-event-abi tests/jx-hot-event-abi.c && /tmp/jx-hot-event-abi
