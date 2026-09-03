@@ -6,6 +6,13 @@ use jx\semantic\BookTrust;
 use jx\semantic\JxbBook;
 use jx\semantic\SemanticException;
 
+/*
+ * Legacy compiled-Book regression.
+ *
+ * The implementation class retains its historical JxbBook name, but persisted
+ * regression artifacts are explicit .64B so this test cannot redefine modern
+ * .jxb, which is now the indexed compressed resource archive.
+ */
 $source = <<<'JX'
 function triple(int $x): int {
     return $x * 3;
@@ -18,17 +25,18 @@ for ($i = 0; $i < 5; $i++) {
 $sum;
 JX;
 
-$dir = sys_get_temp_dir() . '/jxb-' . bin2hex(random_bytes(6));
-if (!mkdir($dir, 0775, true) && !is_dir($dir)) throw new RuntimeException('cannot create JXB test directory');
+$dir = sys_get_temp_dir() . '/jx64-' . bin2hex(random_bytes(6));
+if (!mkdir($dir, 0775, true) && !is_dir($dir)) throw new RuntimeException('cannot create legacy Book test directory');
 
 try {
     $sourcePath = $dir . '/sample.jx';
+    $legacyPath = $dir . '/sample.64B';
     file_put_contents($sourcePath, $source);
 
-    $compiled = JxbBook::compileFile($sourcePath);
-    assert($compiled['path'] === $dir . '/sample.jxb');
+    $compiled = JxbBook::compileFile($sourcePath, $legacyPath);
+    assert($compiled['path'] === $legacyPath);
     assert(is_file($compiled['path']));
-    assert(pathinfo($compiled['path'], PATHINFO_EXTENSION) === 'jxb');
+    assert(strtolower(pathinfo($compiled['path'], PATHINFO_EXTENSION)) === '64b');
 
     $loaded = JxbBook::loadFile($compiled['path']);
     assert(($loaded['manifest']['format'] ?? null) === JxbBook::INTERNAL_FORMAT);
@@ -37,7 +45,7 @@ try {
     assert(isset($loaded['entries'][JxbBook::PREPARED_PATH]));
     assert(!isset($loaded['entries']['SOURCE/program.jx']));
 
-    // 0+3+6+9+12 = 30. This proves the admitted Book executes its prepared JXL.
+    // 0+3+6+9+12 = 30. This proves legacy admitted Book execution still works.
     assert(JxbBook::runFile($compiled['path']) === 30);
 
     // Admission consumes prepared type IDs once and refuses representation drift.
@@ -49,7 +57,6 @@ try {
     try { JxbBook::admit($bad); } catch (SemanticException $e) { $rejected = $e->phase === 'jxb-admission'; }
     assert($rejected);
 
-    // Function/parameter metadata is also checked against the stable type table.
     $badFunction = $loaded;
     $prepared = json_decode($badFunction['entries'][JxbBook::PREPARED_PATH], true, flags: JSON_THROW_ON_ERROR);
     $prepared['functions'][0]['return_type_id'] = 99;
@@ -58,10 +65,9 @@ try {
     try { JxbBook::admit($badFunction); } catch (SemanticException $e) { $rejected = $e->phase === 'jxb-admission'; }
     assert($rejected);
 
-    // Signed Books bind exact bytes and capabilities to the same execution admission path.
     if (BookTrust::sodiumAvailable()) {
-        $keys = BookTrust::keypair('jx-jxb-regression');
-        $envelope = BookTrust::sign($compiled['bytes'], ['bag.read','ui.present'], 'jx-test', $keys['key_id'], $keys['secret']);
+        $keys = BookTrust::keypair('jx64-regression');
+        $envelope = BookTrust::sign($compiled['bytes'], ['bag.read','ui.present'], 'jx64-test', $keys['key_id'], $keys['secret']);
         assert(JxbBook::runTrusted($compiled['bytes'], $envelope, $keys['public'], ['bag.read']) === 30);
 
         $denied = false;
@@ -73,12 +79,12 @@ try {
         assert($denied);
     }
 
-    // Public extension is conventional, not trusted: admitted bytes still identify the Book.
+    // Package identity is byte-based, not suffix-based, on the legacy path.
     $renamed = $dir . '/sample.bin';
     copy($compiled['path'], $renamed);
     assert(JxbBook::runFile($renamed) === 30);
 
-    echo "PASS JXB .jx -> .jxb -> typed/trusted admission -> JXL execution\n";
+    echo "PASS legacy .jx -> .64B -> typed/trusted prepared Book admission\n";
 } finally {
     foreach (glob($dir . '/*') ?: [] as $file) @unlink($file);
     @rmdir($dir);
