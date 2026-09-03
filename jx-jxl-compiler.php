@@ -3,6 +3,7 @@
 namespace jx\semantic;
 
 require_once __DIR__ . '/jx-semantic.php';
+require_once __DIR__ . '/jx-jxl-containers.php';
 
 /**
  * Canonical semantic IR -> normalized prepared IR -> JXL.
@@ -10,12 +11,21 @@ require_once __DIR__ . '/jx-semantic.php';
  * This pass owns lowering rewrites that should not leak into parser meaning or
  * the VM. Internal names contain NUL, which canonical source identifiers can
  * never spell, making generated temporaries hygienic.
+ *
+ * Container preparation is deliberately explicit at this layer: the compiler
+ * resolves Bag discipline + canonical operation once, receives an
+ * operation-specific native binding, and emits fixed-width JXL container
+ * instructions that carry only binding IDs and local register selectors.
  */
 final class PreparedCompiler
 {
     private int $temporary = 0;
+    private PreparedContainerBindings $containerBindings;
 
-    public function __construct(private readonly Compiler $semantic = new Compiler()) {}
+    public function __construct(private readonly Compiler $semantic = new Compiler())
+    {
+        $this->containerBindings = new PreparedContainerBindings();
+    }
 
     public function parse(string $source): Program
     {
@@ -38,6 +48,55 @@ final class PreparedCompiler
     {
         $this->temporary = 0;
         return (new JxlEmitter())->emit($this->normalizeProgram($program));
+    }
+
+    public function resetContainerBindings(): void
+    {
+        $this->containerBindings = new PreparedContainerBindings();
+    }
+
+    public function containerBindings(): PreparedContainerBindings
+    {
+        return $this->containerBindings;
+    }
+
+    public function bindContainer(
+        int $bagHandle,
+        string $discipline,
+        string $operation,
+        int $width = 8,
+        int $capacity = 0,
+        int $mask = 0,
+        int $flags = 0,
+    ): PreparedContainerBinding {
+        return $this->containerBindings->bind(
+            $bagHandle,
+            $discipline,
+            $operation,
+            $width,
+            $capacity,
+            $mask,
+            $flags,
+        );
+    }
+
+    public function emitContainer(
+        PreparedContainerBinding $binding,
+        ?int $src0 = null,
+        ?int $src1 = null,
+        ?int $dst = null,
+    ): string {
+        return JxlContainerInstruction::emit($binding, $src0, $src1, $dst);
+    }
+
+    public function containerBindingBinary(): string
+    {
+        return $this->containerBindings->binary();
+    }
+
+    public function containerBindingJson(): string
+    {
+        return $this->containerBindings->json();
     }
 
     public function normalizeProgram(Program $program): Program
