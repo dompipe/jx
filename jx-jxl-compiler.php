@@ -6,6 +6,8 @@ require_once __DIR__ . '/jx-semantic.php';
 require_once __DIR__ . '/jx-jxl-containers.php';
 require_once __DIR__ . '/jx-jxl-bag-source.php';
 require_once __DIR__ . '/jx-jxl-container-dirty.php';
+require_once __DIR__ . '/jx-jxl-prepared.php';
+require_once __DIR__ . '/jx-jxl-global.php';
 
 /**
  * Canonical semantic IR -> normalized prepared IR -> JXL.
@@ -23,6 +25,7 @@ final class PreparedCompiler
     private int $temporary = 0;
     private PreparedContainerBindings $containerBindings;
     private ?PreparedContainerSourceCompilation $lastContainerCompilation = null;
+    private ?PreparedGlobalCompilation $lastGlobalCompilation = null;
 
     public function __construct(private readonly Compiler $semantic = new Compiler())
     {
@@ -45,13 +48,16 @@ final class PreparedCompiler
         $unit = PreparedBagSource::prepare($source);
         if ($unit->bags !== []) {
             throw new SemanticException(
-                'Canonical Bag discipline blocks use prepared/native container execution; compile with emitJxl() or compileContainerSource()',
+                'Canonical Bag discipline blocks use prepared/native execution; compile with compileContainerSource() for a straight native region or compilePreparedProgram() for arithmetic/control flow plus Bag regions',
                 'runtime'
             );
         }
         return $this->semantic->run($source);
     }
 
+    /** Legacy-compatible emission. Bag source still chooses the straight
+     * container-region compiler; use emitPreparedJxl() for mixed control flow.
+     */
     public function emitJxl(string $source): string
     {
         $unit = PreparedBagSource::prepare($source);
@@ -59,14 +65,22 @@ final class PreparedCompiler
 
         $this->temporary = 0;
         $this->lastContainerCompilation = null;
+        $this->lastGlobalCompilation = null;
         $program = $this->normalizeProgram($this->semantic->parse($source));
         return (new JxlEmitter())->emit($program);
+    }
+
+    /** Mixed fixed-width 0x20..0x37 register/control + 0x40..0x50 Bag JXL. */
+    public function emitPreparedJxl(string $source): string
+    {
+        return $this->compilePreparedProgram($source)->jxl;
     }
 
     public function emitProgram(Program $program): string
     {
         $this->temporary = 0;
         $this->lastContainerCompilation = null;
+        $this->lastGlobalCompilation = null;
         return (new JxlEmitter())->emit($this->normalizeProgram($program));
     }
 
@@ -81,10 +95,28 @@ final class PreparedCompiler
         if ($unit->bags === []) throw new SemanticException('No canonical Bag discipline declarations found', 'bag-source');
         $this->temporary = 0;
         $this->containerBindings = new PreparedContainerBindings();
+        $this->lastGlobalCompilation = null;
         $program = $this->semantic->parse($unit->rewrittenSource);
         $raw = (new PreparedContainerSourceCompiler($this->containerBindings))->compile($unit, $program);
         $compiled = PreparedContainerDirtyPass::apply($raw);
         $this->lastContainerCompilation = $compiled;
+        return $compiled;
+    }
+
+    /**
+     * Compile one global prepared program. Ordinary integer/bool arithmetic,
+     * branches and loops use the same eight-register window as native Bag ops.
+     */
+    public function compilePreparedProgram(string $source): PreparedGlobalCompilation
+    {
+        $unit = PreparedBagSource::prepare($source);
+        if ($unit->bags === []) throw new SemanticException('Prepared global JXL currently requires a canonical Bag declaration', 'jxl-global');
+        $this->temporary = 0;
+        $this->containerBindings = new PreparedContainerBindings();
+        $this->lastContainerCompilation = null;
+        $program = $this->semantic->parse($unit->rewrittenSource);
+        $compiled = (new PreparedGlobalSourceCompiler($this->containerBindings, $unit->bags))->compile($program);
+        $this->lastGlobalCompilation = $compiled;
         return $compiled;
     }
 
@@ -93,10 +125,16 @@ final class PreparedCompiler
         return $this->lastContainerCompilation;
     }
 
+    public function lastPreparedProgram(): ?PreparedGlobalCompilation
+    {
+        return $this->lastGlobalCompilation;
+    }
+
     public function resetContainerBindings(): void
     {
         $this->containerBindings = new PreparedContainerBindings();
         $this->lastContainerCompilation = null;
+        $this->lastGlobalCompilation = null;
     }
 
     public function containerBindings(): PreparedContainerBindings
