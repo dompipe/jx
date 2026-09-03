@@ -194,3 +194,20 @@ jobs:
           Copy-Item examples/store/build/jx-store-windows.64B examples/store/build/store.payload
           $probe = (& examples/store/build/jx-store.exe --probe examples/store/build/store.payload).Trim()
           if ($probe -notmatch '^JX64/1\.0 sections=4$') { throw "Windows native JX64 probe failed: $probe" }
+
+  prepared-jxl-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: Install NASM
+        run: sudo apt-get update && sudo apt-get install -y nasm
+      - name: Verify mixed prepared compiler contract
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-jxl-prepared-program.php
+      - name: Execute mixed prepared JXL in x86-64 assembly
+        run: bash test-jx-jxl-prepared-program-native.sh
