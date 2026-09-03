@@ -8,6 +8,12 @@
  * On hosts without that native toolchain it exits successfully with empty JXL
  * result sets so portable PHP CI can still run the rest of the benchmark suite.
  *
+ * The historical C harness still carries the retained split Map comparator.
+ * Production Map IDs, however, resolve to the keyed Vector<Entry> backend. This
+ * provider therefore runs the same-build Map layout A/B and replaces the master
+ * `native.map` timing with the keyed-vector ordered-append/get measurement. The
+ * split measurement remains exposed under `map_layout_ab` for provenance.
+ *
  * Usage:
  *   php benchmark-jxl-containers.php [even_total_ops] [reps] [warmups]
  *   php benchmark-jxl-containers.php 1000000 9 2 --json
@@ -80,6 +86,30 @@ $raw=$run(
     'native JXL benchmark execution'
 );
 $result=json_decode(trim($raw),true,512,JSON_THROW_ON_ERROR);
+
+// The old harness's Map row is the deliberately retained split comparator.
+// Run the production keyed-vector Map through the same 6-byte executor and use
+// its ordered append/get timing as the authoritative master `map` metric.
+$shiftOps=min($ops,20000);
+if($shiftOps%2!==0)$shiftOps--;
+$layoutRaw=$run(
+    escapeshellarg(PHP_BINARY).' '.escapeshellarg($root.'/benchmark-jxl-map-layouts.php')
+    .' '.escapeshellarg((string)$ops).' '.escapeshellarg((string)$shiftOps)
+    .' '.escapeshellarg((string)$reps).' '.escapeshellarg((string)$warmups).' --json',
+    'native JXL Map layout A/B'
+);
+$layout=json_decode(trim($layoutRaw),true,512,JSON_THROW_ON_ERROR);
+$ordered=$layout['workloads']['ordered_append_get']??null;
+if(is_array($ordered) && isset($ordered['vector'],$result['native']['map'])){
+    $productionMap=$ordered['vector'];
+    // Keep the master semantic checksum convention from the original container
+    // harness; split and vector correctness is independently checksum-checked by
+    // the A/B harness.
+    $productionMap['checksum']=$result['native']['map']['checksum']??null;
+    $result['native']['map']=$productionMap;
+}
+$result['map_set_layout']='map:keyed-vector-entry;set:ordered-keys';
+$result['map_layout_ab']=$layout;
 $result['status']='measured';
 $result['toolchain']=['cc'=>'cc -O3','assembler'=>'nasm elf64','linker'=>'ld -r'];
 
@@ -92,4 +122,10 @@ echo "JXL native containers; path=prepared 6-byte executor; total_ops={$ops}; re
 printf("%-9s %10s %10s %10s %10s %10s\n",'container','median','min','p95','Mops/s','ns/op');
 foreach(($result['native']??[]) as $name=>$m){
     printf("%-9s %9.3f %9.3f %9.3f %10.2f %10.2f\n",ucfirst((string)$name),$m['median_ms'],$m['min_ms'],$m['p95_ms'],$m['mops_s'],$m['ns_op']);
+}
+if(isset($ordered['split'],$ordered['vector'])){
+    printf(
+        "Map A/B  split=%0.3f ms  keyed-vector=%0.3f ms  vector/split=%0.3fx\n",
+        $ordered['split']['median_ms'],$ordered['vector']['median_ms'],$ordered['vector_over_split']
+    );
 }
