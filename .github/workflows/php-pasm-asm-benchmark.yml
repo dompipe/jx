@@ -1,0 +1,42 @@
+name: PHP PASM ASM Benchmark
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'pasm-expr.php'
+      - 'pasm-bytecode.php'
+      - 'pasm-bytecode-optimized.php'
+      - 'pasm-jxl.php'
+      - 'pasl/bench/bench-php-pasm-asm.php'
+      - '.github/workflows/php-pasm-asm-benchmark.yml'
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          ini-file: production
+      - name: Optimized PHP -> PASM ASM -> JXL
+        run: |
+          php pasl/bench/bench-php-pasm-asm.php --compile-iters 300 --run-iters 120 --php-iters 20000 --rounds 7 | tee php-pasm-asm-optimized.txt
+          php pasl/bench/bench-php-pasm-asm.php --compile-iters 300 --run-iters 120 --php-iters 20000 --rounds 7 --json > php-pasm-asm-optimized.json
+      - name: Plain PHP -> PASM ASM -> JXL
+        run: |
+          php pasl/bench/bench-php-pasm-asm.php --compile-iters 200 --run-iters 80 --php-iters 15000 --rounds 5 --no-optimize | tee php-pasm-asm-plain.txt
+          php pasl/bench/bench-php-pasm-asm.php --compile-iters 200 --run-iters 80 --php-iters 15000 --rounds 5 --no-optimize --json > php-pasm-asm-plain.json
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: php-pasm-asm-benchmark
+          path: |
+            php-pasm-asm-optimized.txt
+            php-pasm-asm-optimized.json
+            php-pasm-asm-plain.txt
+            php-pasm-asm-plain.json
