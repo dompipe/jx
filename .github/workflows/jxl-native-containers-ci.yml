@@ -6,7 +6,10 @@ on:
     paths:
       - 'jx-jxl-containers.php'
       - 'jx-jxl-compiler.php'
+      - 'jx-jxl-bag-source.php'
+      - 'jx-jxl-container-compile.php'
       - 'test-jx-jxl-containers.php'
+      - 'test-jx-jxl-bag-source.php'
       - 'test-jx-jxl-containers-native.sh'
       - 'native/x86_64/jxl_container*'
       - 'native/x86_64/build-jxl-containers.sh'
@@ -15,7 +18,10 @@ on:
     paths:
       - 'jx-jxl-containers.php'
       - 'jx-jxl-compiler.php'
+      - 'jx-jxl-bag-source.php'
+      - 'jx-jxl-container-compile.php'
       - 'test-jx-jxl-containers.php'
+      - 'test-jx-jxl-bag-source.php'
       - 'test-jx-jxl-containers-native.sh'
       - 'native/x86_64/jxl_container*'
       - 'native/x86_64/build-jxl-containers.sh'
@@ -34,11 +40,17 @@ jobs:
       - name: PHP syntax
         run: |
           php -l jx-jxl-containers.php
+          php -l jx-jxl-bag-source.php
           php -l jx-jxl-compiler.php
+          php -l jx-jxl-container-compile.php
           php -l test-jx-jxl-containers.php
+          php -l test-jx-jxl-bag-source.php
 
       - name: Prepared JXL contract
         run: php -d zend.assertions=1 -d assert.exception=1 test-jx-jxl-containers.php
+
+      - name: Canonical Bag source lowering
+        run: php -d zend.assertions=1 -d assert.exception=1 test-jx-jxl-bag-source.php
 
       - name: Assemble and link native runtime
         run: bash native/x86_64/build-jxl-containers.sh
