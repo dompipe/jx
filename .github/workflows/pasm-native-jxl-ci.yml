@@ -57,7 +57,7 @@ jobs:
 
       - name: Prove no assembler was used
         run: |
-          if grep -R -E '\b(nasm|yasm|as|gcc -c .*\.s|clang -c .*\.s)\b' pasm-native-jxl.php php-jxl-driver.php php-jxl-compile.php; then
+          if grep -RniE '(^|[;&|[:space:]])(nasm|yasm|as)[[:space:]]+[^[:space:]]+\.(s|asm)([[:space:]]|$)|(^|[;&|[:space:]])(gcc|clang)[[:space:]]+-c[[:space:]]+[^[:space:]]+\.(s|S|asm)([[:space:]]|$)' pasm-native-jxl.php php-jxl-driver.php php-jxl-compile.php; then
             echo 'direct encoder unexpectedly invokes an assembler' >&2
             exit 1
           fi
