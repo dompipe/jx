@@ -19,7 +19,7 @@
 ;   +40 mask (power-of-two ring/hash)
 ;   +48 generation pointer (qword*)
 ;   +56 flags pointer (qword*)
-;   +64 aux pointer
+;   +64 aux pointer (hash count qword* for map/set)
 ;   +72 aux2 pointer
 ;
 ; All v1 hot payloads are fixed u64. Wider records are lowered to prepared copy
@@ -65,20 +65,22 @@ global jx_record_get_u64
 global jx_record_put_u64
 jx_record_get_u64:
     cmp rsi, [rdi + B_CAP]
-    jae .record_fail
+    jae jx_record_fail
     mov rax, [rdi + B_BASE]
     mov rax, [rax + rsi*8]
     clc
     ret
+
 jx_record_put_u64:
     cmp rsi, [rdi + B_CAP]
-    jae .record_fail
+    jae jx_record_fail
     mov rax, [rdi + B_BASE]
     mov [rax + rsi*8], rdx
     mov rax, rdx
     clc
     ret
-.record_fail:
+
+jx_record_fail:
     mov rax, -1
     stc
     ret
@@ -93,7 +95,6 @@ global jx_vector_put_u64
 global jx_vector_emplace_u64
 global jx_vector_peek_u64
 global jx_vector_reserve_u64
-
 global jx_stack_push_u64
 global jx_stack_pop_u64
 global jx_stack_peek_u64
@@ -102,10 +103,10 @@ jx_stack_push_u64:
 jx_vector_push_u64:
     mov r8, [rdi + B_TAIL]
     test r8, r8
-    jz .vec_fail
+    jz jx_vec_fail
     mov rcx, [r8]
     cmp rcx, [rdi + B_CAP]
-    jae .vec_fail
+    jae jx_vec_fail
     mov rax, [rdi + B_BASE]
     mov [rax + rcx*8], rsi
     inc rcx
@@ -118,10 +119,10 @@ jx_stack_pop_u64:
 jx_vector_pop_u64:
     mov r8, [rdi + B_TAIL]
     test r8, r8
-    jz .vec_fail
+    jz jx_vec_fail
     mov rcx, [r8]
     test rcx, rcx
-    jz .vec_fail
+    jz jx_vec_fail
     dec rcx
     mov [r8], rcx
     mov rax, [rdi + B_BASE]
@@ -132,9 +133,9 @@ jx_vector_pop_u64:
 jx_vector_get_u64:
     mov r8, [rdi + B_TAIL]
     test r8, r8
-    jz .vec_fail
+    jz jx_vec_fail
     cmp rsi, [r8]
-    jae .vec_fail
+    jae jx_vec_fail
     mov rax, [rdi + B_BASE]
     mov rax, [rax + rsi*8]
     clc
@@ -143,9 +144,9 @@ jx_vector_get_u64:
 jx_vector_put_u64:
     mov r8, [rdi + B_TAIL]
     test r8, r8
-    jz .vec_fail
+    jz jx_vec_fail
     cmp rsi, [r8]
-    jae .vec_fail
+    jae jx_vec_fail
     mov rax, [rdi + B_BASE]
     mov [rax + rsi*8], rdx
     mov rax, rdx
@@ -156,12 +157,12 @@ jx_vector_put_u64:
 jx_vector_emplace_u64:
     mov r8, [rdi + B_TAIL]
     test r8, r8
-    jz .vec_fail
-    mov rcx, [r8]                 ; count
+    jz jx_vec_fail
+    mov rcx, [r8]
     cmp rsi, rcx
-    ja .vec_fail
+    ja jx_vec_fail
     cmp rcx, [rdi + B_CAP]
-    jae .vec_fail
+    jae jx_vec_fail
     mov r9, [rdi + B_BASE]
 .shift:
     cmp rcx, rsi
@@ -181,10 +182,10 @@ jx_stack_peek_u64:
 jx_vector_peek_u64:
     mov r8, [rdi + B_TAIL]
     test r8, r8
-    jz .vec_fail
+    jz jx_vec_fail
     mov rcx, [r8]
     test rcx, rcx
-    jz .vec_fail
+    jz jx_vec_fail
     dec rcx
     mov rax, [rdi + B_BASE]
     mov rax, [rax + rcx*8]
@@ -196,15 +197,16 @@ jx_vector_peek_u64:
 jx_vector_reserve_u64:
     mov r8, [rdi + B_TAIL]
     test r8, r8
-    jz .vec_fail
+    jz jx_vec_fail
     mov rax, [r8]
     add rax, rsi
-    jc .vec_fail
+    jc jx_vec_fail
     cmp rax, [rdi + B_CAP]
-    ja .vec_fail
+    ja jx_vec_fail
     clc
     ret
-.vec_fail:
+
+jx_vec_fail:
     mov rax, -1
     stc
     ret
@@ -228,14 +230,14 @@ jx_queue_push_u64:
     mov r8, [rdi + B_HEAD]
     mov r9, [rdi + B_TAIL]
     test r8, r8
-    jz .ring_fail
+    jz jx_ring_fail
     test r9, r9
-    jz .ring_fail
+    jz jx_ring_fail
     mov rcx, [r9]
     mov rax, rcx
     sub rax, [r8]
     cmp rax, [rdi + B_CAP]
-    jae .ring_fail
+    jae jx_ring_fail
     and rcx, [rdi + B_MASK]
     mov rax, [rdi + B_BASE]
     mov [rax + rcx*8], rsi
@@ -249,12 +251,12 @@ jx_queue_pop_u64:
     mov r8, [rdi + B_HEAD]
     mov r9, [rdi + B_TAIL]
     test r8, r8
-    jz .ring_fail
+    jz jx_ring_fail
     test r9, r9
-    jz .ring_fail
+    jz jx_ring_fail
     mov rcx, [r8]
     cmp rcx, [r9]
-    je .ring_fail
+    je jx_ring_fail
     mov rdx, rcx
     and rdx, [rdi + B_MASK]
     mov rax, [rdi + B_BASE]
@@ -269,12 +271,12 @@ jx_queue_peek_u64:
     mov r8, [rdi + B_HEAD]
     mov r9, [rdi + B_TAIL]
     test r8, r8
-    jz .ring_fail
+    jz jx_ring_fail
     test r9, r9
-    jz .ring_fail
+    jz jx_ring_fail
     mov rcx, [r8]
     cmp rcx, [r9]
-    je .ring_fail
+    je jx_ring_fail
     and rcx, [rdi + B_MASK]
     mov rax, [rdi + B_BASE]
     mov rax, [rax + rcx*8]
@@ -285,13 +287,13 @@ jx_deque_push_front_u64:
     mov r8, [rdi + B_HEAD]
     mov r9, [rdi + B_TAIL]
     test r8, r8
-    jz .ring_fail
+    jz jx_ring_fail
     test r9, r9
-    jz .ring_fail
+    jz jx_ring_fail
     mov rax, [r9]
     sub rax, [r8]
     cmp rax, [rdi + B_CAP]
-    jae .ring_fail
+    jae jx_ring_fail
     dec qword [r8]
     mov rcx, [r8]
     and rcx, [rdi + B_MASK]
@@ -305,12 +307,12 @@ jx_deque_pop_back_u64:
     mov r8, [rdi + B_HEAD]
     mov r9, [rdi + B_TAIL]
     test r8, r8
-    jz .ring_fail
+    jz jx_ring_fail
     test r9, r9
-    jz .ring_fail
+    jz jx_ring_fail
     mov rcx, [r9]
     cmp rcx, [r8]
-    je .ring_fail
+    je jx_ring_fail
     dec rcx
     mov [r9], rcx
     and rcx, [rdi + B_MASK]
@@ -323,12 +325,12 @@ jx_deque_peek_back_u64:
     mov r8, [rdi + B_HEAD]
     mov r9, [rdi + B_TAIL]
     test r8, r8
-    jz .ring_fail
+    jz jx_ring_fail
     test r9, r9
-    jz .ring_fail
+    jz jx_ring_fail
     mov rcx, [r9]
     cmp rcx, [r8]
-    je .ring_fail
+    je jx_ring_fail
     dec rcx
     and rcx, [rdi + B_MASK]
     mov rax, [rdi + B_BASE]
@@ -340,18 +342,19 @@ jx_ring_reserve_u64:
     mov r8, [rdi + B_HEAD]
     mov r9, [rdi + B_TAIL]
     test r8, r8
-    jz .ring_fail
+    jz jx_ring_fail
     test r9, r9
-    jz .ring_fail
+    jz jx_ring_fail
     mov rax, [r9]
     sub rax, [r8]
     add rax, rsi
-    jc .ring_fail
+    jc jx_ring_fail
     cmp rax, [rdi + B_CAP]
-    ja .ring_fail
+    ja jx_ring_fail
     clc
     ret
-.ring_fail:
+
+jx_ring_fail:
     mov rax, -1
     stc
     ret
@@ -362,6 +365,7 @@ jx_ring_reserve_u64:
 ;   +8 key
 ;  +16 value
 ; Capacity is power-of-two; mask = capacity - 1.
+; B_AUX optionally points to a qword occupied-count used by HASH_RESERVE.
 ; ---------------------------------------------------------------------------
 global jx_map_probe_u64
 global jx_map_emplace_u64
@@ -387,7 +391,7 @@ jx_map_probe_u64:
     mov r10, 11400714819323198485
     imul rax, r10
     and rax, [rdi + B_MASK]
-    xor r11, r11                    ; first tombstone pointer
+    xor r11, r11
 .probe_loop:
     mov r9, rax
     imul r9, r9, 24
@@ -429,22 +433,44 @@ jx_map_probe_u64:
     mov edx, 1
     ret
 
+; Increment B_AUX occupied-count if admission supplied one.
+jx_hash_count_inc:
+    mov r8, [rdi + B_AUX]
+    test r8, r8
+    jz .done
+    inc qword [r8]
+.done:
+    ret
+
+; Decrement B_AUX occupied-count if supplied and nonzero.
+jx_hash_count_dec:
+    mov r8, [rdi + B_AUX]
+    test r8, r8
+    jz .done
+    cmp qword [r8], 0
+    je .done
+    dec qword [r8]
+.done:
+    ret
+
 ; RSI=key, RDX=value; existing value is returned unchanged.
 jx_map_emplace_u64:
     push rdx
     call jx_map_probe_u64
     pop rcx
     cmp edx, 2
-    je .hash_fail
+    je jx_hash_fail
     cmp edx, 1
-    je .map_existing
+    je .existing
     mov [rax + 8], rsi
     mov [rax + 16], rcx
     mov qword [rax], 1
-    mov rax, rcx
+    push rcx
+    call jx_hash_count_inc
+    pop rax
     clc
     ret
-.map_existing:
+.existing:
     mov rax, [rax + 16]
     clc
     ret
@@ -454,12 +480,18 @@ jx_map_put_u64:
     call jx_map_probe_u64
     pop rcx
     cmp edx, 2
-    je .hash_fail
+    je jx_hash_fail
     cmp edx, 1
-    je .map_replace
+    je .replace
     mov [rax + 8], rsi
+    mov [rax + 16], rcx
     mov qword [rax], 1
-.map_replace:
+    push rcx
+    call jx_hash_count_inc
+    pop rax
+    clc
+    ret
+.replace:
     mov [rax + 16], rcx
     mov rax, rcx
     clc
@@ -468,7 +500,7 @@ jx_map_put_u64:
 jx_map_get_u64:
     call jx_map_probe_u64
     cmp edx, 1
-    jne .hash_fail
+    jne jx_hash_fail
     mov rax, [rax + 16]
     clc
     ret
@@ -484,12 +516,13 @@ jx_map_has_u64:
 jx_map_remove_u64:
     call jx_map_probe_u64
     cmp edx, 1
-    jne .hash_not_found
+    jne .not_found
     mov qword [rax], 2
+    call jx_hash_count_dec
     mov rax, 1
     clc
     ret
-.hash_not_found:
+.not_found:
     xor eax, eax
     clc
     ret
@@ -497,25 +530,28 @@ jx_map_remove_u64:
 jx_set_add_u64:
     mov rdx, 1
     jmp jx_map_emplace_u64
+
 jx_set_has_u64:
     jmp jx_map_has_u64
+
 jx_set_remove_u64:
     jmp jx_map_remove_u64
 
-; Hot capacity guard. B_AUX may point to an admitted count qword. When absent,
-; reserve cannot be proven and the prelinked slow path is requested.
+; RSI=requested additional slots. B_AUX points to occupied count. Allocation and
+; rehash remain cold/prelinked services taken by the caller on CF=1.
 jx_hash_reserve_u64:
     mov r8, [rdi + B_AUX]
     test r8, r8
-    jz .hash_fail
+    jz jx_hash_fail
     mov rax, [r8]
     add rax, rsi
-    jc .hash_fail
+    jc jx_hash_fail
     cmp rax, [rdi + B_CAP]
-    ja .hash_fail
+    ja jx_hash_fail
     clc
     ret
-.hash_fail:
+
+jx_hash_fail:
     mov rax, -1
     stc
     ret
@@ -528,7 +564,7 @@ global jx_bag_sync
 jx_bag_dirty:
     mov r8, [rdi + B_FLAGS]
     test r8, r8
-    jz .bag_fail
+    jz jx_bag_fail
     or qword [r8], BAG_DIRTY
     xor eax, eax
     clc
@@ -539,18 +575,19 @@ jx_bag_sync:
     mov r8, [rdi + B_FLAGS]
     mov r9, [rdi + B_GEN]
     test r8, r8
-    jz .bag_fail
+    jz jx_bag_fail
     test r9, r9
-    jz .bag_fail
+    jz jx_bag_fail
     test qword [r8], BAG_DIRTY
-    jz .bag_clean
+    jz .clean
     inc qword [r9]
     and qword [r8], ~BAG_DIRTY
-.bag_clean:
+.clean:
     mov rax, [r9]
     clc
     ret
-.bag_fail:
+
+jx_bag_fail:
     mov rax, -1
     stc
     ret
