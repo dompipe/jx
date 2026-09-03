@@ -28,11 +28,11 @@ jobs:
         run: php test-api-dispatch.php
       - name: Shared hot-shadow ABI
         run: php test-hot-shadow.php
-      - name: Deterministic native 64B Book package
+      - name: Deterministic native JXB Book package
         run: php test-native-book64.php
       - name: PASM Media ABI v2 multi-stream
         run: php -d zend.assertions=1 -d assert.exception=1 test-pasm-media-abi-v2-multistream.php
-      - name: Native loader recognizes renamed 64B Book
+      - name: Native loader recognizes renamed JXB Book
         run: |
           php tests/make-jx64-fixture.php /tmp/compiled-book.renamed
           cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx64-probe tests/jx64-probe.c host/common/jx64-probe.c
@@ -126,7 +126,7 @@ jobs:
       - name: Verify EWMH client bookkeeping
         run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-ewmh-clients tests/jx11-ewmh-clients.c host/linux/jx11-ewmh.c -lxcb && /tmp/jx11-ewmh-clients
       - name: Verify workspace visibility semantics
-        run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-workspace tests/jx11-workspace.c host/linux/jx11-workspace.c && /tmp/jx11-workspace
+        run: cc -O2 -std=c11 -Wall -Wextra -Werror -o /tmp/jx11-workspace tests/jx11-workspace.c host/linux/jx11-workspace.c -lxcb && /tmp/jx11-workspace
       - name: Verify patch-aware jx11 CLI
         run: |
           /tmp/jx11 --help | grep -- '--patch-socket'
@@ -151,10 +151,10 @@ jobs:
         run: |
           test "$(examples/store/build/jx-store books/home)" = "books/home=96"
           test "$(examples/store/build/jx-store turtles/habitats)" = "turtles/habitats=387"
-      - name: Package and rename Linux 64B Book
+      - name: Package and rename Linux JXB Book
         run: |
-          php examples/store/package-native.php linux-elf examples/store/build/jx-store examples/store/build/jx-store.64B
-          cp examples/store/build/jx-store.64B examples/store/build/store.payload
+          php examples/store/package-native.php linux-elf examples/store/build/jx-store examples/store/build/jx-store.jxb
+          cp examples/store/build/jx-store.jxb examples/store/build/store.payload
           examples/store/build/jx-store --probe examples/store/build/store.payload
 
   windows-native-store:
@@ -187,11 +187,11 @@ jobs:
             $expected = "$page=$($cases[$page])"
             if ($actual -ne $expected) { throw "Windows JX page mismatch: $actual != $expected" }
           }
-      - name: Package and rename Windows 64B Book
+      - name: Package and rename Windows JXB Book
         shell: pwsh
         run: |
-          php examples/store/package-native.php windows-pe examples/store/build/jx-store.exe examples/store/build/jx-store-windows.64B
-          Copy-Item examples/store/build/jx-store-windows.64B examples/store/build/store.payload
+          php examples/store/package-native.php windows-pe examples/store/build/jx-store.exe examples/store/build/jx-store-windows.jxb
+          Copy-Item examples/store/build/jx-store-windows.jxb examples/store/build/store.payload
           $probe = (& examples/store/build/jx-store.exe --probe examples/store/build/store.payload).Trim()
           if ($probe -notmatch '^JX64/1\.0 sections=4$') { throw "Windows native JX64 probe failed: $probe" }
 
