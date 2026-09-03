@@ -1,0 +1,51 @@
+name: PHP-only surface benchmark
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jx-run.php'
+      - 'jx-lang.php'
+      - 'jx-jxl-compiler.php'
+      - 'jx-jxb.php'
+      - 'pasm-lang.php'
+      - 'benchmark-php-only-surface.php'
+      - 'benchmarks/nojs-http-router.php'
+      - '.github/workflows/php-only-surface-benchmark.yml'
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          ini-file: production
+      - name: Install native JXL toolchain
+        run: sudo apt-get update && sudo apt-get install -y nasm
+      - name: PHP-only authoring, compile, prepared execution, native build, and no-JS HTTP
+        run: php benchmark-php-only-surface.php 21 5 | tee benchmark-php-only-surface.txt
+      - name: Existing cross-target PASL benchmark
+        run: php benchmark-targets.php | tee benchmark-targets.json
+      - name: Active loop compiler benchmark
+        run: php benchmark-loop-active.php 10000 9 | tee benchmark-loop-active.json
+      - name: Prepared JXL native container detail
+        run: php benchmark-jxl-containers.php 1000000 5 1 --json | tee benchmark-jxl-containers.json
+      - name: Map layout A/B detail
+        run: php benchmark-jxl-map-layouts.php 1000000 20000 7 1 --json | tee benchmark-jxl-map-layouts.json
+      - name: Upload benchmark evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: php-only-surface-benchmark
+          path: |
+            benchmark-php-only-surface-results.json
+            benchmark-php-only-surface.txt
+            benchmark-targets.json
+            benchmark-loop-active.json
+            benchmark-jxl-containers.json
+            benchmark-jxl-map-layouts.json
