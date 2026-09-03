@@ -1,188 +1,156 @@
-# JX Native `.jxb` Compiled Books
+# JX `.jxb` Resource Archives
 
-## Rule
+## Canonical rule
 
-Native JX distribution does not execute PHP source.
+`.jxb` is the Jinx binary/resource package.
 
-PHP may participate in authoring and compilation, especially for current build tooling, but the native boundary is:
-
-```text
-canonical JX / PASL source
-        -> semantic lowering
-        -> prepared JXL and/or native target code
-        -> deterministic .jxb compiled Book
-        -> native runtime
-```
-
-The canonical public extension is **`.jxb`**: JX Binary Book.
-
-The old `.64B` suffix is a legacy filename convention only. New writers do not emit it. Historical Books remain readable because package identity comes from the bytes, not the suffix.
-
-## JXL versus JXB
-
-The two formats have separate jobs:
+It is **not** the canonical executable format and it is **not** the loadable-library format.
 
 ```text
-.jxl = prepared executable instruction stream
-.jxb = compiled Book/container
+.jx   source code
+.jxl  native executable
+.jll  native loadable library
+.jxb  compressed indexed resources
 ```
 
-A JXB may carry one or more JXL streams together with metadata, Bag/container bindings, prepared tables, assets, or native ELF/PE sections.
+## Archive model
 
-## Stable v1 package identity
+JXB is intentionally archive-like. Canonical v1 uses the ordinary ZIP container structure with per-member Deflate compression while keeping the `.jxb` extension.
 
-The public filename changed without invalidating the proven v1 package ABI. These internal identifiers remain stable:
+That gives JX exactly the behavior wanted from a resource package:
 
 ```text
-magic:           JX64B001
-manifest format: jx.64B/1
-header entry:    JX64/header.bin
-manifest entry:  JX64/manifest.json
+open package
+ -> read central directory / member index
+ -> seek directly to a named member
+ -> decompress only that member
+ -> return or stream it
 ```
 
-`JX64B001` and `jx.64B/1` are versioned internal identifiers. They are not the preferred filename extension.
+The entire archive must not be decompressed merely to read one image, table, model, dictionary, font, shader, or other resource.
 
-A historical file such as `desktop.64B`, a canonical `desktop.jxb`, or even a renamed `payload.bin` is the same Book if the package bytes validate.
-
-## Container
-
-JXB v1 is a deterministic ZIP-compatible container. Entries are stored rather than deflated, sorted by stable path, assigned normalized metadata, and written with a fixed timestamp. Identical compiler input is therefore intended to produce byte-identical package output.
-
-The first entry is mandatory:
+## Typical package
 
 ```text
-JX64/header.bin
+assets.jxb
+|- jx-manifest.json
+|- images/
+|  `- logo.png
+|- models/
+|  `- skull.mesh
+|- fonts/
+|- tables/
+|  `- taxonomy.bin
+|- dictionaries/
+|- shaders/
+`- data/
 ```
 
-It is exactly 48 bytes:
+The member names are the resource namespace. Runtime lookup can therefore be as simple as:
 
 ```text
-offset  size  meaning
-0       8     magic: JX64B001
-8       2     major version, little-endian
-10      2     minor version, little-endian
-12      4     compiled section count
-16      32    SHA-256 of JX64/manifest.json
+JXB.open("assets.jxb")
+JXB.get("images/logo.png")
+JXB.stream("tables/taxonomy.bin")
 ```
 
-Because this entry is first and stored without compression, a native launcher can recognize the Book using the ordinary ZIP local-file header plus these 48 bytes. It does not need PHP, a ZIP library, or a filename-extension test for identity probing.
+## Compression
 
-The C probe ABI lives in:
+The public rule is **individually compressed members**, not one monolithic gzip stream.
+
+A single gzip stream would require walking/decompressing earlier data to reach arbitrary later content. ZIP-compatible Deflate provides the gzip-family compression behavior while retaining an index suitable for pull-what-you-want access.
+
+Therefore:
 
 ```text
-host/common/jx64-probe.h
-host/common/jx64-probe.c
+compression family = Deflate
+archive behavior    = ZIP-compatible indexed members
+public extension    = .jxb
 ```
 
-## Manifest and compiled sections
+Stored/uncompressed members may still be used deliberately for data that is already compressed or should be memory-mapped without another compression pass.
 
-The second reserved entry is:
+## Manifest
+
+Canonical resource packages should include:
 
 ```text
-JX64/manifest.json
+jx-manifest.json
 ```
 
-It records at least:
+At minimum it identifies:
 
-- package format (`jx.64B/1`)
-- kind (`compiled-book`)
-- architecture
-- native/prepared target
-- Book name
-- compiler identity
-- canonical content SHA-256
-- ordered compiled-section table
-- byte length and SHA-256 for every compiled section
+```json
+{
+  "format": "jx.jxb/1",
+  "compression": "zip-deflate",
+  "members": []
+}
+```
 
-Typical compiled sections include:
+Future manifest fields may carry resource aliases, hashes, MIME/type hints, architecture-independent prepared data descriptions, or cache policy. They must not turn JXB back into the executable-code identity.
+
+## Code in JXB
+
+A JXB may contain a `.jxl` or `.jll` file as a resource when an application deliberately bundles one, just as a ZIP can contain an executable file. That does **not** change the contained artifact's identity.
 
 ```text
-CODE/program.jxl
-CODE/program.elf
-CODE/program.pe
-CODE/native.bin
-META/prepared.json
-BOOK/pages.bin
-BOOK/pages.json
-HOT/registers.bin
-HOT/reactions.bin
-BAG/schema.bin
-ASSET/index.bin
+bundle.jxb
+|- app.jxl
+|- plugins/sqlite.jll
+`- images/logo.png
 ```
 
-Source-language files are not native runtime dependencies. Source may be carried intentionally as a debug/asset section, but a compiled Book must not require source merely to wake or execute.
+The runtime extracts/maps the requested JXL/JLL member according to its own native-image rules.
 
-## Checksums
+JXB itself remains the archive.
 
-JX uses two distinct hashes.
+## Current implementation
 
-### Canonical content hash
+`jx-jxb-archive.php` provides the canonical PHP-side pack/read implementation:
 
-`content_sha256` is computed from the sorted compiled-section names, sizes, and section SHA-256 values. It identifies the executable semantic payload without creating a recursive self-hash problem inside the manifest.
+- `JxbArchive::create()` builds a `.jxb` using ZIP + Deflate.
+- `JxbArchive::open()` opens the index.
+- `get()` returns exactly one named member.
+- `stream()` opens exactly one member as a stream.
+- `names()` lists indexed members.
 
-Useful for:
+Path traversal member names are rejected.
 
-- compiled Book identity
-- cache validation
-- dependency comparison
-- deduplication
-- rebuild detection
-- cross-machine equality
+## Historical compiled-Book compatibility
 
-### Whole-file hash
-
-`file_sha256` hashes the final deterministic package bytes and is useful for downloads, mirrors, installation verification, and exact artifact identity.
-
-## Native recognition
-
-The native loader follows bytes, not names:
+The repository contains an older compiled-Book format using identifiers such as:
 
 ```text
-open candidate file
-    -> read ZIP local header
-    -> require first entry JX64/header.bin
-    -> require STORE encoding and 48-byte header
-    -> require magic JX64B001
-    -> validate format version
-    -> validate manifest SHA-256
-    -> validate per-section SHA-256
-    -> validate canonical content SHA-256
-    -> admit prepared/native sections
+JX64B001
+jx.64B/1
 ```
 
-`jx\NativeBook64` is retained as the internal v1 packer class name for compatibility. Its default public extension is now `.jxb`.
+and an earlier phase exposed those Books using `.jxb` filenames. Those bytes may remain readable through explicit compatibility code, but they are not the canonical meaning of new `.jxb` output.
 
-`jx\semantic\JxbBook` is the public compiled-Book contract used by the semantic/JXL toolchain.
+Do not delete proven old readers merely because the public contract changed. Qualify them as legacy compiled-Book/64B readers and keep new JXB resource writers separate.
 
-## PASL/JXL packaging
-
-PASL now lowers its complete current PASM semantic operation set to prepared JXL. The intended composition is:
+## Relationship to JXL and JLL
 
 ```text
-PASL
-  -> PASM semantic lowering
-  -> .jxl prepared stream
-  -> optional .jxb Book
+JX source
+  -> JX IR / PASM
+  -> native encoder
+  -> shared native image
+       entrypoint     -> program.jxl
+       no entrypoint  -> library.jll
+
+resources
+  -> indexed per-member Deflate archive
+  -> assets.jxb
 ```
 
-JXL keeps execution semantics compact. JXB adds package identity, metadata, bindings, capabilities, signatures, assets, and native sections around those streams.
-
-## Hot registers and Bags
-
-JXB is the persistence boundary for precompiled awake-state metadata such as:
-
-```text
-HOT/registers.bin
-HOT/reactions.bin
-BAG/schema.bin
-```
-
-The Book remembers enough compiled structure to wake registers and bind Bags without reparsing an authoring language on every launch.
-
-> Bags remember. Registers react. Compiled Books know how to wake.
+JXL and JLL are native code images. JXB is the resource/archive boundary.
 
 ## Compatibility rule
 
-New code and documentation should say `.jxb` for a compiled Book and `.jxl` for a prepared executable stream.
+From this revision forward, new documentation and tooling should use these meanings:
 
-Compatibility readers may still accept historical `.64B` filenames. The stable internal v1 strings `JX64B001` and `jx.64B/1` remain unchanged until a deliberate package-ABI version change is made.
+> **`.jxl` native executable; `.jll` native loadable library; `.jxb` indexed compressed resource archive.**
+
+Legacy `.64B`/compiled-Book support is compatibility work, not the definition of JXB.
