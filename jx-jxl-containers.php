@@ -11,6 +11,11 @@ use InvalidArgumentException;
  * references an operation-specific binding already resolved to one native
  * x86-64 routine. The repeat path never asks which discipline, alias, type, or
  * method is being used.
+ *
+ * Map and Set have a hard native memory law:
+ *   Map = ordered keys[] + values[] (2D array)
+ *   Set = ordered unique keys[] (1D array)
+ * They are never prepared as hash tables.
  */
 final class JxlContainerOpcode
 {
@@ -182,7 +187,7 @@ final class JxlContainerNative
     public const SET_REMOVE = 25;
     public const VECTOR_RESERVE = 26;
     public const RING_RESERVE = 27;
-    public const HASH_RESERVE = 28;
+    public const SORTED_RESERVE = 28;
     public const BAG_DIRTY = 29;
     public const BAG_SYNC = 30;
 
@@ -201,7 +206,7 @@ final class JxlContainerNative
             self::MAP_EMPLACE=>'jx_map_emplace_u64', self::MAP_GET=>'jx_map_get_u64', self::MAP_PUT=>'jx_map_put_u64',
             self::MAP_HAS=>'jx_map_has_u64', self::MAP_REMOVE=>'jx_map_remove_u64',
             self::SET_ADD=>'jx_set_add_u64', self::SET_HAS=>'jx_set_has_u64', self::SET_REMOVE=>'jx_set_remove_u64',
-            self::VECTOR_RESERVE=>'jx_vector_reserve_u64', self::RING_RESERVE=>'jx_ring_reserve_u64', self::HASH_RESERVE=>'jx_hash_reserve_u64',
+            self::VECTOR_RESERVE=>'jx_vector_reserve_u64', self::RING_RESERVE=>'jx_ring_reserve_u64', self::SORTED_RESERVE=>'jx_sorted_reserve_u64',
             self::BAG_DIRTY=>'jx_bag_dirty', self::BAG_SYNC=>'jx_bag_sync',
         ];
     }
@@ -240,10 +245,10 @@ final class JxlContainerNative
             },
             'map' => match ($op) {
                 'EMPLACE'=>self::MAP_EMPLACE,'GET'=>self::MAP_GET,'PUT'=>self::MAP_PUT,'HAS'=>self::MAP_HAS,'REMOVE'=>self::MAP_REMOVE,
-                'RESERVE'=>self::HASH_RESERVE,'DIRTY'=>self::BAG_DIRTY,'SYNC'=>self::BAG_SYNC,
+                'RESERVE'=>self::SORTED_RESERVE,'DIRTY'=>self::BAG_DIRTY,'SYNC'=>self::BAG_SYNC,
             },
             'set' => match ($op) {
-                'EMPLACE'=>self::SET_ADD,'HAS'=>self::SET_HAS,'REMOVE'=>self::SET_REMOVE,'RESERVE'=>self::HASH_RESERVE,
+                'EMPLACE'=>self::SET_ADD,'HAS'=>self::SET_HAS,'REMOVE'=>self::SET_REMOVE,'RESERVE'=>self::SORTED_RESERVE,
                 'DIRTY'=>self::BAG_DIRTY,'SYNC'=>self::BAG_SYNC,
             },
             default => throw new InvalidArgumentException("Unknown Bag discipline {$discipline}"),
@@ -302,11 +307,16 @@ final class PreparedContainerBindings
         $discipline = strtolower(trim($discipline));
         $op = JxlContainerSemantic::canonical($operation, $discipline);
 
-        if (in_array($discipline, ['queue','deque','map','set'], true) && $capacity > 0) {
+        if (in_array($discipline, ['queue','deque'], true) && $capacity > 0) {
             if (($capacity & ($capacity - 1)) !== 0) {
                 throw new InvalidArgumentException("{$discipline} capacity must be a power of two");
             }
             if ($mask === 0) $mask = $capacity - 1;
+        } elseif (in_array($discipline, ['map','set'], true)) {
+            if ($mask !== 0) {
+                throw new InvalidArgumentException("{$discipline} is an ordered array and does not use a mask");
+            }
+            $mask = 0;
         }
 
         $native = JxlContainerNative::resolve($discipline, $op, $width);
