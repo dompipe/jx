@@ -56,7 +56,7 @@ for ($i = 1; $i < $argc; $i++) {
 $cases = [
     'scalar' => '$a=1;$b=2;$c=$a+$b;$d=$c*3;$result=$d-1;',
     'movi64' => '$a=4294967301;$b=7;$result=$a+$b;',
-    'while64' => '$sum=0;$i=64;while($i){$sum=$sum+$i;$i--;}$result=$sum;',
+    'while64' => '$sum=0;$i=64;while($i){$sum+=$i;$i--;}$result=$sum;',
     'for128' => '$i=0;$sum=0;for($i=0;$i<=127;$i++){$sum+=$i;}$result=$sum;',
     'nested16' => '$i=0;$j=0;$sum=0;for($i=0;$i<16;$i++){for($j=0;$j<16;$j++){$sum+=$i+$j;}}$result=$sum;',
     'signed128' => '$i=-64;$sum=0;while($i<64){$sum+=$i;$i++;}$result=$sum;',
