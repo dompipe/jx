@@ -49,10 +49,10 @@ assert($dFront->operation === 'PUSHF');
 assert($dFront->nativeSymbol === 'jx_deque_push_front_u64');
 assert($dBack->operation === 'PUSHB');
 assert($dBack->nativeSymbol === 'jx_deque_push_back_u64');
-assert($mPut->nativeSymbol === 'jx_map_put_u64');
-assert($mGet->nativeSymbol === 'jx_map_get_u64');
-assert($mHas->nativeSymbol === 'jx_map_has_u64');
-assert($mRemove->nativeSymbol === 'jx_map_remove_u64');
+assert($mPut->nativeSymbol === 'jx_map_vector_put_u64');
+assert($mGet->nativeSymbol === 'jx_map_vector_get_u64');
+assert($mHas->nativeSymbol === 'jx_map_vector_has_u64');
+assert($mRemove->nativeSymbol === 'jx_map_vector_remove_u64');
 assert($sAdd->operation === 'EMPLACE');
 assert($sAdd->nativeSymbol === 'jx_set_add_u64');
 assert($sHas->nativeSymbol === 'jx_set_has_u64');
@@ -106,7 +106,7 @@ assert($emplaceDecoded['src0'] === 0 && $emplaceDecoded['src1'] === 1 && $emplac
 
 // Malformed attachments are rejected.
 $bad = $pushBytes;
-$bad[3] = chr(2); // bit 7 clear => executable-looking byte where attachment is required
+$bad[3] = chr(2);
 $failed = false;
 try {
     JxlContainerInstruction::decode($bad);
@@ -115,7 +115,6 @@ try {
 }
 assert($failed);
 
-// Discipline-invalid operations fail during preparation, never in the hot loop.
 $failed = false;
 try {
     $compiler->bindContainer(99, 'queue', 'put', 8, 16);
@@ -147,37 +146,47 @@ assert(strlen($binary) > 12);
 $json = $compiler->containerBindingJson();
 assert(str_contains($json, 'jx.jxl-container-bindings/1'));
 assert(str_contains($json, 'jx_queue_push_u64'));
+assert(str_contains($json, 'jx_map_vector_put_u64'));
 assert(str_contains($json, 'jx_set_add_u64'));
 assert(str_contains($json, 'jx_sorted_reserve_u64'));
 assert(!str_contains($json, 'jx_hash_reserve_u64'));
 assert(!str_contains(strtolower($json), 'enqueue'));
 assert(!str_contains(strtolower($json), 'append'));
 
-// Assembly source is the actual native container implementation, not a PHP
-// runtime trampoline. Map/Set must expose the ordered-array primitives and no
-// current hash-probe entry point.
+// Assembly source is the actual native container implementation. The active
+// Map backend must be the keyed Vector, while the split implementation remains
+// linked only as an explicit comparison backend for the later A/B benchmark.
 $coreAsm = file_get_contents(__DIR__ . '/native/x86_64/jxl_containers.asm');
+$mapAsm = file_get_contents(__DIR__ . '/native/x86_64/jxl_map_vector.asm');
+$tableAsm = file_get_contents(__DIR__ . '/native/x86_64/jxl_container_native_table.asm');
 $execAsm = file_get_contents(__DIR__ . '/native/x86_64/jxl_container_executor.asm');
-assert(is_string($coreAsm) && is_string($execAsm));
+assert(is_string($coreAsm) && is_string($mapAsm) && is_string($tableAsm) && is_string($execAsm));
 foreach ([
     'global jx_vector_push_u64',
     'global jx_queue_push_u64',
     'global jx_deque_push_front_u64',
     'global jx_sorted_find_u64',
     'global jx_sorted_reserve_u64',
-    'global jx_map_emplace_u64',
     'global jx_set_add_u64',
     'global jx_bag_sync',
-] as $symbol) {
-    assert(str_contains($coreAsm, $symbol));
-}
+] as $symbol) assert(str_contains($coreAsm, $symbol));
+foreach ([
+    'global jx_map_vector_find_u64',
+    'global jx_map_vector_emplace_u64',
+    'global jx_map_vector_get_u64',
+    'global jx_map_vector_put_u64',
+    'global jx_map_vector_has_u64',
+    'global jx_map_vector_remove_u64',
+] as $symbol) assert(str_contains($mapAsm, $symbol));
+assert(str_contains($tableAsm, 'dq jx_map_vector_put_u64'));
+assert(str_contains($coreAsm, 'global jx_map_put_u64')); // retained split comparison backend
 assert(!str_contains($coreAsm, 'global jx_map_probe_u64'));
 assert(str_contains($execAsm, 'global jx_jxl_container_execute'));
 assert(str_contains($execAsm, 'call qword [rbx + B_FN]'));
-assert(!str_contains(strtolower($coreAsm . $execAsm), 'php_'));
+assert(!str_contains(strtolower($coreAsm . $mapAsm . $execAsm), 'php_'));
 
 printf(
-    "JXL native containers: ok (%d prepared bindings, %d-byte instructions, ordered Map/Set arrays)\n",
+    "JXL native containers: ok (%d prepared bindings, %d-byte instructions, keyed-vector Map + ordered Set)\n",
     count($compiler->containerBindings()->all()),
     JxlContainerInstruction::BYTES,
 );
