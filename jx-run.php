@@ -4,26 +4,29 @@
  * jx.exe compiler / interpreter frontend
  *
  *   jx.exe [--print|-v] [--report[=compact|verbose|json]|--quiet]
- *          [--semantic|--jxl|--64b] [-O0|-O1] [-o output] [-c 'src']
- *          [file.jx|file.pasl|file.pbc|file.jxl|file.8B|file.64B]
+ *          [--semantic|--jxl|--jxb] [-O0|-O1] [-o output] [-c 'src']
+ *          [file.jx|file.pasl|file.pbc|file.jxl|file.8B|file.jxb]
  *   jx.exe --applied-runtime -o CODE/applied-bus.bin
  *
- * PHP is the authoring/compiler host. --jxl and --64b move canonical numeric
- * JX into prepared execution so the repeat path no longer reparses source.
+ * PHP is the authoring/compiler host. JXL is the canonical prepared executable
+ * stream. JXB is the canonical compiled Book/container. --64b and .64B input
+ * remain compatibility aliases only; new Book output names are normalized to
+ * .jxb.
  */
 namespace jx;
 
 $root = __DIR__;
 require_once $root . '/jx-lang.php';
 require_once $root . '/jx-jxl-compiler.php';
-require_once $root . '/jx-jxl-book64.php';
+require_once $root . '/jx-jxb.php';
 require_once $root . '/jx-bytecode-page-report.php';
 require_once $root . '/jx/AppliedBytecode.php';
 
 use jx\semantic\PreparedCompiler;
-use jx\semantic\JxlBook64;
+use jx\semantic\JxbBook;
 use jx\semantic\JxlVm;
 use jx\semantic\SemanticException;
+use pasm\PASMJxlCompiler;
 use pasm\lang\Engine as PaslEngine;
 use pasm\lang\LangException;
 use pasm\lang\PbcFile;
@@ -39,7 +42,7 @@ $inline = null;
 $appliedRuntime = false;
 $semanticMode = false;
 $jxlMode = false;
-$book64Mode = false;
+$jxbMode = false;
 $reportMode = JxCompilerOutput::COMPACT;
 $reportEnabled = true;
 
@@ -59,9 +62,10 @@ while ($argv !== []) {
     } elseif ($a === '--jxl') {
         $semanticMode = true;
         $jxlMode = true;
-    } elseif ($a === '--64b') {
+    } elseif ($a === '--jxb' || $a === '--64b') {
+        // --64b is a compatibility spelling only. Both routes emit a JXB Book.
         $semanticMode = true;
-        $book64Mode = true;
+        $jxbMode = true;
     } elseif ($a === '--applied-runtime') {
         $appliedRuntime = true;
     } elseif ($a === '--quiet' || $a === '-q') {
@@ -85,11 +89,13 @@ while ($argv !== []) {
     } elseif ($a === '-c') {
         $inline = array_shift($argv);
     } elseif ($a === '-h' || $a === '--help') {
-        fwrite(STDOUT, "Usage: jx.exe [--print|-v] [--report[=compact|verbose|json]|--quiet] [--semantic|--jxl|--64b] [-O0|-O1] [-o output] [-c 'src'] [file]\n");
+        fwrite(STDOUT, "Usage: jx.exe [--print|-v] [--report[=compact|verbose|json]|--quiet] [--semantic|--jxl|--jxb] [-O0|-O1] [-o output] [-c 'src'] [file]\n");
         fwrite(STDOUT, "       --semantic  parse/run typed canonical JX through the semantic IR\n");
-        fwrite(STDOUT, "       --jxl       emit prepared JXL (requires -o)\n");
-        fwrite(STDOUT, "       --64b       emit deterministic JXL compiled Book (requires -o)\n");
-        fwrite(STDOUT, "       .jxl/.8B and .64B inputs execute prepared code directly\n");
+        fwrite(STDOUT, "       --jxl       emit prepared JXL executable stream (requires -o)\n");
+        fwrite(STDOUT, "       --jxb       emit deterministic compiled JXB Book (requires -o)\n");
+        fwrite(STDOUT, "       --64b       legacy alias for --jxb; output .64B names become .jxb\n");
+        fwrite(STDOUT, "       .jxl/.8B inputs execute prepared code; .jxb is the compiled Book\n");
+        fwrite(STDOUT, "       legacy .64B Books remain readable by package identity\n");
         fwrite(STDOUT, "       jx.exe --applied-runtime -o CODE/applied-bus.bin\n");
         exit(0);
     } elseif (is_string($a) && str_ends_with(strtolower($a), '.pbc')) {
@@ -99,51 +105,10 @@ while ($argv !== []) {
     }
 }
 
-if ($jxlMode && $book64Mode) {
-    fwrite(STDERR, "jx.exe: choose either --jxl or --64b\n");
+if ($jxlMode && $jxbMode) {
+    fwrite(STDERR, "jx.exe: choose either --jxl or --jxb\n");
     exit(2);
 }
-
-/** Emit one official jx.exe bytecode page message. */
-$emitPage = static function(
-    string $code,
-    bool $optimized,
-    PaslEngine $pasl,
-    ?string $source,
-    ?string $output,
-) use (&$reportMode, &$reportEnabled): void {
-    if (!$reportEnabled) return;
-    $iter = $pasl->iteratorBindings();
-    $report = new JxBytecodePageReport(
-        page: 1,
-        bytecode: $code,
-        optimized: $optimized,
-        fused: false,
-        reactive: false,
-        target: JxBytecodePageReport::TARGET_PASM,
-        source: $source,
-        shadow: null,
-        dependencies: [],
-        registers: [],
-        iteratorSlots: count($iter),
-        output: $output,
-    );
-    fwrite(STDERR, JxCompilerOutput::render($report, $reportMode) . "\n");
-};
-
-/** Compile one PASL-lowerable page and write PBC while retaining report data. */
-$compilePage = static function(
-    PaslEngine $pasl,
-    string $src,
-    string $outFile,
-    bool $optimized,
-    ?string $sourceName,
-) use ($emitPage): void {
-    $code = $pasl->compile($src);
-    $flags = $optimized ? PbcFile::FLAG_OPTIMIZED : 0;
-    PbcFile::write($outFile, $code, $flags);
-    $emitPage($code, $optimized, $pasl, $sourceName, $outFile);
-};
 
 $looksSemantic = static function(string $src): bool {
     return (bool)preg_match('/\b(function|class|foreach|repeat|try|catch|finally|throw|namespace|import)\b|\bdo\s*\{|(^|[;{}]\s*)(int|float|bool|string|list|map|any|void)\s+\$?[A-Za-z_]\w*/mi', $src);
@@ -159,6 +124,66 @@ $writeExact = static function(string $path, string $bytes): void {
     if (file_put_contents($path, $bytes) !== strlen($bytes)) {
         throw new SemanticException("Cannot write {$path}", 'io');
     }
+};
+$normalizeJxbOutput = static function(string $path): string {
+    $trimmed = trim($path);
+    if ($trimmed === '') throw new SemanticException('--jxb requires a non-empty output path', 'compile');
+    if (preg_match('/\.64b$/i', $trimmed)) return substr($trimmed, 0, -4) . '.jxb';
+    if (pathinfo($trimmed, PATHINFO_EXTENSION) === '') return $trimmed . '.jxb';
+    return $trimmed;
+};
+
+/** Emit one official jx.exe bytecode page message. */
+$emitPage = static function(
+    string $code,
+    bool $optimized,
+    PaslEngine $pasl,
+    ?string $source,
+    ?string $output,
+    string $target,
+) use (&$reportMode, &$reportEnabled): void {
+    if (!$reportEnabled) return;
+    $iter = $pasl->iteratorBindings();
+    $report = new JxBytecodePageReport(
+        page: 1,
+        bytecode: $code,
+        optimized: $optimized,
+        fused: false,
+        reactive: false,
+        target: $target,
+        source: $source,
+        shadow: null,
+        dependencies: [],
+        registers: [],
+        iteratorSlots: count($iter),
+        output: $output,
+    );
+    fwrite(STDERR, JxCompilerOutput::render($report, $reportMode) . "\n");
+};
+
+/**
+ * Compile one PASL-lowerable page. JXL is the default prepared output; only an
+ * explicit .pbc suffix requests the compatibility PBC container.
+ */
+$compilePage = static function(
+    PaslEngine $pasl,
+    string $src,
+    string $outFile,
+    bool $optimized,
+    ?string $sourceName,
+) use ($emitPage, $writeExact): void {
+    $ext = strtolower(pathinfo($outFile, PATHINFO_EXTENSION));
+    if ($ext === 'pbc') {
+        $code = $pasl->compilePbc($src);
+        $flags = $optimized ? PbcFile::FLAG_OPTIMIZED : 0;
+        PbcFile::write($outFile, $code, $flags);
+        $emitPage($code, $optimized, $pasl, $sourceName, $outFile, JxBytecodePageReport::TARGET_PASM);
+        return;
+    }
+
+    $code = $pasl->compile($src);
+    $writeExact($outFile, $code);
+    $emitPage($code, $optimized, $pasl, $sourceName, $outFile, JxBytecodePageReport::TARGET_JXL);
 };
 
 try {
@@ -191,10 +216,11 @@ try {
     $semantic = new PreparedCompiler();
 
     if ($inline !== null) {
-        if ($jxlMode || $book64Mode) {
-            if (!is_string($outFile) || $outFile === '') throw new SemanticException(($jxlMode ? '--jxl' : '--64b') . ' requires -o output', 'compile');
-            if ($book64Mode) {
-                $r = JxlBook64::compile($inline, 'inline');
+        if ($jxlMode || $jxbMode) {
+            if (!is_string($outFile) || trim($outFile) === '') throw new SemanticException(($jxlMode ? '--jxl' : '--jxb') . ' requires -o output', 'compile');
+            if ($jxbMode) {
+                $outFile = $normalizeJxbOutput($outFile);
+                $r = JxbBook::compile($inline, 'inline');
                 $writeExact($outFile, $r['bytes']);
                 if ($print) echo $r['file_sha256'], "\n";
             } else {
@@ -216,7 +242,7 @@ try {
     }
 
     if ($pbcArg !== null) {
-        if ($semanticMode || $jxlMode || $book64Mode) throw new SemanticException('PBC input cannot be combined with semantic/JXL/64B compiler modes', 'compile');
+        if ($semanticMode || $jxlMode || $jxbMode) throw new SemanticException('PBC input cannot be combined with semantic/JXL/JXB compiler modes', 'compile');
         $result = $pasl->runFile($pbcArg);
         if ($print) echo $result, "\n";
         exit(0);
@@ -224,20 +250,26 @@ try {
 
     if ($sourceArg !== null) {
         $lowerName = strtolower($sourceArg);
-        if (str_ends_with($lowerName, '.jxl') || str_ends_with($lowerName, '.8b')) {
+        if (str_ends_with($lowerName, '.jxl')) {
+            $bytes = file_get_contents($sourceArg);
+            if ($bytes === false) throw new SemanticException("Cannot read {$sourceArg}", 'io');
+            // PASL-profile JXL (0x51+) uses PASL runtime admission today; semantic
+            // numeric JXL continues through the semantic JXL VM.
+            $result = PASMJxlCompiler::isJxl($bytes) ? $pasl->runCode($bytes) : (new JxlVm())->run($bytes);
+            if ($print) echo $result, "\n";
+            exit(0);
+        }
+        if (str_ends_with($lowerName, '.8b')) {
             $bytes = file_get_contents($sourceArg);
             if ($bytes === false) throw new SemanticException("Cannot read {$sourceArg}", 'io');
             $result = (new JxlVm())->run($bytes);
             if ($print) echo $result, "\n";
             exit(0);
         }
-        if (str_ends_with($lowerName, '.64b')) {
+        if (str_ends_with($lowerName, '.jxb') || str_ends_with($lowerName, '.64b')) {
             $bytes = file_get_contents($sourceArg);
             if ($bytes === false) throw new SemanticException("Cannot read {$sourceArg}", 'io');
-            $book = JxlBook64::validate($bytes);
-            $code = $book['entries'][JxlBook64::CODE_PATH] ?? null;
-            if (!is_string($code)) throw new SemanticException('64B has no prepared JXL program section', '64B');
-            $result = (new JxlVm())->run($code);
+            $result = JxbBook::run($bytes);
             if ($print) echo $result, "\n";
             exit(0);
         }
@@ -251,11 +283,12 @@ try {
         $isSemantic = $semanticMode || (!$isHostJx && $looksSemantic($src));
         $isJx = str_ends_with($lowerName, '.jx') || $isHostJx || $isSemantic;
 
-        if ($jxlMode || $book64Mode) {
-            if (!is_string($outFile) || $outFile === '') throw new SemanticException(($jxlMode ? '--jxl' : '--64b') . ' requires -o output', 'compile');
+        if ($jxlMode || $jxbMode) {
+            if (!is_string($outFile) || trim($outFile) === '') throw new SemanticException(($jxlMode ? '--jxl' : '--jxb') . ' requires -o output', 'compile');
             if ($isHostJx) throw new SemanticException('Bag/Task/Book host operations are not yet in the compact numeric JXL subset', 'jxl');
-            if ($book64Mode) {
-                $r = JxlBook64::compile($src, pathinfo($sourceArg, PATHINFO_FILENAME));
+            if ($jxbMode) {
+                $outFile = $normalizeJxbOutput($outFile);
+                $r = JxbBook::compile($src, pathinfo($sourceArg, PATHINFO_FILENAME));
                 $writeExact($outFile, $r['bytes']);
                 if ($print) echo $r['file_sha256'], "\n";
             } else {
@@ -267,8 +300,8 @@ try {
         }
 
         if ($outFile !== null) {
-            if ($isSemantic) throw new SemanticException('Typed semantic JX requires --jxl or --64b when compiling to a file', 'compile');
-            if ($isHostJx) fwrite(STDERR, "jx.exe: full JX page contains host/canonical operations; compiling PASL-lowerable bytecode page.\n");
+            if ($isSemantic) throw new SemanticException('Typed semantic JX requires --jxl or --jxb when compiling to a file', 'compile');
+            if ($isHostJx) fwrite(STDERR, "jx.exe: full JX page contains host/canonical operations; compiling PASL-lowerable prepared page.\n");
             $compilePage($pasl, $src, $outFile, $optimize, $sourceArg);
             exit(0);
         }
