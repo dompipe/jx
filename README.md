@@ -2,21 +2,70 @@
 
 > **Readable source. Prepared execution. Bags remember. Registers react. Compiled Books know how to wake.**
 
-JX is a user-facing programming language, compiler/runtime system, and application model built around a deliberately simple principle:
+JX is a programming language, compiler/runtime system, and application model built around one recurring rule:
 
 > **Resolve cold -> bind once -> execute hot.**
 
-JX keeps the source language readable and familiar while moving repeated work out of the execution path. The current toolchain uses **PHP as the authoring/compiler/front-end host**, PASM/PASL as the lowering engine, **JXL** as the compact prepared-execution direction, and **`.64B` Books** as the deterministic native application/container boundary.
+JX keeps canonical source readable while moving repeated interpretation, lookup, alias resolution, layout selection, and dispatch work out of the hot path. The current implementation uses PHP as a cold authoring/compiler host, PASM/PASL as the lowering lineage, JXL as the compact prepared-execution stream, and `.jxb` as the public compiled Book/package boundary.
 
 JX is pronounced **jinx**.
 
 ---
 
+## Current measured result
+
+The native container path is now fast enough that the seven Bag disciplines cluster tightly instead of Map and Set being large outliers.
+
+Latest unified CI snapshot, **September 3, 2026**, commit `b64b3662de474ec2df7cbdddb1442d9102c0edbc`:
+
+- Ubuntu 24.04.4 x86-64
+- PHP 8.3.33
+- NASM 2.16.01
+- 1,000,000 logical operations per workload
+- 5 measured repetitions
+- 1 warmup
+- actual six-byte prepared JXL executor
+- actual x86-64 assembly container routines
+
+| Container | PHP array ms | JXL native ms | Relationship |
+|---|---:|---:|---:|
+| Record | 2.071 | 3.777 | PHP assoc baseline faster; not fixed-slot vs fixed-slot |
+| Vector | 3.919 | 3.892 | near parity; JXL ~0.7% faster |
+| Stack | 8.141 | 3.852 | JXL ~2.11x faster |
+| Queue | 3.987 | 3.911 | near parity; JXL ~1.02x faster |
+| Deque | 3.987 | 4.004 | effectively parity |
+| **Map** | **3.686** | **5.083** | JXL is ~1.38x the PHP-array time |
+| **Set** | **5.207** | **4.938** | JXL ~1.05x faster |
+
+The active native Map is now a **keyed Vector**:
+
+```text
+Map = Vector<Entry>
+Entry = [ key, value ]
+
+u64 -> u64 native memory:
+
+[K0][V0][K1][V1][K2][V2]...
+ \ entry0 / \ entry1 / \ entry2 /
+
+entry(i) = base + i * 16
+key      = entry + 0
+value    = entry + 8
+```
+
+The older synchronized `keys[] + values[]` native Map implementation is intentionally still linked as a comparison backend. It is **not** the active canonical Map target. This lets the repository later benchmark split-vs-interleaved Map layouts in the same build without pretending that a change between commits proves causality.
+
+The first unified native container snapshot had Map at `32.793 ms` and Set at `33.359 ms` per million operations. The current native path is `5.083 ms` for Map and `4.938 ms` for Set: roughly **6.45x** and **6.76x** faster than that first snapshot respectively. That is progress of the overall Map/Set native path; the exact contribution of the keyed-Vector layout versus the preserved split-array layout requires the dedicated A/B benchmark.
+
+Full benchmark tables and methodology are below.
+
+---
+
 ## What JX is
 
-JX is not "PHP with a new name," and native JX applications are not intended to execute PHP source at runtime.
+JX is not "PHP with a new name," and native JX applications are not intended to execute PHP source in their hot runtime path.
 
-PHP is currently valuable at the **front of the pipeline** because it gives JX a mature environment for parsing, compiler orchestration, development tools, host integration, testing, and the existing runtime library. JX then progressively lowers meaning into forms that do not need to rediscover that meaning every time they execute.
+PHP is useful today at the **front of the pipeline** because it provides a mature environment for parsing, compiler orchestration, development tools, testing, host integration, and the existing runtime library. JX progressively lowers canonical meaning into executable forms that do not need to rediscover that meaning every time they run.
 
 ```text
 canonical .jx source
@@ -26,26 +75,28 @@ PHP-backed JX front end
 parse / validate / canonicalize / resolve
         |
         v
-semantic JX / PASL lowering
+semantic JX / PASL / PASM lowering
         |
-        +--------------------+
-        |                    |
-        v                    v
-prepared JXL             native target code
-        |                    |
-        +----------+---------+
-                   v
-             compiled .64B Book
-                   |
-                   v
-       JX host / WSJX64 / OSAura64
+        +-------------------------+
+        |                         |
+        v                         v
+prepared JXL                native target sections
+        |                         |
+        +-------------+-----------+
+                      v
+                compiled .jxb Book
+                      |
+                      v
+            JX host / WSJX64 / OSAura64
 ```
 
-The programmer should not have to write assembly-like source to obtain a fast execution path. **Canonical readability belongs in the language. Preparation belongs in the compiler. Speed belongs in the prepared/native runtime.**
+The programmer should not have to write assembly-like source to obtain a fast path.
+
+> **Canonical readability belongs in the language. Preparation belongs in the compiler. Speed belongs in the prepared/native runtime.**
 
 ---
 
-## The four layers
+## Execution layers
 
 ### 1. Canonical JX — what people write
 
@@ -84,7 +135,7 @@ or directly:
 php jx-run.php --print examples/hello.jx
 ```
 
-### 2. PHP-backed front end — where cold work happens today
+### 2. PHP-backed front end — cold work
 
 The PHP-backed toolchain performs work that should not be paid repeatedly by a hot program:
 
@@ -101,56 +152,65 @@ Book construction
 prepared-binding construction
 ```
 
-PHP therefore serves as a practical bridge between a friendly language and increasingly native execution.
-
 The rule is not "run everything through PHP forever." The rule is:
 
 > **Use the front end to discover meaning once; make the executable remember the answer.**
 
-### 3. JXL — prepared execution
+### 3. PASM / PASL — lowering lineage
+
+PASM is the Oracle-ASM-style execution/lowering lineage beneath JX. PASL provides the higher semantic/compiler surface used by parts of the current toolchain.
+
+This layer is where canonical operations can become resolved addresses, compact operation IDs, loop-space blocks, native container laws, and prepared JXL instructions.
+
+### 4. JXL — prepared execution
 
 **JXL is not another source language.** A programmer normally should not hand-author it.
 
-JXL is the prepared compact representation that the compiler/runtime can use once canonical meaning has already been resolved.
+JXL is the compact executable/prepared stream used after canonical meaning has already been resolved.
 
-The current ratified JXL byte law is intentionally separate from the global JX ABI-v4 hot-call grammar:
+The ratified JXL byte law is distinct from the global JX hot-call ABI:
 
 ```text
-JXL / .8B stream
+JXL stream
 
 0xxxxxxx = executable JXL opcode
 1xxxxxxx = attached extension/data byte; never an opcode
 ```
 
-A JX/JXL session selects its decoder once at admission. The repeat path should not continually ask which language mode it is executing.
+Prepared native container instructions are currently six bytes:
 
-JXL is designed around prepared register windows, prelinked operations, compact state identifiers, and the rule that expensive lookup belongs outside the hot loop.
+```text
++0 opcode
++1 binding id low 7 bits | 80h
++2 binding id high 7 bits| 80h
++3 src0 selector         | 80h
++4 src1 selector         | 80h
++5 destination selector  | 80h
+```
 
-See [`docs/JXL-PREPARED-EXECUTION.md`](docs/JXL-PREPARED-EXECUTION.md).
+A JX/JXL session selects its decoder once at admission. The repeat path should not continually ask which language mode, public alias, discipline, or native symbol it is executing.
 
-### 4. `.64B` — the compiled Book
+See [`docs/JXL-PREPARED-EXECUTION.md`](docs/JXL-PREPARED-EXECUTION.md) and [`docs/JXL-NATIVE-CONTAINERS.md`](docs/JXL-NATIVE-CONTAINERS.md).
 
-A `.64B` Book is the broader compiled 64-bit package/container.
+### 5. `.jxb` — compiled Book/package
 
-It can carry:
+`.jxb` is the public compiled Book/package extension.
+
+A Book can carry:
 
 ```text
 compiled code
 JXL executable sections
 Bag schemas/state
 Book/Page metadata
-hot/prepared tables
+prepared tables
 generations
 manifests
 assets
 native ELF/PE sections
 ```
 
-Native installation consumes **compiled Books, not PHP source**.
-
-The file extension is descriptive; the package bytes and `JX64B001` identity are authoritative. `.64B` output is deterministic and checksum-verifiable.
-
-See [`docs/NATIVE-64B.md`](docs/NATIVE-64B.md).
+Native installation consumes compiled Books rather than depending on PHP source at runtime.
 
 ---
 
@@ -161,9 +221,9 @@ The repository uses explicit status words so fast-moving development does not tu
 | Status | Meaning |
 |---|---|
 | **ACTIVE** | Accepted by the current compiler/runtime and covered by tests |
-| **PHP-BACKED** | Usable through the current PHP host/runtime API, but not necessarily lowered through the native JX surface yet |
+| **PHP-BACKED** | Usable through the current PHP host/runtime API, but not necessarily native-lowered yet |
 | **JXL** | Prepared executable representation; not canonical source syntax |
-| **PLANNED** | Ratified or documented direction that is not yet claimed as implemented |
+| **PLANNED** | Ratified/documented direction that is not yet claimed as implemented |
 
 When documentation and implementation disagree, tests and the active compiler are authoritative for **ACTIVE** claims.
 
@@ -171,44 +231,30 @@ When documentation and implementation disagree, tests and the active compiler ar
 
 ## Language surface today
 
-The current compiler-backed control-flow surface includes:
+The current compiler-backed control-flow surface includes assignments, arithmetic/bitwise mutation, conditions, `while`, `for`, selection, `break`, `continue`, and complex values.
 
 ```jx
-// assignment and arithmetic mutation
 $x = 1;
 $x++;
-$x--;
 $x += 4;
-$x -= 2;
-$x *= 3;
-$x /= 2;
-$x %= 5;
-$x &= 7;
-$x |= 8;
 $x ^= 2;
-$x <<= 1;
-$x >>= 1;
 
-// conditions
 if ($x > 3) {
     $x += 1;
 } else {
     $x -= 1;
 }
 
-// while
 while ($x) {
     $x--;
 }
 
-// for
 for ($i = 0; $i < 10; $i++) {
     if ($i == 4) continue;
     if ($i == 8) break;
     $x += $i;
 }
 
-// select / switch-style lowering
 select ($x) {
     case 1:
         $x += 10;
@@ -218,18 +264,13 @@ select ($x) {
         $x = 0;
 }
 
-// complex values
 complex $z = 3+4i;
 complex $w = 1-2i;
 complex $p;
 $p = $z * $w;
 ```
 
-`for`, `while`, `if/else`, `select`/`switch`-style selection, `break`, `continue`, integer/bitwise mutation, and complex declarations are compiler-backed today.
-
-The semantic loop model also defines `foreach`, `do-while`, and `repeat`, but their complete surface lowering is **PLANNED**, not falsely presented as active syntax.
-
-See [`docs/JX-PROGRAMMING-TUTELAGE.md`](docs/JX-PROGRAMMING-TUTELAGE.md) for the full programming book/manuscript.
+See [`docs/JX-PROGRAMMING-TUTELAGE.md`](docs/JX-PROGRAMMING-TUTELAGE.md) for the programming book/manuscript.
 
 ---
 
@@ -237,7 +278,7 @@ See [`docs/JX-PROGRAMMING-TUTELAGE.md`](docs/JX-PROGRAMMING-TUTELAGE.md) for the
 
 JX does not need to rediscover a loop body every iteration.
 
-The current compiler lowers active `for` and `while` loops into bounded out-of-line compiled blocks. The canonical controller shape is:
+Active loop lowering can move bounded loop bodies into compiled blocks:
 
 ```text
 LCHECK condition
@@ -246,9 +287,7 @@ LCALL  compiled_body
 LREPEAT loop_slot
 ```
 
-On the current PASM ISA, `LCALL` may lower to a direct branch with a fixed continuation. A native target may instead use a machine call, tail branch, or inline block while preserving the same JX meaning.
-
-Default active nesting depth is 8 and is explicitly bounded at compile time.
+A native target may use a machine call, tail branch, direct branch, or inline block while preserving the same canonical JX meaning.
 
 See [`docs/LOOP-SPACE.md`](docs/LOOP-SPACE.md).
 
@@ -256,34 +295,96 @@ See [`docs/LOOP-SPACE.md`](docs/LOOP-SPACE.md).
 
 ## Bags are the semantic memory model
 
-Bags are one of the central JX abstractions.
-
-A Bag supplies persistent identity, ownership, capacity, generations/checkpoints, and structured state. Containers are **disciplines over Bags**, not a second unrelated memory system.
+Bags are a central JX abstraction. A Bag supplies persistent identity, ownership, capacity, generations/checkpoints, and structured state. Containers are **disciplines over Bags**, not a second unrelated memory system.
 
 ```text
 Bag
-|- record -> fixed dense fields
+|- record -> fixed dense slots
 |- vector -> contiguous indexed storage
-|- stack  -> LIFO
+|- stack  -> contiguous LIFO storage
 |- queue  -> FIFO ring
 |- deque  -> double-ended ring
-|- map    -> target-native hash discipline
-`- set    -> target-native hash-set discipline
+|- map    -> ordered keyed Vector<Entry>
+`- set    -> ordered unique Vector<Key>
 ```
 
 The runtime rule is:
 
 > **Be native while working; become canonical at the Bag boundary.**
 
-And for UI/control state:
+### The seven native container laws
 
-> **A control is Bag-backed. Clone the view, borrow the Bag, copy only on semantic mutation.**
+| Discipline | Active native law |
+|---|---|
+| Record | fixed dense slots |
+| Vector | contiguous indexed array |
+| Stack | contiguous Vector law + LIFO |
+| Queue | power-of-two ring |
+| Deque | double-ended power-of-two ring |
+| Map | ordered keyed Vector of 16-byte `[u64 key, u64 value]` entries |
+| Set | ordered unique u64 Vector |
 
-Moving a view should not destroy its data identity. Changing a data source should not erase unrelated control state. A semantic update advances a generation; stale generations can be rejected.
+### Map is a keyed Vector
+
+The canonical native Map is physically one contiguous entry array:
+
+```text
+Map =
+[
+    [key0, value0],
+    [key1, value1],
+    [key2, value2],
+    ...
+]
+```
+
+For the current u64 native path:
+
+```text
+entry size = 16 bytes
+key offset = 0
+value offset = 8
+```
+
+The ordered key position is found once. `PUT` then has exactly two outcomes:
+
+```text
+position = FIND(key)
+
+if found:
+    entries[position].value = value
+else:
+    insert [key,value] at position
+```
+
+`EMPLACE` preserves the existing value when the key is present. `GET` and `HAS` use the same position law. `REMOVE` packs whole 16-byte entries left.
+
+The native binding ABI does not need a second value-array pointer for the active Map, so `aux` is unused by keyed-Vector Map operations.
+
+### Set is the 1D form
+
+Set uses the same ordered position concept without a value half:
+
+```text
+Set = [ key0, key1, key2, ... ]
+```
+
+Insertion drops duplicates; lookup uses cursor locality followed by lower-bound search when needed.
+
+### Preserved split Map backend
+
+The former ordered split representation remains linked for measurement:
+
+```text
+keys:   [K0][K1][K2]...
+values: [V0][V1][V2]...
+```
+
+It is comparison-only. Current JXL Map IDs 18-22 resolve to the keyed-Vector routines. Keeping both backends in one build allows a fair A/B benchmark without changing the compiler, executor, machine, or surrounding runtime between measurements.
 
 ### Bag hot operations
 
-Canonical Bag operations include:
+Canonical Bag hot operations include:
 
 ```text
 BPUSH BPOP
@@ -292,7 +393,7 @@ BEMPLACE
 BPEEK BRESERVE BDIRTY BSYNC
 ```
 
-Human-friendly aliases are resolved before hot execution. For example:
+Readable aliases resolve before hot execution:
 
 ```text
 enqueue --+
@@ -300,16 +401,17 @@ append  ---+--> BPUSH --> prepared/native Bag operation
 push    ---+
 ```
 
-There should be no runtime string lookup merely because the programmer preferred `enqueue` over `push`.
+There should be no runtime string lookup merely because a coder preferred `enqueue` over `push`.
 
 See:
 
 - [`docs/BAG-CONTAINERS.md`](docs/BAG-CONTAINERS.md)
+- [`docs/JXL-NATIVE-CONTAINERS.md`](docs/JXL-NATIVE-CONTAINERS.md)
 - [`docs/JX-ALIASES.md`](docs/JX-ALIASES.md)
 
 ---
 
-## Bits for truth, words for numbers, Bags for structure
+## Bits for truth, native words for numbers, Bags for structure
 
 The machine model deliberately does not widen every state identifier just because the target CPU is 64-bit.
 
@@ -321,12 +423,6 @@ register IDs         = compact IDs
 Bag/window/task IDs  = compact handles where sensible
 ```
 
-For example, 256 booleans can occupy four 64-bit words:
-
-```c
-uint64_t boolreg[4];
-```
-
 The shorthand is:
 
 > **Bits for truth. Native words for numbers. Bags for structure.**
@@ -335,9 +431,7 @@ The shorthand is:
 
 ## Global JX hot-call ABI v4
 
-The **global JX/OSAura hot-call ABI** is distinct from JXL.
-
-Its byte law is:
+The global JX/OSAura hot-call ABI is distinct from JXL.
 
 ```text
 1xxxxxxx                  -> HOT / exactly 1 byte
@@ -352,27 +446,23 @@ bits 6..3  = bank 0..15
 bits 2..0  = shadow 0..7
 ```
 
-That gives exactly:
+That gives:
 
 ```text
 16 banks x 8 shadows = 128 one-byte hot positions
 ```
 
-The eight-shadow physical discipline is a core invariant across the machine.
-
-The current OSAura map reserves the final two banks:
+The eight-shadow physical discipline is a core invariant across the machine. The final two banks remain protected/unassigned:
 
 ```text
 F0-FF = PROTECTED / UNASSIGNED
 ```
 
-**Do not consume F0-FF without an explicit ABI decision.**
-
 See [`docs/HOT-CALL-ABI-V4.md`](docs/HOT-CALL-ABI-V4.md).
 
 ---
 
-## The processor bus and attention model
+## Processor bus and attention model
 
 JX/OSAura is moving toward a processor-owned multiplex model rather than copying application state around unnecessarily.
 
@@ -396,26 +486,11 @@ processor deals result
 return through the same route
 ```
 
-Memory owns Bags. The processor keeps hot references/prepared state. The bus carries change information and wake intent—not entire duplicated Bags.
-
-For JX11, visual attention is connected to execution attention:
-
-```text
-top / focused JX11 window
-        |
-        v
-primary listener PID
-        |
-        +--> first processor-bus listener
-        |
-        `--> direct listener-specific event delivery
-```
-
-Security subject identity remains separate from program PID/listener identity.
+Memory owns Bags. The processor keeps hot references/prepared state. The bus carries change information and wake intent rather than duplicated Bags.
 
 ---
 
-## JX11: windowing without making the host OS the language
+## JX11
 
 JX11 is the host-neutral UI/window direction.
 
@@ -437,13 +512,11 @@ Current work includes:
 
 Windows, X11, or a browser may provide mechanisms. They do not become the semantic JX object model.
 
-A host can change without replacing the Book, Bag identity, Page state, or canonical application meaning.
-
 ---
 
 ## OSAura and WSJX64
 
-JX is the language/compiler/runtime layer. **OSAura** is the standalone x86-64 operating-system project built around the same semantics and maintained in `dompipe/OSAura`.
+JX is the language/compiler/runtime layer. **OSAura** is the standalone x86-64 operating-system project built around the same semantics.
 
 ```text
 canonical JX
@@ -452,7 +525,7 @@ canonical JX
 JXL / native prepared sections
      |
      v
-.64B Book
+.jxb Book
      |
      v
 JX runtime ABI
@@ -466,61 +539,130 @@ The boundary rule is:
 
 > **Kernel owns mechanisms. JX owns meanings.**
 
-Host-specific file handles, HWNDs, raw kernel pointers, and other native mechanism values should not leak into canonical JX identity.
-
 ---
 
-## Benchmarks: what they show and what they do not
+# Container benchmarks
 
-The repository carries benchmark harnesses for the current PHP/PASM implementations. These are useful measurements of implementation progress, not claims that every current JX path already beats native PHP.
+The repository has one master container benchmark contract so performance claims can be compared on the same semantic workloads rather than by unrelated microbenchmarks.
 
-### Canonical OOP container benchmark
-
-#### 100,000 total operations
-
-| Workload | Legacy ms | Canonical OOP ms | Native PHP ms | Legacy / new | Improvement vs legacy |
-|---|---:|---:|---:|---:|---:|
-| Vector add/get | 5.753 | 3.994 | 0.562 | 1.44x | 30.6% |
-| Stack push/pop | 9.834 | 4.388 | 1.264 | 2.24x | 55.4% |
-| Queue enq/deq | 8.523 | 6.997 | 0.724 | 1.22x | 17.9% |
-| Deque back/front | 10.494 | 8.707 | 0.645 | 1.21x | 17.0% |
-| Map put/get | 4.715 | 4.314 | 0.630 | 1.09x | 8.5% |
-| Set add/has | 24.989 | 13.779 | 0.706 | 1.81x | 44.9% |
-
-#### 1,000,000 total operations
-
-| Workload | Legacy ms | Canonical OOP ms | Native PHP ms | Legacy / new | Improvement vs legacy |
-|---|---:|---:|---:|---:|---:|
-| Vector add/get | 53.924 | 42.449 | 8.189 | 1.27x | 21.3% |
-| Stack push/pop | 80.414 | 46.253 | 14.645 | 1.74x | 42.5% |
-| Queue enq/deq | 88.356 | 67.362 | 8.815 | 1.31x | 23.8% |
-| Deque back/front | 96.006 | 83.465 | 9.306 | 1.15x | 13.1% |
-| Map put/get | 48.917 | 45.220 | 9.232 | 1.08x | 7.6% |
-| Set add/has | 240.272 | 152.258 | 10.117 | 1.58x | 36.6% |
-
-At one million operations, the canonical implementation beats the legacy implementation in all six listed workloads. **Direct native PHP is still faster in these PHP-hosted measurements.** That gap is visible on purpose.
-
-The native/JXL strategy is how JX intends to remove costs that those PHP-hosted benchmarks still contain:
+The standard operation law is:
 
 ```text
-repeated name lookup       -> canonicalize once
-repeated method resolution -> prelink once
-runtime alias search       -> zero
-wide repetitive encoding   -> compact prepared form
-repeated z-order work      -> prepare once per damaged frame
-large object copies        -> borrow stable Bag/view references
+N writes/inserts + N reads/removals = total logical operations
 ```
 
-Run benchmark harnesses such as:
+The current master columns are:
+
+1. historical legacy PASM/PHP,
+2. canonical PASM/PHP,
+3. JX Bag/PHP semantic mirror,
+4. idiomatic PHP array baseline,
+5. PHP SPL structural baseline where meaningful,
+6. JXL VM (`TBD` until a separate non-native container VM exists),
+7. JXL native x86-64.
+
+`N/A` means the comparison does not exist or is not semantically appropriate. `TBD` means it is not implemented/measured and is never estimated.
+
+## Unified 1,000,000-operation matrix — September 3, 2026
+
+Measured on GitHub Actions run `33729967538`, job `container-matrix`, commit `b64b3662de474ec2df7cbdddb1442d9102c0edbc`.
+
+Times are median milliseconds for **1,000,000 total logical operations**, 5 reps, 1 warmup.
+
+| Container | Legacy PASM/PHP | Canonical PASM/PHP | Bag/PHP | PHP array | PHP SPL | JXL VM | **JXL native** |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Record | N/A | N/A | 34.324 | **2.071** | 7.230 | TBD | **3.777** |
+| Vector | 29.140 | 21.647 | 24.284 | 3.919 | 8.970 | TBD | **3.892** |
+| Stack | 42.606 | 26.166 | 35.967 | 8.141 | 13.365 | TBD | **3.852** |
+| Queue | 41.165 | 37.543 | 59.393 | 3.987 | 13.481 | TBD | **3.911** |
+| Deque | 48.960 | 41.306 | 65.926 | **3.987** | 13.256 | TBD | **4.004** |
+| **Map** | 24.899 | 24.064 | 160.506 | **3.686** | N/A | TBD | **5.083** |
+| **Set** | 143.611 | 71.931 | 282.828 | 5.207 | N/A | TBD | **4.938** |
+
+### What this matrix says
+
+- **Vector:** native JXL and PHP array are essentially tied; JXL is ~0.7% faster in this run.
+- **Stack:** native JXL is about **2.11x faster** than the PHP-array baseline for this workload.
+- **Queue:** native JXL is about **1.02x faster**; effectively parity.
+- **Deque:** native JXL is within about **0.4%** of the PHP-array baseline; effectively parity.
+- **Set:** native JXL is about **1.05x faster** than the PHP-array baseline.
+- **Map:** native JXL is now only about **1.38x the PHP-array time**, instead of being an order-class outlier.
+- **Record:** the PHP baseline is an associative-array workload, while JXL Record uses resolved fixed slots. A dedicated fixed-offset-vs-fixed-offset benchmark is still needed before making a broad Record claim.
+
+The PHP `Bag/PHP` Map and Set numbers are deliberately not hidden. PHP arrays-of-entry arrays are expensive and are a semantic/reference mirror, not the physical native representation. The native keyed-Vector Map is one contiguous 16-byte-entry region; PHP nested arrays are not.
+
+## Direct prepared-JXL native provider
+
+The master suite also invokes the native provider directly. The timed path is:
+
+```text
+6-byte prepared JXL instruction
+        -> native JXL decoder/dispatcher
+        -> operation-specific prepared binding
+        -> pure x86-64 assembly container function
+        -> Bag memory
+```
+
+Direct provider results from the same run:
+
+| Container | Median ms | Min ms | p95 ms | Mops/s | ns/op |
+|---|---:|---:|---:|---:|---:|
+| Record | 3.849 | 3.676 | 3.957 | 259.80 | 3.85 |
+| Vector | 3.899 | 3.824 | 4.638 | 256.48 | 3.90 |
+| Stack | 3.909 | 3.783 | 3.964 | 255.83 | 3.91 |
+| Queue | 3.972 | 3.914 | 4.023 | 251.79 | 3.97 |
+| Deque | 3.958 | 3.922 | 3.987 | 252.66 | 3.96 |
+| **Map** | **5.217** | **5.081** | 7.397 | **191.68** | **5.22** |
+| **Set** | **5.023** | **4.912** | 5.140 | **199.10** | **5.02** |
+
+The direct native Map therefore executes roughly **192 million logical operations per second** in this workload; Set is roughly **199 million ops/s**.
+
+## Progress from the first unified native snapshot
+
+The first unified 1,000,000-operation native snapshot recorded:
+
+| Container | First native snapshot ms | Current native ms | Current / first |
+|---|---:|---:|---:|
+| Map | 32.793 | 5.083 | **6.45x faster** |
+| Set | 33.359 | 4.938 | **6.76x faster** |
+
+This comparison measures evolution of the overall native path. It does **not** by itself prove that interleaving `[key,value]` caused the entire Map improvement. The split ordered Map backend is preserved specifically so that layout question can be measured head-to-head.
+
+## Benchmark timing boundaries
+
+The native JXL benchmark intentionally excludes allocation, zeroing, binding construction, and instruction construction from the native timed region. That measures the admitted hot path.
+
+Some PHP/PASM/Bag closures create or grow structures inside their measured work, so the master matrix is not a claim that every column has identical cold-start accounting. Future reporting should continue separating:
+
+```text
+setup / reserve
+hot operations
+canonical checkpoint / BSYNC
+```
+
+The benchmark is also **not a whole-language benchmark**. It measures the stated container operation contract.
+
+## Run the benchmarks
 
 ```bash
+# Unified cross-layer matrix
+php benchmark-container-suite.php 1000000 5 1
+
+# Direct six-byte JXL -> x86-64 assembly provider
+php benchmark-jxl-containers.php 1000000 5 1
+
+# Bag/PHP semantic mirror
+php benchmark-jx-bag-containers.php 1000000 7
+
+# PASM/OOP historical and canonical paths
 php benchmark-pasm-oop-fast.php
+
+# Specialized regressions
 php benchmark-pasm-oop-fast-sync.php
 php benchmark-pasm-oop-fast-deque.php
-php benchmark-jx-bag-containers.php 1000000 7
 ```
 
-Benchmark results should always identify which layer is being measured: PHP-backed runtime, PASM VM, prepared JXL, native host, or direct native baseline.
+See [`docs/CONTAINER-BENCHMARKS.md`](docs/CONTAINER-BENCHMARKS.md) for the benchmark contract and snapshot methodology.
 
 ---
 
@@ -528,9 +670,9 @@ Benchmark results should always identify which layer is being measured: PHP-back
 
 JX treats data and presentation as separate concerns.
 
-SQL/data-source objects can feed Bags; Controls and Charts consume Bags rather than becoming database handles themselves. This is especially important for controls because changing the source should not destroy the control's persistent Bag identity.
+SQL/data-source objects can feed Bags; Controls and Charts consume Bags rather than becoming database handles themselves. Changing the source should not destroy a control's persistent Bag identity.
 
-Host-neutral chart types currently include:
+Host-neutral chart types include:
 
 ```text
 pie
@@ -550,7 +692,7 @@ media source
              -> chart / algebra / Page / Control
 ```
 
-Installable packages come from the repository's `plugins/` source tree and use pre/full backup policy during installation.
+Installable packages come from `plugins/` and use repository backup policy during installation.
 
 ```bash
 php jx-install.php list
@@ -584,7 +726,7 @@ jx-install install-required
 jx --print examples/hello.jx
 ```
 
-### Run the full active-tree gate
+### Run the active-tree gate
 
 ```bash
 php -d zend.assertions=1 -d assert.exception=1 test-all.php
@@ -606,64 +748,30 @@ php pasm-run.php --print examples/pasl/complex-and-loops.pasl
 | `jx-lang.php`, `jx-run.php` | JX language engine / executable front end |
 | `pasm-lang-compiler-loop.php` | Active loop/control-flow compiler |
 | `pasm-loop-space.php` | Canonical mutations and bounded loop-space model |
-| `jx-bag-containers.php` | Bag-backed container disciplines |
+| `jx-bag-containers.php` | Bag-backed container disciplines / PHP semantic mirror |
 | `pasm-bag-hotops.php` | Canonical Bag hot operations and lowering recipes |
-| `jx-alias.php` | Compile-time alias canonicalization/provenance |
-| `jx/` | Language-level docs and adapters |
-| `docs/JX-PROGRAMMING-TUTELAGE.md` | Full programming tutorial/book manuscript |
-| `docs/JXL-PREPARED-EXECUTION.md` | Authoritative JXL prepared-execution contract |
-| `docs/NATIVE-64B.md` | Native compiled Book format/boundary |
-| `docs/HOT-CALL-ABI-V4.md` | Global JX/OSAura hot-call ABI |
+| `jx-jxl-containers.php` | Prepared JXL container bindings/opcodes/native IDs |
+| `native/x86_64/jxl_containers.asm` | Core assembly containers and preserved split Map backend |
+| `native/x86_64/jxl_map_vector.asm` | Active keyed-Vector Map assembly backend |
+| `native/x86_64/jxl_container_native_table.asm` | Numeric native target table |
+| `benchmark-container-suite.php` | Unified seven-discipline cross-layer benchmark matrix |
+| `benchmark-jxl-containers.php` | Actual six-byte JXL -> native assembly benchmark provider |
+| `docs/CONTAINER-BENCHMARKS.md` | Benchmark contract and methodology |
+| `docs/JXL-NATIVE-CONTAINERS.md` | Native container memory laws and ABI |
 | `docs/BAG-CONTAINERS.md` | Bag/container architecture |
+| `jx-alias.php` | Compile-time alias canonicalization/provenance |
+| `docs/JX-PROGRAMMING-TUTELAGE.md` | Programming tutorial/book manuscript |
+| `docs/JXL-PREPARED-EXECUTION.md` | JXL prepared-execution contract |
+| `docs/HOT-CALL-ABI-V4.md` | Global JX/OSAura hot-call ABI |
 | `docs/LOOP-SPACE.md` | Loop compiler design |
-| `docs/ACKNOWLEDGMENTS.md` | Project acknowledgments and lineage credits |
-| `jx/COMPILER.md` | Compiler pipeline and status boundary |
-| `jx/GAPS.md` | Status-aware implementation roadmap |
 | `host/` | Native/browser host mechanisms |
 | `plugins/` | Installable plugin source packages |
 | `tests/`, `test-*.php` | Regression/conformance tests |
-| `.github/workflows/` | Linux/Windows/native/compiler/runtime CI |
-
----
-
-## Start with the programming book
-
-The large JX tutorial is intentionally being written as a **PDF-ready programming book manuscript**, not merely as scattered API notes.
-
-Read:
-
-**[`docs/JX-PROGRAMMING-TUTELAGE.md`](docs/JX-PROGRAMMING-TUTELAGE.md)**
-
-It covers, lesson by lesson:
-
-- syntax and statements,
-- values and types,
-- arithmetic and bitwise operations,
-- every current and planned loop family,
-- branching and selection,
-- Bags and containers,
-- Books / Pages / Tasks,
-- Controls, styles and data sources,
-- SQL/NoSQL direction,
-- OOP and aliases,
-- plugins,
-- errors and diagnostics,
-- JX11 and event delivery,
-- processor-bus semantics,
-- JXL,
-- `.64B`,
-- native execution,
-- the PHP-backed engine,
-- performance methodology,
-- the long-term information model.
-
-The Markdown manuscript is intended to remain canonical so future PDF editions can be generated without maintaining a second divergent version of the language book.
+| `.github/workflows/` | Linux/Windows/native/compiler/runtime/benchmark CI |
 
 ---
 
 ## Documentation rules for a fast-growing language
-
-JX is accumulating compiler, UI, OS, storage, data, plugin, and prepared-execution concepts quickly. That makes documentation discipline part of the architecture.
 
 When adding a feature:
 
@@ -673,29 +781,30 @@ When adding a feature:
 4. preserve the eight-shadow law where the global hot subsystem applies;
 5. keep `F0-FF` protected/unassigned unless explicitly ratified otherwise;
 6. keep JXL's byte grammar separate from the global ABI-v4 byte grammar;
-7. add tests for architectural contracts that future compiler/AI work could accidentally reverse;
-8. prefer one canonical explanation linked from specialized documents over contradictory copies.
-
-`test-jx-language-doc-contract.php` enforces several of these documentation invariants in CI.
+7. add tests for architectural contracts future compiler/AI work could accidentally reverse;
+8. prefer one canonical explanation linked from specialized documents over contradictory copies;
+9. publish benchmark numbers only when they are measured, and mark unavailable paths `N/A` or `TBD` rather than estimating them.
 
 ---
 
 ## What remains
 
-JX already has substantial runtime/compiler machinery, but important work remains before the entire intended language is native end-to-end.
+JX already has substantial runtime/compiler machinery, but important work remains before the intended language is native end-to-end.
 
-Among the major open areas:
+Major open areas include:
 
-- generalized `foreach`, `do-while`, and `repeat` surface lowering,
+- generalized collection/loop surface lowering,
 - broader function/class/method native language surface,
-- complete canonical `.jx` -> JXL/native `.64B` compiler path,
-- full JXL admission and execution in native hosts,
+- complete canonical `.jx` -> JXL/native `.jxb` compiler path,
+- full JXL admission and execution across native hosts,
 - event -> prepared execution -> Bag mutation -> present as one foreground service turn,
 - complete native/host semantic conformance,
 - larger realistic application benchmarks,
+- resident/batched JXL region benchmarks that separate host-call overhead,
+- split-vs-keyed-Vector Map A/B benchmarks,
+- fixed-offset Record vs fixed-offset native/PHP/C baselines,
 - continued JX11 control/window integration,
-- continued SQL/NoSQL and plugin lowering,
-- deeper AI/compiler documentation generated from the canonical status model.
+- continued SQL/NoSQL and plugin lowering.
 
 See [`jx/GAPS.md`](jx/GAPS.md) for the maintained roadmap.
 
@@ -703,7 +812,7 @@ See [`jx/GAPS.md`](jx/GAPS.md) for the maintained roadmap.
 
 ## Philosophy
 
-JX is being built to let a programmer write understandable programs while the machine quietly remembers everything it can learn ahead of time.
+JX is being built so a programmer can write understandable programs while the machine quietly remembers everything it can learn ahead of time.
 
 ```text
 human-readable names
@@ -714,7 +823,7 @@ human-readable names
         -> native mechanisms
 ```
 
-The recurring design rules are:
+The recurring rules are:
 
 > **Canonical source is for coders. Prepared form is for execution.**
 
@@ -734,16 +843,16 @@ JX recognizes people and projects whose work helped sharpen its approach to defe
 
 A special acknowledgment is given to **Caleb Mazalevskis**, author of **phpMussel**, for the depth and insight of that package and for the early warning it provides against incoming, would-be predatory coding practices.
 
-See [`docs/ACKNOWLEDGMENTS.md`](docs/ACKNOWLEDGMENTS.md) for the full project acknowledgment.
+See [`docs/ACKNOWLEDGMENTS.md`](docs/ACKNOWLEDGMENTS.md).
 
 ---
 
 ## Lineage
 
-JX converges the earlier `dompipe/pasm-v2` and `dompipe/jx-lang` work while retaining history. PASM remains the execution-engine lineage beneath the JX language/compiler/runtime surface.
+JX converges earlier `dompipe/pasm-v2` and `dompipe/jx-lang` work while retaining history. PASM remains the execution-engine lineage beneath the JX language/compiler/runtime surface.
 
 Historical material remains under `history/jx-lang/` and `docs/history/` for provenance rather than being silently rewritten into current behavior.
 
 ---
 
-**JX — pronounced jinx. A readable PHP-backed language front end being compiled toward prepared JXL and native `.64B` Books.**
+**JX — pronounced jinx. Readable canonical source, prepared JXL execution, Bag-native memory laws, and compiled `.jxb` Books.**
