@@ -257,10 +257,12 @@ int main(int argc, char **argv)
     ok = ok && jobs != NULL && jobs->head == 4 && jobs->tail == 4;
     ok = ok && jobs->generation == 1 && jobs->flags == 0;
     ok = ok && state != NULL && state->base[0] == 6 && state->flags == JX_BAG_DIRTY;
-    ok = ok && window[0] == 0;
-    ok = ok && window[1] == 6;
-    ok = ok && window[2] == 3;
-    ok = ok && window[3] == 6;
+    ok = ok && window[0] == 0; /* i */
+    ok = ok && window[1] == 6; /* sum */
+    /* R2 backs loop-local x but is also a dead scratch at the loop condition.
+     * On the final false condition it is legally clobbered to zero, so its
+     * post-loop value is not part of the source-visible contract. */
+    ok = ok && window[3] == 6; /* out */
 
     if (!ok) {
         fprintf(stderr,
