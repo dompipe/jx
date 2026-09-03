@@ -5,6 +5,7 @@ namespace jx\semantic;
 require_once __DIR__ . '/jx-semantic.php';
 require_once __DIR__ . '/jx-jxl-containers.php';
 require_once __DIR__ . '/jx-jxl-bag-source.php';
+require_once __DIR__ . '/jx-jxl-container-dirty.php';
 
 /**
  * Canonical semantic IR -> normalized prepared IR -> JXL.
@@ -81,7 +82,8 @@ final class PreparedCompiler
         $this->temporary = 0;
         $this->containerBindings = new PreparedContainerBindings();
         $program = $this->semantic->parse($unit->rewrittenSource);
-        $compiled = (new PreparedContainerSourceCompiler($this->containerBindings))->compile($unit, $program);
+        $raw = (new PreparedContainerSourceCompiler($this->containerBindings))->compile($unit, $program);
+        $compiled = PreparedContainerDirtyPass::apply($raw);
         $this->lastContainerCompilation = $compiled;
         return $compiled;
     }
