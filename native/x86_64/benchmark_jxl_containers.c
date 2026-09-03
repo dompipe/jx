@@ -21,6 +21,10 @@
  * Allocation, zeroing, binding construction and instruction construction stay
  * outside the timed region. Each logical operation is therefore a real JXL
  * dispatch, not a direct C call to the container primitive.
+ *
+ * Map/Set law in this harness matches canonical native JXL:
+ *   Map = ordered keys[] + values[] (2D array)
+ *   Set = ordered unique keys[] (1D array)
  */
 
 enum {
@@ -34,6 +38,7 @@ enum {
     OP_GET = 0x47,
     OP_PUT = 0x48,
     OP_HAS = 0x49,
+    OP_REMOVE = 0x4a,
     SEL_UNUSED = 0x7f,
 };
 
@@ -183,19 +188,20 @@ static RunResult run_ring(uint64_t total_ops, int deque_mode)
     return (RunResult){elapsed,x,ok};
 }
 
-static RunResult run_hash(uint64_t total_ops, int set_mode)
+static RunResult run_sorted(uint64_t total_ops, int set_mode)
 {
     const uint64_t n=total_ops/2;
-    uint64_t want=n>0?n*2:2;
-    if(want<n)return (RunResult){0,0,0};
-    uint64_t cap=next_pow2(want);if(!cap)return (RunResult){0,0,0};
-    uint64_t *slots=calloc((size_t)cap*3u,sizeof(uint64_t));if(!slots)return (RunResult){0,0,0};
-    uint64_t count=0,gen=0,flags=0,w[8]={0};
+    const uint64_t cap=n?n:1;
+    uint64_t *keys=calloc((size_t)cap,sizeof(uint64_t));
+    uint64_t *values=set_mode?NULL:calloc((size_t)cap,sizeof(uint64_t));
+    if(!keys || (!set_mode && !values)){free(keys);free(values);return (RunResult){0,0,0};}
+
+    uint64_t cursor=0,count=0,gen=0,flags=0,w[8]={0};
     JxJxlContainerBinding b[2];uint8_t put[6],get[6];
     void *put_fn=set_mode?(void *)jx_set_add_u64:(void *)jx_map_put_u64;
     void *get_fn=set_mode?(void *)jx_set_has_u64:(void *)jx_map_get_u64;
-    init_binding(&b[0],put_fn,slots,NULL,NULL,cap,cap-1,&gen,&flags,&count);
-    init_binding(&b[1],get_fn,slots,NULL,NULL,cap,cap-1,&gen,&flags,&count);
+    init_binding(&b[0],put_fn,keys,&cursor,&count,cap,0,&gen,&flags,values);
+    init_binding(&b[1],get_fn,keys,&cursor,&count,cap,0,&gen,&flags,values);
     make_inst(put,set_mode?OP_EMPLACE:OP_PUT,0,0,1,set_mode?2:SEL_UNUSED);
     make_inst(get,set_mode?OP_HAS:OP_GET,1,0,SEL_UNUSED,2);
 
@@ -211,8 +217,57 @@ static RunResult run_hash(uint64_t total_ops, int set_mode)
             x^=w[2];
         }
     }
-    const double elapsed=now_ms()-t0;free(slots);
+    const double elapsed=now_ms()-t0;
+    free(values);free(keys);
     return (RunResult){elapsed,x,ok};
+}
+
+/* Verify the array law before timing it: ordered insertion, Map overwrite,
+ * Set uniqueness, lookup and removal. This intentionally uses the JXL executor
+ * instead of directly calling the assembly primitive.
+ */
+static int verify_sorted_map_set(void)
+{
+    uint64_t map_keys[8]={0},map_values[8]={0},map_cursor=0,map_count=0,gen=0,flags=0,w[8]={0};
+    JxJxlContainerBinding mb[4];
+    uint8_t mput[6],mget[6],mhas[6],mremove[6];
+    init_binding(&mb[0],(void *)jx_map_put_u64,map_keys,&map_cursor,&map_count,8,0,&gen,&flags,map_values);
+    init_binding(&mb[1],(void *)jx_map_get_u64,map_keys,&map_cursor,&map_count,8,0,&gen,&flags,map_values);
+    init_binding(&mb[2],(void *)jx_map_has_u64,map_keys,&map_cursor,&map_count,8,0,&gen,&flags,map_values);
+    init_binding(&mb[3],(void *)jx_map_remove_u64,map_keys,&map_cursor,&map_count,8,0,&gen,&flags,map_values);
+    make_inst(mput,OP_PUT,0,0,1,SEL_UNUSED);
+    make_inst(mget,OP_GET,1,0,SEL_UNUSED,2);
+    make_inst(mhas,OP_HAS,2,0,SEL_UNUSED,2);
+    make_inst(mremove,OP_REMOVE,3,0,SEL_UNUSED,2);
+
+    w[0]=4;w[1]=40;if(!exec_inst(mput,mb,4,w))return 0;
+    w[0]=2;w[1]=20;if(!exec_inst(mput,mb,4,w))return 0;
+    w[0]=4;w[1]=99;if(!exec_inst(mput,mb,4,w))return 0;
+    if(map_count!=2 || map_keys[0]!=2 || map_keys[1]!=4 || map_values[0]!=20 || map_values[1]!=99)return 0;
+    w[0]=4;if(!exec_inst(mget,mb,4,w) || w[2]!=99)return 0;
+    w[0]=3;if(!exec_inst(mhas,mb,4,w) || w[2]!=0)return 0;
+    w[0]=2;if(!exec_inst(mremove,mb,4,w) || w[2]!=1)return 0;
+    if(map_count!=1 || map_keys[0]!=4 || map_values[0]!=99)return 0;
+
+    uint64_t set_keys[8]={0},set_cursor=0,set_count=0,sw[8]={0};
+    JxJxlContainerBinding sb[3];
+    uint8_t sadd[6],shas[6],sremove[6];
+    init_binding(&sb[0],(void *)jx_set_add_u64,set_keys,&set_cursor,&set_count,8,0,&gen,&flags,NULL);
+    init_binding(&sb[1],(void *)jx_set_has_u64,set_keys,&set_cursor,&set_count,8,0,&gen,&flags,NULL);
+    init_binding(&sb[2],(void *)jx_set_remove_u64,set_keys,&set_cursor,&set_count,8,0,&gen,&flags,NULL);
+    make_inst(sadd,OP_EMPLACE,0,0,1,2);
+    make_inst(shas,OP_HAS,1,0,SEL_UNUSED,2);
+    make_inst(sremove,OP_REMOVE,2,0,SEL_UNUSED,2);
+
+    sw[0]=5;sw[1]=5;if(!exec_inst(sadd,sb,3,sw))return 0;
+    sw[0]=1;sw[1]=1;if(!exec_inst(sadd,sb,3,sw))return 0;
+    sw[0]=5;sw[1]=5;if(!exec_inst(sadd,sb,3,sw))return 0;
+    sw[0]=3;sw[1]=3;if(!exec_inst(sadd,sb,3,sw))return 0;
+    if(set_count!=3 || set_keys[0]!=1 || set_keys[1]!=3 || set_keys[2]!=5)return 0;
+    sw[0]=3;if(!exec_inst(shas,sb,3,sw) || sw[2]!=1)return 0;
+    sw[0]=1;if(!exec_inst(sremove,sb,3,sw) || sw[2]!=1)return 0;
+    if(set_count!=2 || set_keys[0]!=3 || set_keys[1]!=5)return 0;
+    return 1;
 }
 
 typedef RunResult (*Runner)(uint64_t);
@@ -220,8 +275,8 @@ static RunResult vector_runner(uint64_t ops){return run_vector(ops,0);}
 static RunResult stack_runner(uint64_t ops){return run_vector(ops,1);}
 static RunResult queue_runner(uint64_t ops){return run_ring(ops,0);}
 static RunResult deque_runner(uint64_t ops){return run_ring(ops,1);}
-static RunResult map_runner(uint64_t ops){return run_hash(ops,0);}
-static RunResult set_runner(uint64_t ops){return run_hash(ops,1);}
+static RunResult map_runner(uint64_t ops){return run_sorted(ops,0);}
+static RunResult set_runner(uint64_t ops){return run_sorted(ops,1);}
 
 static Stats bench(Runner fn,uint64_t ops,int reps,int warmups)
 {
@@ -260,6 +315,10 @@ int main(int argc,char **argv)
     if(ops<2 || (ops&1u) || reps<1 || warmups<0){
         fprintf(stderr,"usage: %s EVEN_TOTAL_OPS [REPS] [WARMUPS]\n",argv[0]);return 2;
     }
+    if(!verify_sorted_map_set()){
+        fprintf(stderr,"native JXL ordered Map/Set verification failed\n");
+        return 7;
+    }
 
     Stats record=bench(run_record,ops,reps,warmups);
     Stats vector=bench(vector_runner,ops,reps,warmups);
@@ -269,7 +328,7 @@ int main(int argc,char **argv)
     Stats map=bench(map_runner,ops,reps,warmups);
     Stats set=bench(set_runner,ops,reps,warmups);
 
-    printf("{\"suite\":\"jxl-native-containers/1\",\"path\":\"prepared-6-byte-executor\",\"ops\":%" PRIu64 ",\"reps\":%d,\"warmups\":%d,\"native\":{",ops,reps,warmups);
+    printf("{\"suite\":\"jxl-native-containers/1\",\"path\":\"prepared-6-byte-executor\",\"map_set_layout\":\"ordered-arrays\",\"ops\":%" PRIu64 ",\"reps\":%d,\"warmups\":%d,\"native\":{",ops,reps,warmups);
     print_metric("record",record,1);print_metric("vector",vector,1);print_metric("stack",stack,1);
     print_metric("queue",queue,1);print_metric("deque",deque,1);print_metric("map",map,1);print_metric("set",set,0);
     printf("},\"vm\":{}}\n");
