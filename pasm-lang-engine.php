@@ -9,7 +9,7 @@ final class Engine
 {
     /** @var array<string,array{kind:'vector'|'map',keys:list<int|string>,values:list<mixed>}> */
     private array $collections = [];
-    /** @var list<array{slot:int,collection:string,value_reg:int,key_reg:?int,reverse:bool}> */
+    /** @var list<array{slot:int,collection:string,value_reg:?int,value_regs?:list<int>,key_reg:?int,reverse:bool}> */
     private array $lastIteratorBindings = [];
 
     public function __construct(
@@ -18,14 +18,14 @@ final class Engine
     ) {}
 
     /**
-     * Bind a source-visible collection name before compiling foreach/reveach.
+     * Bind a source-visible collection name before compiling collection loops.
      *
      * Canonical JX admission rule:
      *   - flat/list arrays become numeric-indexed Vector traversal;
      *   - keyed arrays/iterables become Map traversal with explicit keys.
      *
-     * Admission happens once here so iteration never has to rediscover the
-     * collection shape inside the loop.
+     * Values themselves may be scalar or positional rows. forif/revif can
+     * prelink row positions directly to registers without widening ITERF/ITERR.
      */
     public function bindCollection(string $name, iterable $collection): self
     {
@@ -55,13 +55,11 @@ final class Engine
         return $this;
     }
 
-    /** Return the admitted foreach container kind for diagnostics/tests. */
     public function collectionKind(string $name): ?string
     {
         return $this->collections[$this->norm($name)]['kind'] ?? null;
     }
 
-    /** Compile PASL to canonical six-byte-cell .jxl. */
     public function compile(string $source): string
     {
         $compiler = new PASMFusedCompiler(
@@ -77,7 +75,6 @@ final class Engine
 
     public function compileJxl(string $source): string { return $this->compile($source); }
 
-    /** Explicit legacy PASM bytecode target. */
     public function compilePbc(string $source): string
     {
         $compiler = new PASMFusedCompiler(
@@ -91,10 +88,6 @@ final class Engine
         return $code;
     }
 
-    /**
-     * .jxl is the default file target. A .pbc suffix explicitly requests the
-     * compatibility bytecode container.
-     */
     public function compileFile(string $source, string $outPath): void
     {
         $compiler = new PASMFusedCompiler(
@@ -126,7 +119,6 @@ final class Engine
         return $this->runPasmCode($pbc['code']);
     }
 
-    /** Accept canonical JXL, plus raw PASM bytecode for compatibility callers. */
     public function runCode(string $code): mixed
     {
         if (\pasm\PASMJxlCompiler::isJxl($code)) {
@@ -147,7 +139,6 @@ final class Engine
         return $vm->run($code);
     }
 
-    /** @return list<array{slot:int,collection:string,value_reg:int,key_reg:?int,reverse:bool}> */
     public function iteratorBindings(): array { return $this->lastIteratorBindings; }
 
     private function buildIteratorTable(): ?\pasm\PASMIteratorTable
@@ -165,7 +156,12 @@ final class Engine
                 static fn(int $i): mixed => $values[$i],
                 static fn(int $i): mixed => $keys[$i],
             );
-            $descriptor->targets($binding['value_reg'], $binding['key_reg']);
+            $rowRegs = $binding['value_regs'] ?? [];
+            if (count($rowRegs) > 1) {
+                $descriptor->rowTargets($rowRegs, $binding['key_reg']);
+            } else {
+                $descriptor->targets($binding['value_reg'], $binding['key_reg']);
+            }
             $table->replace($descriptor);
         }
         return $table;
