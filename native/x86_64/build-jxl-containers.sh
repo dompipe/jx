@@ -10,19 +10,23 @@ OUT_DIR="${JX_NATIVE_OUT:-build/native/x86_64}"
 mkdir -p "$OUT_DIR"
 
 CORE_OBJ="$OUT_DIR/jxl_containers.o"
+MAP_VECTOR_OBJ="$OUT_DIR/jxl_map_vector.o"
 EXEC_OBJ="$OUT_DIR/jxl_container_executor.o"
 STREAM_OBJ="$OUT_DIR/jxl_container_stream.o"
 TABLE_OBJ="$OUT_DIR/jxl_container_native_table.o"
 RUNTIME_OBJ="$OUT_DIR/jxl_container_runtime.o"
 
 "$NASM_BIN" -Wall -f elf64 native/x86_64/jxl_containers.asm -o "$CORE_OBJ"
+"$NASM_BIN" -Wall -f elf64 native/x86_64/jxl_map_vector.asm -o "$MAP_VECTOR_OBJ"
 "$NASM_BIN" -Wall -f elf64 native/x86_64/jxl_container_executor.asm -o "$EXEC_OBJ"
 "$NASM_BIN" -Wall -f elf64 native/x86_64/jxl_container_stream.asm -o "$STREAM_OBJ"
 "$NASM_BIN" -Wall -f elf64 native/x86_64/jxl_container_native_table.asm -o "$TABLE_OBJ"
 
 # One relocatable native object: single-op decoder + resident stream executor +
-# pure assembly containers + numeric native-id target table.
-"$LD_BIN" -r -o "$RUNTIME_OBJ" "$CORE_OBJ" "$EXEC_OBJ" "$STREAM_OBJ" "$TABLE_OBJ"
+# pure assembly containers + keyed-vector Map + numeric native-id target table.
+# The older split Map routines stay linked as explicit comparison symbols so
+# split-vs-interleaved can be benchmarked from the same runtime image.
+"$LD_BIN" -r -o "$RUNTIME_OBJ" "$CORE_OBJ" "$MAP_VECTOR_OBJ" "$EXEC_OBJ" "$STREAM_OBJ" "$TABLE_OBJ"
 
 if command -v nm >/dev/null 2>&1; then
     nm -g --defined-only "$RUNTIME_OBJ" | sort > "$OUT_DIR/jxl_container_runtime.symbols"
