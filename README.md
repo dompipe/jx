@@ -1,59 +1,74 @@
 # JX
 
-JX is now the separate PHP-to-executable-code path in `dompipe/jx`.
+JX is the new executable path for PHP-to-executable-code work.
 
-The executable is named:
+The command name is:
 
 ```bash
 ./jx
 ```
 
-## Current compiler layer
+## Current direction
 
-This first layer takes PHP source and emits an executable artifact:
+JX now has two layers:
+
+1. A bootstrap PHP shebang command checked into the repo as `jx`.
+2. A native GCC-compilable implementation at `src/native/jx.c`.
+
+Run the native build to replace the bootstrap `jx` with a real compiled executable in your working tree:
 
 ```bash
-./jx compile examples/hello.php -o build/hello
+sh scripts/build-native-jx.sh
+```
+
+After that, `./jx` is a GCC-built native program.
+
+## PHP to C
+
+The native `jx` collects the current PHP execution oracle into one final C file. It reads a PHP source file and emits a standalone `.c` file.
+
+```bash
+./jx emit-c examples/hello.php -o build/hello.c
+```
+
+The emitted C file contains:
+
+- the original PHP payload as embedded bytes
+- JX Oracle metadata
+- a runtime bridge that writes the payload to a temporary PHP file
+- a process executor that calls the local PHP runtime
+- argument and exit-code preservation
+
+Compile the emitted C file with GCC/CC:
+
+```bash
+cc -O2 -std=c11 -Wall -Wextra -pedantic -o build/hello build/hello.c
 ./build/hello world
 ```
 
-It also supports direct compile-and-run:
-
-```bash
-./jx run examples/hello.php -- world
-```
-
-The generated executable currently embeds the PHP source payload and delegates runtime execution to the installed PHP runtime. That gives JX a real executable artifact, argument forwarding, stdout/stderr passthrough, and exit-code preservation now, while the next compiler layers lower PHP into JX-native executable code instead of delegating to PHP.
-
-## Commands
-
-```bash
-chmod +x jx
-./jx compile examples/hello.php -o build/hello
-./build/hello world
-./jx run examples/hello.php -- world
-./tests/run.sh
-```
-
-Expected example output:
+Expected output:
 
 ```text
 Hello from JX, world
 ```
 
-## Environment
-
-Set `JX_PHP` to choose the PHP runtime used by generated artifacts:
+## Commands
 
 ```bash
-JX_PHP=/usr/bin/php ./build/hello world
+git pull origin main
+sh scripts/build-native-jx.sh
+./jx --version
+mkdir -p build
+./jx emit-c examples/hello.php -o build/hello.c
+cc -O2 -std=c11 -Wall -Wextra -pedantic -o build/hello build/hello.c
+./build/hello world
+./tests/native-run.sh
 ```
 
-## Direction
+## Important status
 
-JX should become the compiler that accepts PHP code and turns it into executable code. This repo reset keeps the surface small and makes the next work clear:
+This is now a native executable compiler front-end that turns PHP files into GCC-compilable `.c` files.
 
-1. Parse PHP into a JX intermediate representation.
-2. Lower expressions, assignments, branches, loops, functions, and arrays.
-3. Emit executable JX bytecode or native code.
-4. Differential-test JX output against PHP behavior.
+The generated executable still delegates PHP execution to the installed PHP runtime. That keeps behavior aligned while the native PHP compiler is built underneath it.
+
+The next step is to replace the bridge pieces with native lowered PHP operations one group at a time.
