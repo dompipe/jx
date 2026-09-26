@@ -32,4 +32,24 @@ if ! grep -q 'Loaded CSS asset: style.css' build/page.html; then
     exit 1
 fi
 
-printf 'PASS: native JX emits GCC-compilable C from PHP, embeds CSS assets, and the compiled artifacts run\n'
+./jx emit-c examples/page.php --asset examples/style.css --window -o build/page-window.c
+cc -O2 -std=c11 -Wall -Wextra -pedantic -o build/page-window build/page-window.c
+WINDOW_OUTPUT=$(JX_NO_OPEN=1 ./build/page-window world)
+
+if ! printf '%s' "$WINDOW_OUTPUT" | grep -q '^JX_WINDOW_FILE='; then
+    printf 'FAIL: window mode did not report generated HTML window file\n' >&2
+    exit 1
+fi
+
+WINDOW_FILE=$(printf '%s' "$WINDOW_OUTPUT" | sed -n 's/^JX_WINDOW_FILE=//p' | tail -n 1)
+if [ ! -f "$WINDOW_FILE" ]; then
+    printf 'FAIL: window HTML file was not created: %s\n' "$WINDOW_FILE" >&2
+    exit 1
+fi
+
+if ! grep -q 'Loaded CSS asset: style.css' "$WINDOW_FILE"; then
+    printf 'FAIL: window HTML file did not include rendered CSS-backed PHP output\n' >&2
+    exit 1
+fi
+
+printf 'PASS: native JX emits GCC-compilable C from PHP, embeds CSS assets, supports window mode, and compiled artifacts run\n'
