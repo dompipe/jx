@@ -6,6 +6,27 @@
 
 #include "../runtime/jx_css_runtime.h"
 
+static const char jx_embedded_css[] =
+    "body {\n"
+    "    font-family: Arial, sans-serif;\n"
+    "    background: #101318;\n"
+    "    color: #f4f7fb;\n"
+    "    margin: 0;\n"
+    "    padding: 2rem;\n"
+    "}\n"
+    "\n"
+    ".card {\n"
+    "    border: 1px solid #3b4454;\n"
+    "    border-radius: 12px;\n"
+    "    padding: 1rem;\n"
+    "}\n"
+    "\n"
+    ".badge {\n"
+    "    display: inline-block;\n"
+    "    font-weight: 700;\n"
+    "    letter-spacing: 0.08em;\n"
+    "}\n";
+
 typedef struct {
     JxCssStylesheet css;
     char *css_bytes;
@@ -16,6 +37,7 @@ typedef struct {
     int body_padding;
     int card_padding;
     int card_radius;
+    int standalone_css;
 } JxPageDemo;
 
 static JxPageDemo g_page;
@@ -26,10 +48,21 @@ static void die_last(const char *message) {
     ExitProcess(1);
 }
 
+static char *copy_bytes(const char *data, size_t len) {
+    char *bytes = (char *)malloc(len + 1);
+    if (!bytes) {
+        return NULL;
+    }
+    if (len > 0) {
+        memcpy(bytes, data, len);
+    }
+    bytes[len] = '\0';
+    return bytes;
+}
+
 static char *read_file(const char *path, size_t *len) {
     FILE *fp = fopen(path, "rb");
     if (!fp) {
-        fprintf(stderr, "jx-page-win32: cannot open %s\n", path);
         return NULL;
     }
 
@@ -97,17 +130,22 @@ static int hex_value(char c) {
 }
 
 static COLORREF parse_color_value(const char *value, COLORREF fallback) {
-    if (!value || value[0] != '#') {
+    if (!value) {
         return fallback;
     }
 
-    if (strlen(value) >= 7) {
-        int r1 = hex_value(value[1]);
-        int r2 = hex_value(value[2]);
-        int g1 = hex_value(value[3]);
-        int g2 = hex_value(value[4]);
-        int b1 = hex_value(value[5]);
-        int b2 = hex_value(value[6]);
+    const char *hex = strchr(value, '#');
+    if (!hex) {
+        return fallback;
+    }
+
+    if (strlen(hex) >= 7) {
+        int r1 = hex_value(hex[1]);
+        int r2 = hex_value(hex[2]);
+        int g1 = hex_value(hex[3]);
+        int g2 = hex_value(hex[4]);
+        int b1 = hex_value(hex[5]);
+        int b2 = hex_value(hex[6]);
         if (r1 >= 0 && r2 >= 0 && g1 >= 0 && g2 >= 0 && b1 >= 0 && b2 >= 0) {
             return RGB((r1 << 4) | r2, (g1 << 4) | g2, (b1 << 4) | b2);
         }
@@ -141,13 +179,22 @@ static void load_page_css(const char *css_path) {
     memset(&g_page, 0, sizeof(g_page));
     jx_css_stylesheet_init(&g_page.css);
 
-    g_page.css_bytes = read_file(css_path, &g_page.css_len);
+    if (css_path && *css_path) {
+        g_page.css_bytes = read_file(css_path, &g_page.css_len);
+    }
+
+    if (!g_page.css_bytes) {
+        g_page.css_len = strlen(jx_embedded_css);
+        g_page.css_bytes = copy_bytes(jx_embedded_css, g_page.css_len);
+        g_page.standalone_css = 1;
+    }
+
     if (g_page.css_bytes) {
         JxCssText css;
         css.data = g_page.css_bytes;
         css.length = g_page.css_len;
         if (!jx_css_parse_text(css, &g_page.css)) {
-            fprintf(stderr, "jx-page-win32: warning: could not parse %s\n", css_path);
+            MessageBoxA(NULL, "JX could not parse embedded CSS.", "JX Native Page", MB_ICONWARNING | MB_OK);
         }
     }
 
@@ -217,10 +264,10 @@ static void paint_page(HWND hwnd, HDC hdc) {
 
     RECT intro = page;
     intro.top += 52;
-    intro.bottom = intro.top + 68;
+    intro.bottom = intro.top + 72;
     draw_text_block(
         hdc,
-        "This is drawn as native Win32 GDI boxes and text. No WebView. No browser engine. CSS is parsed by JX and applied to a small page layout.",
+        "This is a standalone Windows .exe drawn as native Win32 GDI boxes and text. No WebView. No browser engine. No runtime CSS file required.",
         &intro,
         18,
         FW_NORMAL,
@@ -229,7 +276,7 @@ static void paint_page(HWND hwnd, HDC hdc) {
 
     RECT card = page;
     card.top += 142;
-    card.bottom = card.top + 240;
+    card.bottom = card.top + 250;
     fill_round_rect(hdc, card, g_page.card_radius, RGB(24, 30, 40), g_page.card_border);
 
     RECT inner = card;
@@ -239,19 +286,25 @@ static void paint_page(HWND hwnd, HDC hdc) {
     inner.bottom -= g_page.card_padding;
 
     RECT badge = inner;
-    badge.bottom = badge.top + 26;
-    draw_text_block(hdc, "CSS RUNTIME", &badge, 16, FW_BOLD, RGB(145, 220, 255));
+    badge.bottom = badge.top + 28;
+    draw_text_block(hdc, "STANDALONE CSS RUNTIME", &badge, 16, FW_BOLD, RGB(145, 220, 255));
 
     RECT line1 = inner;
     line1.top += 44;
-    line1.bottom = line1.top + 34;
-    draw_text_block(hdc, "body background, body color, card padding, border, and border-radius are read from examples/style.css.", &line1, 18, FW_NORMAL, g_page.body_fg);
+    line1.bottom = line1.top + 52;
+    draw_text_block(hdc, "The CSS is compiled into this executable and parsed by the JX C runtime before native drawing.", &line1, 18, FW_NORMAL, g_page.body_fg);
 
     RECT line2 = inner;
-    line2.top += 92;
-    line2.bottom = line2.top + 70;
-    char summary[256];
-    snprintf(summary, sizeof(summary), "Declarations parsed: %zu\nNative layout: block page + card + text\nRenderer: Win32 GDI", g_page.css.count);
+    line2.top += 100;
+    line2.bottom = line2.top + 92;
+    char summary[320];
+    snprintf(
+        summary,
+        sizeof(summary),
+        "Declarations parsed: %zu\nCSS source: %s\nRenderer: Win32 GDI native layout",
+        g_page.css.count,
+        g_page.standalone_css ? "embedded in .exe" : "external file override"
+    );
     draw_text_block(hdc, summary, &line2, 17, FW_NORMAL, RGB(210, 220, 232));
 }
 
@@ -275,11 +328,13 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
 }
 
-int main(int argc, char **argv) {
-    const char *css_path = argc > 1 ? argv[1] : "examples/style.css";
-    load_page_css(css_path);
+int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_line, int show_command) {
+    (void)prev_instance;
+    (void)command_line;
+    (void)show_command;
 
-    HINSTANCE instance = GetModuleHandleA(NULL);
+    load_page_css(NULL);
+
     const char *class_name = "JXNativePageWindow";
 
     WNDCLASSA wc;
@@ -297,7 +352,7 @@ int main(int argc, char **argv) {
     HWND hwnd = CreateWindowExA(
         0,
         class_name,
-        "JX Native Page Demo - No WebView",
+        "JX Native Page Demo - Standalone EXE",
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
@@ -322,4 +377,11 @@ int main(int argc, char **argv) {
     jx_css_stylesheet_free(&g_page.css);
     free(g_page.css_bytes);
     return 0;
+}
+
+int main(int argc, char **argv) {
+    HINSTANCE instance = GetModuleHandleA(NULL);
+    (void)argc;
+    (void)argv;
+    return WinMain(instance, NULL, GetCommandLineA(), SW_SHOWDEFAULT);
 }
