@@ -72,6 +72,7 @@ typedef struct {
     int panel_width;
     int layout_gap;
     int min_content_width;
+    int api_port;
 
     JxPageContent content;
     JxModalContent modal;
@@ -102,6 +103,25 @@ static void die_last(const char *message) {
     snprintf(text, sizeof(text), "%s: error %lu", message, (unsigned long)code);
     MessageBoxA(NULL, text, "JX Native Page", MB_ICONERROR | MB_OK);
     ExitProcess(1);
+}
+
+static void warn_text(const char *message) {
+    MessageBoxA(NULL, message, "JX Native Page", MB_ICONWARNING | MB_OK);
+}
+
+static int parse_port_argument(const char *command_line, int fallback) {
+    const char *keys[] = { "--port", "/port", "-port", NULL };
+    if (!command_line || !*command_line) return fallback;
+    for (int i = 0; keys[i]; ++i) {
+        const char *p = strstr(command_line, keys[i]);
+        if (!p) continue;
+        p += strlen(keys[i]);
+        while (*p == ' ' || *p == '\t' || *p == '=' || *p == ':') ++p;
+        if (*p == '"' || *p == '\'') ++p;
+        int port = atoi(p);
+        if (port >= 1024 && port <= 65535) return port;
+    }
+    return fallback;
 }
 
 static void copy_text(char *dst, size_t dst_size, const char *src) {
@@ -191,6 +211,7 @@ static void load_page_css(void) {
     InitializeCriticalSection(&g_page.lock);
     jx_css_stylesheet_init(&g_page.css);
     init_default_content();
+    g_page.api_port = JX_API_PORT;
 
     g_page.css_len = strlen(JX_PAGE_CSS);
     g_page.css_bytes = copy_bytes(JX_PAGE_CSS, g_page.css_len);
@@ -481,7 +502,9 @@ static void paint_page(HWND hwnd, HDC hdc) {
     RECT intro = render_area;
     intro.top += 56;
     intro.bottom = intro.top + 78;
-    draw_text_block(hdc, "This page is native Win32 GDI. Object ids and classes now map to CSS selectors.", &intro, 18, FW_NORMAL, g_page.body_fg);
+    char intro_text[256];
+    snprintf(intro_text, sizeof(intro_text), "This instance listens on http://127.0.0.1:%d for local URL updates.", g_page.api_port);
+    draw_text_block(hdc, intro_text, &intro, 18, FW_NORMAL, g_page.body_fg);
 
     RECT card = render_area;
     card.top += 146;
@@ -519,7 +542,9 @@ static void paint_page(HWND hwnd, HDC hdc) {
     RECT note = panel_title;
     note.top += 340;
     note.bottom = note.top + 120;
-    draw_text_block(hdc, "CSS targets:\n#main-card, #badge, #dynamic-form\n#native-iframe, #help-modal\nForm child windows hide while modal is active.", &note, 14, FW_NORMAL, RGB(210, 220, 232));
+    char note_text[256];
+    snprintf(note_text, sizeof(note_text), "Local APIs on this copy:\n/update, /modal, /iframe\nPort: %d\nRun another copy with --port 8766", g_page.api_port);
+    draw_text_block(hdc, note_text, &note, 14, FW_NORMAL, RGB(210, 220, 232));
 
     paint_modal(hwnd, hdc, &modal);
 }
@@ -560,7 +585,7 @@ static void parse_query_value(const char *query, const char *key, char *out, siz
 }
 
 static void send_http_response(SOCKET client, const char *body) {
-    char response[768];
+    char response[1024];
     snprintf(response, sizeof(response),
         "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n%s",
         strlen(body), body);
@@ -578,9 +603,12 @@ static DWORD WINAPI api_thread_proc(LPVOID unused) {
     struct sockaddr_in addr;
     ZeroMemory(&addr, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(JX_API_PORT);
+    addr.sin_port = htons((u_short)g_page.api_port);
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (bind(server, (struct sockaddr *)&addr, sizeof(addr)) == SOCKET_ERROR || listen(server, 8) == SOCKET_ERROR) {
+        char text[256];
+        snprintf(text, sizeof(text), "Local API port %d is already in use. Run this copy with --port 8766 or another free port.", g_page.api_port);
+        warn_text(text);
         closesocket(server);
         WSACleanup();
         return 1;
@@ -622,7 +650,9 @@ static DWORD WINAPI api_thread_proc(LPVOID unused) {
             if (g_hwnd) PostMessageA(g_hwnd, JX_WM_API_IFRAME, 0, 0);
             send_http_response(client, "iframe updated\n");
         } else {
-            send_http_response(client, "JX native page API\n/update?title=...&badge=...&body=...\n/modal?title=...&body=...\n/iframe?title=...&html=...\n");
+            char help[512];
+            snprintf(help, sizeof(help), "JX native page API on port %d\n/update?title=...&badge=...&body=...\n/modal?title=...&body=...\n/iframe?title=...&html=...\n", g_page.api_port);
+            send_http_response(client, help);
         }
         closesocket(client);
     }
@@ -701,9 +731,10 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_line, int show_command) {
     (void)prev_instance;
-    (void)command_line;
     (void)show_command;
     load_page_css();
+    g_page.api_port = parse_port_argument(command_line, JX_API_PORT);
+
     const char *class_name = "JXPhpNativePageWindow";
     WNDCLASSA wc;
     ZeroMemory(&wc, sizeof(wc));
@@ -713,7 +744,10 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_li
     wc.hbrBackground = NULL;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     if (!RegisterClassA(&wc)) die_last("cannot register native page window class");
-    g_hwnd = CreateWindowExA(0, class_name, "JX PHP Native Page - CSS Object Styling",
+
+    char window_title[256];
+    snprintf(window_title, sizeof(window_title), "JX PHP Native Page - API Port %d", g_page.api_port);
+    g_hwnd = CreateWindowExA(0, class_name, window_title,
         WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, g_page.window_width, g_page.window_height,
         NULL, NULL, instance, NULL);
     if (!g_hwnd) die_last("cannot create native page window");
