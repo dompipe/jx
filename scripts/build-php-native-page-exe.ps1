@@ -1,3 +1,15 @@
+param(
+    [string] $ManifestDir = '',
+    [string] $Manifest = '',
+    [string] $PhpPage = '',
+    [string] $CssFile = '',
+    [string] $OutputExe = '',
+    [string] $GeneratedHeader = '',
+    [string] $PageSource = '',
+    [string] $CssValidator = '',
+    [string] $Compiler = ''
+)
+
 $ErrorActionPreference = 'Stop'
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -29,6 +41,59 @@ function Invoke-Step {
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
+}
+
+function Get-ConfigValue {
+    param(
+        [object] $Config,
+        [string] $Name,
+        [string] $CliValue,
+        [string] $Fallback
+    )
+
+    if ($CliValue) {
+        return $CliValue
+    }
+
+    if ($null -ne $Config -and $Config.PSObject.Properties[$Name]) {
+        $Value = $Config.PSObject.Properties[$Name].Value
+        if ($null -ne $Value -and "$Value") {
+            return "$Value"
+        }
+    }
+
+    return $Fallback
+}
+
+function Get-ConfigArray {
+    param(
+        [object] $Config,
+        [string] $Name,
+        [string[]] $Fallback
+    )
+
+    if ($null -ne $Config -and $Config.PSObject.Properties[$Name]) {
+        $Value = $Config.PSObject.Properties[$Name].Value
+        if ($null -ne $Value) {
+            return @($Value)
+        }
+    }
+
+    return $Fallback
+}
+
+function Normalize-LinkLibrary {
+    param([string] $Name)
+
+    if (-not $Name) {
+        return $Name
+    }
+
+    if ($Name.StartsWith('-')) {
+        return $Name
+    }
+
+    return "-l$Name"
 }
 
 function Get-JxLiteralCall {
@@ -87,20 +152,74 @@ function Convert-ToCString {
     return $Builder.ToString()
 }
 
-if (-not (Test-Path 'build')) {
-    New-Item -ItemType Directory -Path 'build' | Out-Null
+$Config = $null
+$EffectiveManifest = $Manifest
+if (-not $EffectiveManifest -and $ManifestDir) {
+    $Candidates = @(
+        (Join-Path $ManifestDir 'jx-native-page.json'),
+        (Join-Path $ManifestDir 'native-page.manifest.json'),
+        (Join-Path $ManifestDir 'manifest.json')
+    )
+    foreach ($Candidate in $Candidates) {
+        if (Test-Path $Candidate) {
+            $EffectiveManifest = $Candidate
+            break
+        }
+    }
+
+    if (-not $EffectiveManifest) {
+        Write-Error "No native page manifest found in $ManifestDir. Expected jx-native-page.json, native-page.manifest.json, or manifest.json."
+        exit 1
+    }
 }
 
-if (-not (Test-Path 'dist')) {
-    New-Item -ItemType Directory -Path 'dist' | Out-Null
+if ($EffectiveManifest) {
+    if (-not (Test-Path $EffectiveManifest)) {
+        Write-Error "Missing manifest file: $EffectiveManifest"
+        exit 1
+    }
+    $Config = Get-Content -Raw -Path $EffectiveManifest | ConvertFrom-Json
 }
 
-$PhpPage = 'examples/native_page.php'
-$CssFile = 'examples/style.css'
+$PhpPage = Get-ConfigValue -Config $Config -Name 'phpPage' -CliValue $PhpPage -Fallback 'examples/native_page.php'
+$CssFile = Get-ConfigValue -Config $Config -Name 'cssFile' -CliValue $CssFile -Fallback 'examples/style.css'
+$OutputExe = Get-ConfigValue -Config $Config -Name 'outputExe' -CliValue $OutputExe -Fallback 'dist/jx-php-native-page.exe'
+$GeneratedHeader = Get-ConfigValue -Config $Config -Name 'generatedHeader' -CliValue $GeneratedHeader -Fallback 'build/jx_php_page_data.h'
+$PageSource = Get-ConfigValue -Config $Config -Name 'pageSource' -CliValue $PageSource -Fallback 'src/window/jx-page-win32-from-php.c'
+$CssValidator = Get-ConfigValue -Config $Config -Name 'cssValidator' -CliValue $CssValidator -Fallback 'scripts/validate-native-page-css.ps1'
+$Compiler = Get-ConfigValue -Config $Config -Name 'compiler' -CliValue $Compiler -Fallback ''
 
-if (Test-Path 'scripts/validate-native-page-css.ps1') {
+$CFlags = Get-ConfigArray -Config $Config -Name 'cFlags' -Fallback @('-O2', '-Wall', '-Wextra', '-mwindows')
+$RuntimeSources = Get-ConfigArray -Config $Config -Name 'runtimeSources' -Fallback @('src/runtime/jx_css_runtime.c')
+$LinkLibraries = Get-ConfigArray -Config $Config -Name 'linkLibraries' -Fallback @('ws2_32', 'gdi32', 'user32')
+$LinkLibraries = @($LinkLibraries | ForEach-Object { Normalize-LinkLibrary "$_" })
+
+foreach ($RequiredFile in @($PhpPage, $CssFile, $PageSource)) {
+    if (-not (Test-Path $RequiredFile)) {
+        Write-Error "Missing build input: $RequiredFile"
+        exit 1
+    }
+}
+
+foreach ($RuntimeSource in $RuntimeSources) {
+    if (-not (Test-Path $RuntimeSource)) {
+        Write-Error "Missing runtime source: $RuntimeSource"
+        exit 1
+    }
+}
+
+$HeaderDir = Split-Path -Parent $GeneratedHeader
+$OutputDir = Split-Path -Parent $OutputExe
+if ($HeaderDir -and -not (Test-Path $HeaderDir)) {
+    New-Item -ItemType Directory -Path $HeaderDir | Out-Null
+}
+if ($OutputDir -and -not (Test-Path $OutputDir)) {
+    New-Item -ItemType Directory -Path $OutputDir | Out-Null
+}
+
+if ($CssValidator -and (Test-Path $CssValidator)) {
     Write-Host 'Validating native CSS before build...'
-    & powershell -ExecutionPolicy Bypass -File '.\scripts\validate-native-page-css.ps1'
+    & powershell -ExecutionPolicy Bypass -File $CssValidator -CssFile $CssFile
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -145,41 +264,42 @@ $Header = @"
 #endif
 "@
 
-Set-Content -Path 'build/jx_php_page_data.h' -Value $Header -Encoding ASCII
+Set-Content -Path $GeneratedHeader -Value $Header -Encoding ASCII
 
-$CCompiler = Find-CommandPath @('gcc', 'x86_64-w64-mingw32-gcc', 'cc')
+$CCompiler = $Compiler
+if (-not $CCompiler) {
+    $CCompiler = Find-CommandPath @('gcc', 'x86_64-w64-mingw32-gcc', 'cc')
+}
 if (-not $CCompiler) {
     Write-Error 'No C compiler found. Install MSYS2 GCC and make sure C:\msys64\ucrt64\bin is on PATH.'
     exit 1
 }
 
 Write-Host "Using C compiler: $CCompiler"
+if ($EffectiveManifest) {
+    Write-Host "Manifest: $EffectiveManifest"
+}
 Write-Host "PHP page: $PhpPage"
 Write-Host "CSS asset: $CssFile"
-Write-Host "Generated header: build\jx_php_page_data.h"
+Write-Host "Generated header: $GeneratedHeader"
+Write-Host "Output EXE: $OutputExe"
 
-Invoke-Step -Name 'Building PHP native page standalone EXE...' -Exe $CCompiler -CommandArgs @(
-    '-O2',
-    '-Wall',
-    '-Wextra',
-    '-mwindows',
-    '-I',
-    'build',
-    '-o',
-    'dist/jx-php-native-page.exe',
-    'src/window/jx-page-win32-from-php.c',
-    'src/runtime/jx_css_runtime.c',
-    '-lws2_32',
-    '-lgdi32',
-    '-luser32'
-)
+$CommandArgs = @()
+$CommandArgs += $CFlags
+$CommandArgs += @('-I', $HeaderDir)
+$CommandArgs += @('-o', $OutputExe)
+$CommandArgs += @($PageSource)
+$CommandArgs += $RuntimeSources
+$CommandArgs += $LinkLibraries
+
+Invoke-Step -Name 'Building PHP native page standalone EXE...' -Exe $CCompiler -CommandArgs $CommandArgs
 
 Write-Host ''
 Write-Host 'Standalone EXE created from PHP page:'
-Write-Host '  dist\jx-php-native-page.exe'
+Write-Host "  $OutputExe"
 Write-Host ''
 Write-Host 'Run it directly:'
-Write-Host '  .\dist\jx-php-native-page.exe'
+Write-Host "  .\$OutputExe"
 Write-Host ''
 Write-Host 'Then test URL update:'
 Write-Host '  http://127.0.0.1:8765/update?title=Hello&badge=LIVE&body=Updated+from+URL'
