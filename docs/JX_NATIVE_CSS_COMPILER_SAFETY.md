@@ -14,6 +14,39 @@ Native CSS has three possible outcomes per declaration:
 
 Silent failure is not allowed for native-only builds.
 
+## Object order is z-index
+
+The PHP object tree order controls stacking. JX should not require CSS `z-index` for ordinary native page layering.
+
+```text
+earlier PHP object = lower layer
+later PHP object   = higher layer
+```
+
+CSS can style objects, but the base stacking order comes from the PHP object order. A later compiler pass may support explicit `z-index`, but it must be a deliberate override, not required for normal layout.
+
+## Selector chain rule
+
+You should not need to repeat the same style three times as `#id`, `.class`, and `type`.
+
+The compiler should resolve a single style chain per object:
+
+```text
+type selector     -> base style
+.class selectors  -> shared style
+#id selector      -> exact object override
+```
+
+Use the smallest selector that matches the intent. Examples:
+
+```css
+iframe { color: #ecf0f7; }
+.iframe { border: 1px solid #4b586e; }
+#native-iframe { border-radius: 10px; }
+```
+
+Repeated duplicate blocks are not the desired model. The current examples now use class selectors for shared objects and keep ID selectors only for overrides.
+
 ## Common CSS problems JX must catch
 
 | Problem | Example | Native behavior |
@@ -36,6 +69,15 @@ The current Win32 native demo supports these selectors:
 ```css
 window
 body
+page
+card
+badge
+form
+iframe
+iframe-chrome
+modal
+modal-overlay
+modal-close
 #demo-page
 #main-card
 #badge
@@ -45,12 +87,17 @@ body
 #help-modal
 #help-modal-overlay
 #help-modal-close
+.page
+.native-page
 .card
 .badge
 .panel
+.dynamic-form
 .iframe
+.native-frame
 .iframe-chrome
 .modal
+.help-modal
 .modal-overlay
 .modal-close
 ```
@@ -58,9 +105,9 @@ body
 The object model rule is:
 
 ```text
-object id       -> #object-id
+object type     -> type selector
 object classes  -> .class-name
-object type     -> type selector, later
+object id       -> #object-id
 object attrs    -> attribute/state selectors, later
 ```
 
