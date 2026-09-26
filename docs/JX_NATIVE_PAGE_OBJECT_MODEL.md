@@ -89,6 +89,62 @@ Examples:
 'attrs' => ['api' => '/iframe', 'html' => 'allowed']
 ```
 
+## CSS targeting rule
+
+Object identity and class data must be styleable from CSS. The renderer should resolve style in this order:
+
+1. `#id` selector.
+2. `.class` selectors, in listed class order.
+3. `type` selector.
+4. renderer defaults.
+
+That means this object:
+
+```php
+[
+    'type' => 'iframe',
+    'id' => 'native-iframe',
+    'classes' => ['iframe', 'native-frame'],
+]
+```
+
+is styleable through:
+
+```css
+#native-iframe { background: #0e121a; }
+.iframe { border: 1px solid #4b586e; }
+.native-frame { border-radius: 10px; }
+iframe { color: #ecf0f7; }
+```
+
+The current Win32-native pass reads a first set of object selectors from `examples/style.css`, including:
+
+```css
+#demo-page,
+.page,
+.native-page { }
+
+#main-card,
+.card { }
+
+#badge,
+.badge { }
+
+#dynamic-form,
+.panel,
+.dynamic-form { }
+
+#native-iframe,
+.iframe,
+.native-frame { }
+
+#help-modal,
+.modal,
+.help-modal { }
+```
+
+The CSS parser currently matches exact selectors. Full cascade and comma-splitting are a later compiler/runtime job, so examples include both ID and class selectors as explicit rules where the native pass needs them.
+
 ## Supported object types
 
 ### `page`
