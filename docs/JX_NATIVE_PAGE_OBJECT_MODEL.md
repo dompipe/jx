@@ -89,61 +89,80 @@ Examples:
 'attrs' => ['api' => '/iframe', 'html' => 'allowed']
 ```
 
-## CSS targeting rule
+## Stacking rule
 
-Object identity and class data must be styleable from CSS. The renderer should resolve style in this order:
+The PHP object order is the z-index.
 
-1. `#id` selector.
-2. `.class` selectors, in listed class order.
-3. `type` selector.
-4. renderer defaults.
+Inside a `children` array:
 
-That means this object:
+```text
+earlier child = lower layer
+later child   = higher layer
+```
+
+So this order:
 
 ```php
-[
-    'type' => 'iframe',
-    'id' => 'native-iframe',
-    'classes' => ['iframe', 'native-frame'],
+'children' => [
+    ['type' => 'text', 'id' => 'body-copy'],
+    ['type' => 'iframe', 'id' => 'native-iframe'],
+    ['type' => 'modal', 'id' => 'help-modal'],
 ]
 ```
 
-is styleable through:
+means:
+
+```text
+body-copy is behind native-iframe
+native-iframe is behind help-modal
+help-modal is on top
+```
+
+A renderer may still temporarily hide native child controls when a higher object is visible, because some platforms draw real controls above painted surfaces. The object order remains the source of truth.
+
+## CSS targeting rule
+
+You should not need to write all three forms for the same object.
+
+Each object has one style chain:
+
+```text
+type selector     -> base object style
+.class selectors  -> shared style
+#id selector      -> one-object override
+```
+
+The compiler resolves them together. Use the smallest selector that fits:
+
+```css
+iframe { color: #ecf0f7; }
+.iframe { border: 1px solid #4b586e; }
+#native-iframe { border-radius: 10px; }
+```
+
+You only use all three when you intentionally want three cascade layers. Normal CSS should use one shared class or one ID override, not duplicate the same declarations across `#id`, `.class`, and `type`.
+
+The current Win32-native pass supports this practical chain through documented selectors such as:
+
+```css
+.page { }
+.card { }
+.badge { }
+.panel { }
+.iframe { }
+.iframe-chrome { }
+.modal { }
+.modal-overlay { }
+.modal-close { }
+```
+
+ID selectors remain valid for one-off overrides:
 
 ```css
 #native-iframe { background: #0e121a; }
-.iframe { border: 1px solid #4b586e; }
-.native-frame { border-radius: 10px; }
-iframe { color: #ecf0f7; }
 ```
 
-The current Win32-native pass reads a first set of object selectors from `examples/style.css`, including:
-
-```css
-#demo-page,
-.page,
-.native-page { }
-
-#main-card,
-.card { }
-
-#badge,
-.badge { }
-
-#dynamic-form,
-.panel,
-.dynamic-form { }
-
-#native-iframe,
-.iframe,
-.native-frame { }
-
-#help-modal,
-.modal,
-.help-modal { }
-```
-
-The CSS parser currently matches exact selectors. Full cascade and comma-splitting are a later compiler/runtime job, so examples include both ID and class selectors as explicit rules where the native pass needs them.
+The compiler target is full cascade resolution from the object tree, not duplicated selector blocks.
 
 ## Supported object types
 
