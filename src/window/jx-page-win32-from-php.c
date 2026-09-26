@@ -53,17 +53,39 @@ typedef struct {
     JxCssStylesheet css;
     char *css_bytes;
     size_t css_len;
+
     COLORREF body_bg;
     COLORREF body_fg;
+    COLORREF card_bg;
     COLORREF card_border;
+    COLORREF badge_fg;
+    COLORREF panel_bg;
+    COLORREF panel_border;
+    COLORREF iframe_bg;
+    COLORREF iframe_fg;
+    COLORREF iframe_border;
+    COLORREF iframe_chrome_bg;
+    COLORREF iframe_chrome_fg;
+    COLORREF modal_overlay_bg;
+    COLORREF modal_bg;
+    COLORREF modal_fg;
+    COLORREF modal_border;
+    COLORREF modal_close_bg;
+    COLORREF modal_close_fg;
+    COLORREF modal_close_border;
+
     int body_padding;
     int card_padding;
     int card_radius;
+    int panel_radius;
+    int iframe_radius;
+    int modal_radius;
     int window_width;
     int window_height;
     int panel_width;
     int layout_gap;
     int min_content_width;
+
     JxPageContent content;
     JxModalContent modal;
     JxIframeContent iframe;
@@ -199,12 +221,37 @@ static void load_page_css(void) {
     g_page.panel_width = css_px("window", "panel-width", 300);
     g_page.layout_gap = css_px("window", "gap", 30);
     g_page.min_content_width = css_px("window", "min-content-width", 480);
-    g_page.body_bg = css_color("body", "background", RGB(16, 19, 24));
-    g_page.body_fg = css_color("body", "color", RGB(244, 247, 251));
-    g_page.card_border = css_color(".card", "border", RGB(59, 68, 84));
+
+    g_page.body_bg = css_color("#demo-page", "background", css_color("body", "background", RGB(16, 19, 24)));
+    g_page.body_fg = css_color("#demo-page", "color", css_color("body", "color", RGB(244, 247, 251)));
+
+    g_page.card_bg = css_color("#main-card", "background", css_color(".card", "background", RGB(24, 30, 40)));
+    g_page.card_border = css_color("#main-card", "border", css_color(".card", "border", RGB(59, 68, 84)));
+    g_page.card_padding = css_px("#main-card", "padding", css_px(".card", "padding", 16));
+    g_page.card_radius = css_px("#main-card", "border-radius", css_px(".card", "border-radius", 12));
+    g_page.badge_fg = css_color("#badge", "color", css_color(".badge", "color", RGB(145, 220, 255)));
+
+    g_page.panel_bg = css_color("#dynamic-form", "background", css_color(".panel", "background", RGB(28, 34, 45)));
+    g_page.panel_border = css_color("#dynamic-form", "border", css_color(".panel", "border", RGB(67, 78, 96)));
+    g_page.panel_radius = css_px("#dynamic-form", "border-radius", css_px(".panel", "border-radius", 14));
+
+    g_page.iframe_bg = css_color("#native-iframe", "background", css_color(".iframe", "background", RGB(14, 18, 26)));
+    g_page.iframe_fg = css_color("#native-iframe", "color", css_color(".iframe", "color", RGB(236, 240, 247)));
+    g_page.iframe_border = css_color("#native-iframe", "border", css_color(".iframe", "border", RGB(75, 88, 110)));
+    g_page.iframe_radius = css_px("#native-iframe", "border-radius", css_px(".iframe", "border-radius", 10));
+    g_page.iframe_chrome_bg = css_color("#native-iframe-chrome", "background", css_color(".iframe-chrome", "background", RGB(32, 39, 52)));
+    g_page.iframe_chrome_fg = css_color("#native-iframe-chrome", "color", css_color(".iframe-chrome", "color", RGB(220, 230, 242)));
+
+    g_page.modal_overlay_bg = css_color("#help-modal-overlay", "background", css_color(".modal-overlay", "background", RGB(4, 6, 10)));
+    g_page.modal_bg = css_color("#help-modal", "background", css_color(".modal", "background", RGB(28, 34, 45)));
+    g_page.modal_fg = css_color("#help-modal", "color", css_color(".modal", "color", RGB(226, 233, 242)));
+    g_page.modal_border = css_color("#help-modal", "border", css_color(".modal", "border", RGB(90, 110, 136)));
+    g_page.modal_radius = css_px("#help-modal", "border-radius", css_px(".modal", "border-radius", 18));
+    g_page.modal_close_bg = css_color("#help-modal-close", "background", css_color(".modal-close", "background", RGB(50, 60, 76)));
+    g_page.modal_close_fg = css_color("#help-modal-close", "color", css_color(".modal-close", "color", RGB(245, 248, 252)));
+    g_page.modal_close_border = css_color("#help-modal-close", "border", css_color(".modal-close", "border", RGB(120, 140, 160)));
+
     g_page.body_padding = css_px("body", "padding", 32);
-    g_page.card_padding = css_px(".card", "padding", 16);
-    g_page.card_radius = css_px(".card", "border-radius", 12);
 }
 
 static void fill_round_rect(HDC hdc, RECT rect, int radius, COLORREF fill, COLORREF outline) {
@@ -323,17 +370,17 @@ static void layout_form_controls(HWND hwnd) {
 }
 
 static void paint_iframe(HDC hdc, RECT frame, const JxIframeContent *iframe) {
-    fill_round_rect(hdc, frame, 10, RGB(14, 18, 26), RGB(75, 88, 110));
+    fill_round_rect(hdc, frame, g_page.iframe_radius, g_page.iframe_bg, g_page.iframe_border);
     RECT chrome = frame;
     chrome.bottom = chrome.top + 34;
-    HBRUSH bar = CreateSolidBrush(RGB(32, 39, 52));
+    HBRUSH bar = CreateSolidBrush(g_page.iframe_chrome_bg);
     FillRect(hdc, &chrome, bar);
     DeleteObject(bar);
     RECT title = chrome;
     title.left += 14;
     title.top += 7;
     title.right -= 14;
-    draw_text_block(hdc, iframe->title, &title, 15, FW_BOLD, RGB(220, 230, 242));
+    draw_text_block(hdc, iframe->title, &title, 15, FW_BOLD, g_page.iframe_chrome_fg);
     RECT body = frame;
     body.left += 14;
     body.top += 46;
@@ -341,14 +388,14 @@ static void paint_iframe(HDC hdc, RECT frame, const JxIframeContent *iframe) {
     body.bottom -= 14;
     char plain[1200];
     html_to_plain(iframe->html, plain, sizeof(plain));
-    draw_text_block(hdc, plain, &body, 16, FW_NORMAL, RGB(236, 240, 247));
+    draw_text_block(hdc, plain, &body, 16, FW_NORMAL, g_page.iframe_fg);
 }
 
 static void paint_modal(HWND hwnd, HDC hdc, const JxModalContent *modal) {
     if (!modal->visible) return;
     RECT client;
     GetClientRect(hwnd, &client);
-    HBRUSH shade = CreateSolidBrush(RGB(4, 6, 10));
+    HBRUSH shade = CreateSolidBrush(g_page.modal_overlay_bg);
     FillRect(hdc, &client, shade);
     DeleteObject(shade);
     int width = jx_min_i(520, (client.right - client.left) - 80);
@@ -358,7 +405,7 @@ static void paint_modal(HWND hwnd, HDC hdc, const JxModalContent *modal) {
     box.top = client.top + ((client.bottom - client.top) - height) / 2;
     box.right = box.left + width;
     box.bottom = box.top + height;
-    fill_round_rect(hdc, box, 18, RGB(28, 34, 45), RGB(90, 110, 136));
+    fill_round_rect(hdc, box, g_page.modal_radius, g_page.modal_bg, g_page.modal_border);
     RECT title = box;
     title.left += 28;
     title.top += 24;
@@ -369,17 +416,17 @@ static void paint_modal(HWND hwnd, HDC hdc, const JxModalContent *modal) {
     g_modal_close_rect.top = box.top + 22;
     g_modal_close_rect.right = box.right - 24;
     g_modal_close_rect.bottom = box.top + 58;
-    fill_round_rect(hdc, g_modal_close_rect, 10, RGB(50, 60, 76), RGB(120, 140, 160));
+    fill_round_rect(hdc, g_modal_close_rect, 10, g_page.modal_close_bg, g_page.modal_close_border);
     RECT close_text = g_modal_close_rect;
     close_text.left += 12;
     close_text.top += 7;
-    draw_text_block(hdc, "X", &close_text, 16, FW_BOLD, RGB(245, 248, 252));
+    draw_text_block(hdc, "X", &close_text, 16, FW_BOLD, g_page.modal_close_fg);
     RECT body = box;
     body.left += 28;
     body.top += 84;
     body.right -= 28;
     body.bottom -= 28;
-    draw_text_block(hdc, modal->body, &body, 18, FW_NORMAL, RGB(226, 233, 242));
+    draw_text_block(hdc, modal->body, &body, 18, FW_NORMAL, g_page.modal_fg);
 }
 
 static void paint_page(HWND hwnd, HDC hdc) {
@@ -423,12 +470,12 @@ static void paint_page(HWND hwnd, HDC hdc) {
     RECT intro = render_area;
     intro.top += 56;
     intro.bottom = intro.top + 78;
-    draw_text_block(hdc, "This page is native Win32 GDI. The window block in CSS controls the native window and layout sizing.", &intro, 18, FW_NORMAL, g_page.body_fg);
+    draw_text_block(hdc, "This page is native Win32 GDI. Object ids and classes now map to CSS selectors.", &intro, 18, FW_NORMAL, g_page.body_fg);
 
     RECT card = render_area;
     card.top += 146;
     card.bottom = card.top + 235;
-    fill_round_rect(hdc, card, g_page.card_radius, RGB(24, 30, 40), g_page.card_border);
+    fill_round_rect(hdc, card, g_page.card_radius, g_page.card_bg, g_page.card_border);
 
     RECT inner = card;
     inner.left += g_page.card_padding;
@@ -437,7 +484,7 @@ static void paint_page(HWND hwnd, HDC hdc) {
     inner.bottom -= g_page.card_padding;
     RECT badge = inner;
     badge.bottom = badge.top + 30;
-    draw_text_block(hdc, content.badge, &badge, 16, FW_BOLD, RGB(145, 220, 255));
+    draw_text_block(hdc, content.badge, &badge, 16, FW_BOLD, g_page.badge_fg);
     RECT body = inner;
     body.top += 46;
     body.bottom = body.top + 108;
@@ -451,7 +498,7 @@ static void paint_page(HWND hwnd, HDC hdc) {
     RECT panel = page;
     panel.left = panel.right - panel_width;
     panel.bottom = panel.top + 500;
-    fill_round_rect(hdc, panel, 14, RGB(28, 34, 45), RGB(67, 78, 96));
+    fill_round_rect(hdc, panel, g_page.panel_radius, g_page.panel_bg, g_page.panel_border);
     RECT panel_title = panel;
     panel_title.left += 18;
     panel_title.top += 16;
@@ -461,7 +508,7 @@ static void paint_page(HWND hwnd, HDC hdc) {
     RECT note = panel_title;
     note.top += 340;
     note.bottom = note.top + 120;
-    draw_text_block(hdc, "CSS window rules:\nwidth / height / panel-width / gap / min-content-width\nLocal APIs: /update, /modal, /iframe", &note, 14, FW_NORMAL, RGB(210, 220, 232));
+    draw_text_block(hdc, "CSS targets:\n#main-card, #badge, #dynamic-form\n#native-iframe, #help-modal\nWindow sizing still uses window { ... }", &note, 14, FW_NORMAL, RGB(210, 220, 232));
 
     paint_modal(hwnd, hdc, &modal);
 }
@@ -650,7 +697,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_li
     wc.hbrBackground = NULL;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     if (!RegisterClassA(&wc)) die_last("cannot register native page window class");
-    g_hwnd = CreateWindowExA(0, class_name, "JX PHP Native Page - CSS Window Layout",
+    g_hwnd = CreateWindowExA(0, class_name, "JX PHP Native Page - CSS Object Styling",
         WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, g_page.window_width, g_page.window_height,
         NULL, NULL, instance, NULL);
     if (!g_hwnd) die_last("cannot create native page window");
