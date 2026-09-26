@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JX Native Window C Emission</title>
+  <meta name="description" content="Developer guide for JX native Win32/GDI C emission from PHP jx_* declarations.">
+  <style>
+    :root {
+      --bg: #080b12;
+      --panel: #101724;
+      --panel-2: #141e2f;
+      --text: #e9f1ff;
+      --muted: #a7b4c7;
+      --line: #263348;
+      --accent: #70e1ff;
+      --accent-2: #a78bfa;
+      --good: #7df5b0;
+      --warn: #ffd166;
+      --code: #07111f;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(112, 225, 255, 0.16), transparent 34rem),
+        radial-gradient(circle at top right, rgba(167, 139, 250, 0.14), transparent 32rem),
+        var(--bg);
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .shell { max-width: 1180px; margin: 0 auto; padding: 0 1.25rem 4rem; }
+    header.hero { padding: 5rem 0 3rem; }
+    .eyebrow {
+      display: inline-flex;
+      gap: .5rem;
+      align-items: center;
+      border: 1px solid rgba(112, 225, 255, .35);
+      border-radius: 999px;
+      padding: .35rem .75rem;
+      color: var(--accent);
+      background: rgba(112, 225, 255, .08);
+      font-size: .9rem;
+    }
+    h1 {
+      font-size: clamp(2.35rem, 7vw, 5.4rem);
+      line-height: .96;
+      letter-spacing: -.06em;
+      margin: 1.25rem 0 1rem;
+      max-width: 980px;
+    }
+    .lead {
+      max-width: 790px;
+      color: var(--muted);
+      font-size: clamp(1.05rem, 2.2vw, 1.32rem);
+    }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+    .card, section {
+      background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
+      border: 1px solid var(--line);
+      border-radius: 1.25rem;
+      box-shadow: 0 18px 50px rgba(0,0,0,.28);
+    }
+    .card { padding: 1.2rem; }
+    .card strong { display:block; font-size:1.05rem; }
+    .card span { color: var(--muted); font-size:.95rem; }
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      backdrop-filter: blur(16px);
+      background: rgba(8, 11, 18, .78);
+      border-bottom: 1px solid rgba(38, 51, 72, .65);
+    }
+    nav .nav-inner {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: .85rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .brand { font-weight: 800; letter-spacing: -.03em; }
+    .links { display:flex; flex-wrap:wrap; gap:.8rem; font-size:.92rem; }
+    section { padding: 1.4rem; margin: 1.25rem 0; }
+    h2 { margin: 0 0 .75rem; font-size: clamp(1.5rem, 3vw, 2.25rem); letter-spacing: -.035em; }
+    h3 { margin: 1.2rem 0 .5rem; color: #dbe8ff; }
+    p { color: var(--muted); }
+    ul, ol { color: var(--muted); }
+    li { margin: .35rem 0; }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    code { color: #d9f8ff; }
+    pre {
+      overflow-x: auto;
+      background: var(--code);
+      border: 1px solid #1d2b44;
+      border-radius: .9rem;
+      padding: 1rem;
+      color: #e8f3ff;
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: .75rem;
+      margin: 1rem 0;
+    }
+    .step {
+      padding: 1rem;
+      border-radius: 1rem;
+      background: var(--panel);
+      border: 1px solid var(--line);
+    }
+    .step b { color: var(--good); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      overflow: hidden;
+      border-radius: 1rem;
+      border: 1px solid var(--line);
+    }
+    th, td {
+      text-align: left;
+      padding: .8rem;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th { background: var(--panel-2); color: #fff; }
+    td { color: var(--muted); }
+    tr:last-child td { border-bottom: 0; }
+    .note {
+      padding: 1rem;
+      border: 1px solid rgba(255, 209, 102, .45);
+      background: rgba(255, 209, 102, .08);
+      border-radius: .9rem;
+      color: #ffe9a6;
+    }
+    .two { display:grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    footer { color: var(--muted); padding: 2rem 0 0; }
+    @media (max-width: 800px) {
+      .hero-grid, .flow, .two { grid-template-columns: 1fr; }
+      .links { display:none; }
+      header.hero { padding-top: 3rem; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="nav-inner">
+      <div class="brand">JX Native Window</div>
+      <div class="links">
+        <a href="#overview">Overview</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#declarations">Declarations</a>
+        <a href="#api">API</a>
+        <a href="#assets">Assets</a>
+        <a href="#verify">Verify</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="shell">
+    <header class="hero">
+      <div class="eyebrow">PHP declarations → generated C → native Win32 executable</div>
+      <h1>JX emits native Windows window apps from PHP page declarations.</h1>
+      <p class="lead">
+        The JX native window C emission path takes a PHP input file with <code>jx_*</code> declarations,
+        emits a GCC-compilable C file, and builds a standalone Win32/GDI executable with no WebView and no browser dependency.
+      </p>
+      <div class="hero-grid">
+        <div class="card"><strong>Input</strong><span><code>in.php</code> with <code>jx_page_title</code>, body, modal, iframe, JSON, and API declarations.</span></div>
+        <div class="card"><strong>Emission</strong><span><code>jx -o out.c in.php</code> writes a C source file and prints the follow-up GCC command.</span></div>
+        <div class="card"><strong>Executable</strong><span>GCC/MinGW links a native <code>out.exe</code> using <code>ws2_32</code>, <code>gdi32</code>, and <code>user32</code>.</span></div>
+      </div>
+    </header>
+
+    <section id="overview">
+      <h2>Overview</h2>
+      <p>
+        JX native window C emission is a direct static generation workflow. PHP is used as a declaration source,
+        not as a browser page and not as a WebView wrapper. The emitted C file contains the native window renderer,
+        embedded page data, optional embedded CSS, optional bundled assets, and a small localhost API surface.
+      </p>
+      <div class="flow">
+        <div class="step"><b>1.</b><br>Write PHP with <code>jx_*</code> declarations.</div>
+        <div class="step"><b>2.</b><br>Run <code>jx -o out.c in.php</code>.</div>
+        <div class="step"><b>3.</b><br>Compile <code>out.c</code> into a native Windows executable.</div>
+      </div>
+      <p>
+        The resulting executable opens a native Win32/GDI window. It does not require Edge WebView2, Chromium,
+        Electron, a browser, or a PHP runtime for the static <code>jx_*</code> page emission path.
+      </p>
+    </section>
+
+    <section id="requirements">
+      <h2>Requirements</h2>
+      <ul>
+        <li>JX built from <code>src/native/jx.c</code>.</li>
+        <li>GCC or MinGW-w64.</li>
+        <li>On Windows/MSYS2: <code>C:\msys64\ucrt64\bin\gcc.exe</code>.</li>
+        <li>Windows libraries: <code>ws2_32</code>, <code>gdi32</code>, and <code>user32</code>.</li>
+      </ul>
+    </section>
+
+    <section id="workflow">
+      <h2>Basic Workflow</h2>
+      <p>Emit C from a PHP declaration page:</p>
+      <pre><code>jx -o out.c in.php</code></pre>
+      <p>
+        After successful emission, JX prints the follow-up GCC command. Use that command as the canonical next step,
+        especially when the generated file or output executable names differ from the examples below.
+      </p>
+      <h3>Compile Command</h3>
+      <pre><code>gcc -O2 -Wall -Wextra -mwindows -I . -o out.exe out.c -lws2_32 -lgdi32 -luser32</code></pre>
+      <div class="note">
+        Link order matters. Put libraries after <code>out.c</code>. In particular, <code>-lws2_32</code> must appear after the generated C input so Winsock symbols are resolved.
+      </div>
+    </section>
+
+    <section id="windows">
+      <h2>PowerShell Example</h2>
+      <p>Windows PowerShell using MSYS2 UCRT64 GCC:</p>
+      <pre><code>$gcc = "C:\msys64\ucrt64\bin\gcc.exe"
+
+# Build JX from native source.
+& $gcc -O2 -Wall -Wextra -I . -o jx.exe src/native/jx.c
+
+# Emit generated C from the PHP page declaration file.
+.\jx.exe -o out.c examples\native_window_input.php
+
+# Compile the native Win32/GDI executable.
+& $gcc -O2 -Wall -Wextra -mwindows -I . -o out.exe out.c -lws2_32 -lgdi32 -luser32
+
+# Run it.
+.\out.exe</code></pre>
+    </section>
+
+    <section id="linux">
+      <h2>Linux/WSL Cross-Compile Example</h2>
+      <p>From Linux or WSL, use MinGW-w64 to build a Windows executable:</p>
+      <pre><code>sudo apt-get update
+sudo apt-get install -y gcc mingw-w64
+
+# Build the local JX emitter.
+gcc -O2 -Wall -Wextra -I . -o jx src/native/jx.c
+
+# Emit generated C.
+./jx -o out.c examples/native_window_input.php
+
+# Cross-compile a Windows executable.
+x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -mwindows -I . -o out.exe out.c -lws2_32 -lgdi32 -luser32</code></pre>
+    </section>
+
+    <section id="declarations">
+      <h2><code>jx_*</code> Page Declarations</h2>
+      <table>
+        <thead><tr><th>Declaration</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>jx_page_title</code></td><td>Sets the main native window/page title.</td></tr>
+          <tr><td><code>jx_page_badge</code></td><td>Sets a short badge or status label.</td></tr>
+          <tr><td><code>jx_page_body</code></td><td>Sets the primary body content rendered by the native window.</td></tr>
+          <tr><td><code>jx_modal_title</code></td><td>Sets modal title text.</td></tr>
+          <tr><td><code>jx_modal_body</code></td><td>Sets modal body text.</td></tr>
+          <tr><td><code>jx_iframe_title</code></td><td>Sets iframe/island title metadata.</td></tr>
+          <tr><td><code>jx_iframe_html</code></td><td>Stores iframe/island HTML payload for the generated app.</td></tr>
+          <tr><td><code>jx_page_json</code></td><td>Embeds attachment JSON returned through <code>/json</code>.</td></tr>
+          <tr><td><code>jx_local_api</code></td><td>Enables the local API bridge in the native executable.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="api">
+      <h2>Localhost API</h2>
+      <p>
+        When local API support is enabled, the native executable exposes localhost endpoints for inspecting and updating
+        the compiled window state.
+      </p>
+      <table>
+        <thead><tr><th>Endpoint</th><th>Behavior</th></tr></thead>
+        <tbody>
+          <tr><td><code>/json</code></td><td>Returns the compiled attachment JSON from <code>jx_page_json</code>.</td></tr>
+          <tr><td><code>/update?title=...&amp;badge=...&amp;body=...</code></td><td>Updates title, badge, and body state.</td></tr>
+          <tr><td><code>/modal?title=...&amp;body=...</code></td><td>Updates modal title and body state.</td></tr>
+          <tr><td><code>/iframe?title=...&amp;html=...</code></td><td>Updates iframe title and HTML payload state.</td></tr>
+        </tbody>
+      </table>
+      <pre><code>curl http://127.0.0.1:7878/json</code></pre>
+    </section>
+
+    <section id="examples">
+      <h2>Example Input</h2>
+      <p>The main example is expected at:</p>
+      <pre><code>examples/native_window_input.php</code></pre>
+      <p>A short annotated shape:</p>
+      <pre><code>&lt;?php
+// Native window text.
+jx_page_title("JX Native Window Demo");
+jx_page_badge("native-win32");
+jx_page_body("Generated C rendered by a native Win32/GDI executable.");
+
+// Modal content.
+jx_modal_title("About this executable");
+jx_modal_body("This is not a WebView and does not open a browser.");
+
+// Iframe/island payload metadata.
+jx_iframe_title("Embedded Island");
+jx_iframe_html("&lt;h1&gt;Island payload&lt;/h1&gt;");
+
+// Compiled JSON attachment returned by /json.
+jx_page_json('{"engine":"jx","target":"native-window-c"}');
+
+// Enable localhost bridge endpoints.
+jx_local_api(true);</code></pre>
+    </section>
+
+    <section id="css">
+      <h2>CSS</h2>
+      <p>
+        If a sibling <code>style.css</code> exists next to the PHP input file, JX infers it and embeds it into the generated C.
+        This keeps the generated native executable self-contained for the static page assets it knows how to bundle.
+      </p>
+      <pre><code>examples/native_window_input.php
+examples/style.css
+
+jx -o out.c examples/native_window_input.php</code></pre>
+    </section>
+
+    <section id="assets">
+      <h2>Includes, Requires, CSS Images</h2>
+      <p>
+        Bridge-mode bundling supports static quoted relative PHP includes:
+      </p>
+      <ul>
+        <li><code>include</code></li>
+        <li><code>include_once</code></li>
+        <li><code>require</code></li>
+        <li><code>require_once</code></li>
+      </ul>
+      <p>
+        JX can also bundle assets referenced by CSS <code>url(...)</code> and quoted image paths when they are static,
+        quoted, and relative to the page being emitted. The single-executable page example is expected at:
+      </p>
+      <pre><code>examples/single_exe_page/page.php</code></pre>
+      <p>Example shape:</p>
+      <pre><code>&lt;?php
+require_once "partials/header.php";
+include "partials/body.php";
+
+jx_page_title("Single EXE page");
+jx_page_body("Includes and relative assets can be bundled into generated C.");</code></pre>
+    </section>
+
+    <section id="troubleshooting">
+      <h2>Troubleshooting</h2>
+      <h3>Winsock linker errors</h3>
+      <pre><code>undefined reference to __imp_socket
+undefined reference to __imp_WSAStartup</code></pre>
+      <p>
+        This means <code>-lws2_32</code> is missing or appears before <code>out.c</code>. Re-run the compile with libraries at the end:
+      </p>
+      <pre><code>gcc -O2 -Wall -Wextra -mwindows -I . -o out.exe out.c -lws2_32 -lgdi32 -luser32</code></pre>
+    </section>
+
+    <section id="not">
+      <h2>What This Is Not</h2>
+      <ul>
+        <li>It is not a WebView wrapper.</li>
+        <li>It is not opening a browser.</li>
+        <li>It is a native Win32/GDI window renderer.</li>
+        <li>PHP runtime bridging is separate from native <code>jx_*</code> page emission.</li>
+      </ul>
+    </section>
+
+    <section id="verify">
+      <h2>Verification</h2>
+      <p>End-to-end smoke path:</p>
+      <pre><code># 1. Build JX.
+gcc -O2 -Wall -Wextra -I . -o jx src/native/jx.c
+
+# 2. Emit C.
+./jx -o out.c examples/native_window_input.php
+
+# 3. Compile EXE.
+x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -mwindows -I . -o out.exe out.c -lws2_32 -lgdi32 -luser32
+
+# 4. Run the EXE on Windows.
+./out.exe
+
+# 5. Query compiled JSON while the EXE is running.
+curl http://127.0.0.1:7878/json</code></pre>
+      <p>
+        For the long-form repo documentation, see <a href="native-window-c-emission.md">native-window-c-emission.md</a>.
+      </p>
+    </section>
+
+    <footer>
+      <p>JX native window C emission: PHP declaration input, generated C output, native Win32/GDI executable.</p>
+    </footer>
+  </main>
+</body>
+</html>
