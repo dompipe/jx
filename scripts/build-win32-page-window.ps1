@@ -5,13 +5,14 @@ Set-Location $Root
 
 function Invoke-Step {
     param(
-        [string] $Name,
-        [string] $Exe,
-        [string[]] $Args
+        [Parameter(Mandatory=$true)][string] $Name,
+        [Parameter(Mandatory=$true)][string] $Exe,
+        [Parameter(Mandatory=$true)][string[]] $CommandArgs
     )
 
     Write-Host $Name
-    & $Exe @Args
+    Write-Host "  $Exe $($CommandArgs -join ' ')"
+    & $Exe @CommandArgs
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -42,7 +43,7 @@ if (-not $CCompiler) {
 
 Write-Host "Using C compiler: $CCompiler"
 
-Invoke-Step 'Building native Windows JX compiler...' $CCompiler @(
+Invoke-Step -Name 'Building native Windows JX compiler...' -Exe $CCompiler -CommandArgs @(
     '-O2',
     '-Wall',
     '-Wextra',
@@ -51,7 +52,7 @@ Invoke-Step 'Building native Windows JX compiler...' $CCompiler @(
     'src/native/jx.c'
 )
 
-Invoke-Step 'Emitting page C bundle...' '.\build\jx-native.exe' @(
+Invoke-Step -Name 'Emitting page C bundle...' -Exe '.\build\jx-native.exe' -CommandArgs @(
     'emit-c',
     'examples/page.php',
     '--asset',
@@ -60,7 +61,7 @@ Invoke-Step 'Emitting page C bundle...' '.\build\jx-native.exe' @(
     'build/page.c'
 )
 
-Invoke-Step 'Building Windows page executable...' $CCompiler @(
+Invoke-Step -Name 'Building Windows page executable...' -Exe $CCompiler -CommandArgs @(
     '-O2',
     '-Wall',
     '-Wextra',
@@ -69,7 +70,7 @@ Invoke-Step 'Building Windows page executable...' $CCompiler @(
     'build/page.c'
 )
 
-Invoke-Step 'Building Windows window runner...' $CCompiler @(
+Invoke-Step -Name 'Building Windows window runner...' -Exe $CCompiler -CommandArgs @(
     '-O2',
     '-Wall',
     '-Wextra',
