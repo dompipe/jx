@@ -1,7 +1,7 @@
 <?php
 
 // JX native page declarations.
-// The first native-page compiler pass reads these literal declarations
+// The native-page compiler pass reads these literal declarations
 // and compiles them into a standalone Win32 executable.
 
 jx_page_title('JX PHP Native Page');
@@ -12,4 +12,8 @@ jx_form_field('title', 'Title');
 jx_form_field('badge', 'Badge');
 jx_form_field('body', 'Body');
 
+jx_modal_title('JX Native Modal');
+jx_modal_body('This modal was declared in PHP, compiled into C, and drawn by the Win32 native renderer without WebView.');
+
 jx_local_api('/update', ['title', 'badge', 'body']);
+jx_local_api('/modal', ['title', 'body']);
