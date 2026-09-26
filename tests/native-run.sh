@@ -18,4 +18,18 @@ if [ "$OUTPUT" != "$EXPECTED" ]; then
     exit 1
 fi
 
-printf 'PASS: native JX emits GCC-compilable C from PHP and the compiled artifact runs\n'
+./jx emit-c examples/page.php --asset examples/style.css -o build/page.c
+cc -O2 -std=c11 -Wall -Wextra -pedantic -o build/page build/page.c
+./build/page world > build/page.html
+
+if ! grep -q 'font-family: Arial' build/page.html; then
+    printf 'FAIL: CSS asset was not embedded into page output\n' >&2
+    exit 1
+fi
+
+if ! grep -q 'Loaded CSS asset: style.css' build/page.html; then
+    printf 'FAIL: CSS asset name was not exported to PHP\n' >&2
+    exit 1
+fi
+
+printf 'PASS: native JX emits GCC-compilable C from PHP, embeds CSS assets, and the compiled artifacts run\n'
