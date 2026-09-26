@@ -104,12 +104,16 @@ $CssSource = Get-Content -Raw -Path $CssFile
 $Title = Get-JxLiteralCall -Source $PhpSource -Name 'jx_page_title' -Fallback 'JX PHP Native Page'
 $Badge = Get-JxLiteralCall -Source $PhpSource -Name 'jx_page_badge' -Fallback 'BUILT FROM PHP'
 $Body = Get-JxLiteralCall -Source $PhpSource -Name 'jx_page_body' -Fallback 'Generated from PHP declarations.'
+$ModalTitle = Get-JxLiteralCall -Source $PhpSource -Name 'jx_modal_title' -Fallback 'JX Native Modal'
+$ModalBody = Get-JxLiteralCall -Source $PhpSource -Name 'jx_modal_body' -Fallback 'This modal was declared in PHP and compiled into the native executable.'
 
 $PageSourcePath = $PhpPage -replace '\\', '/'
 $PageSourceC = Convert-ToCString $PageSourcePath
 $TitleC = Convert-ToCString $Title
 $BadgeC = Convert-ToCString $Badge
 $BodyC = Convert-ToCString $Body
+$ModalTitleC = Convert-ToCString $ModalTitle
+$ModalBodyC = Convert-ToCString $ModalBody
 $CssC = Convert-ToCString $CssSource
 
 $Header = @"
@@ -120,6 +124,8 @@ $Header = @"
 #define JX_PAGE_TITLE $TitleC
 #define JX_PAGE_BADGE $BadgeC
 #define JX_PAGE_BODY $BodyC
+#define JX_PAGE_MODAL_TITLE $ModalTitleC
+#define JX_PAGE_MODAL_BODY $ModalBodyC
 #define JX_PAGE_CSS $CssC
 
 #endif
@@ -163,3 +169,4 @@ Write-Host '  .\dist\jx-php-native-page.exe'
 Write-Host ''
 Write-Host 'Then test URL update:'
 Write-Host '  http://127.0.0.1:8765/update?title=Hello&badge=LIVE&body=Updated+from+URL'
+Write-Host '  http://127.0.0.1:8765/modal?title=Native+Modal&body=Opened+from+URL'
