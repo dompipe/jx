@@ -9,18 +9,33 @@
 #include "../runtime/jx_css_runtime.h"
 #include "jx_php_page_data.h"
 
+#ifndef JX_PAGE_MODAL_TITLE
+#define JX_PAGE_MODAL_TITLE "JX Native Modal"
+#endif
+#ifndef JX_PAGE_MODAL_BODY
+#define JX_PAGE_MODAL_BODY "This modal was declared in PHP and compiled into the native executable."
+#endif
+
 #define JX_API_PORT 8765
-#define JX_ID_TITLE 2001
-#define JX_ID_BADGE 2002
-#define JX_ID_BODY 2003
-#define JX_ID_APPLY 2004
-#define JX_WM_API_UPDATE (WM_APP + 91)
+#define JX_ID_TITLE 1001
+#define JX_ID_BADGE 1002
+#define JX_ID_BODY 1003
+#define JX_ID_APPLY 1004
+#define JX_ID_MODAL 1005
+#define JX_WM_API_UPDATE (WM_APP + 77)
+#define JX_WM_API_MODAL (WM_APP + 78)
 
 typedef struct {
-    char title[192];
-    char badge[128];
-    char body[768];
-} JxPageState;
+    char title[160];
+    char badge[96];
+    char body[512];
+} JxPageContent;
+
+typedef struct {
+    char title[160];
+    char body[512];
+    int visible;
+} JxModalContent;
 
 typedef struct {
     JxCssStylesheet css;
@@ -32,17 +47,27 @@ typedef struct {
     int body_padding;
     int card_padding;
     int card_radius;
-} JxStyleState;
+    JxPageContent content;
+    JxModalContent modal;
+    CRITICAL_SECTION lock;
+} JxPageDemo;
 
-static JxPageState g_page;
-static JxStyleState g_style;
-static CRITICAL_SECTION g_lock;
+static JxPageDemo g_page;
 static HWND g_hwnd = NULL;
 static HWND g_title_edit = NULL;
 static HWND g_badge_edit = NULL;
 static HWND g_body_edit = NULL;
 static HANDLE g_api_thread = NULL;
 static volatile LONG g_api_stop = 0;
+static RECT g_modal_close_rect;
+
+static void die_last(const char *message) {
+    DWORD code = GetLastError();
+    char text[256];
+    snprintf(text, sizeof(text), "%s: error %lu", message, (unsigned long)code);
+    MessageBoxA(NULL, text, "JX Native Page", MB_ICONERROR | MB_OK);
+    ExitProcess(1);
+}
 
 static void copy_text(char *dst, size_t dst_size, const char *src) {
     if (!dst || dst_size == 0) return;
@@ -51,23 +76,23 @@ static void copy_text(char *dst, size_t dst_size, const char *src) {
 }
 
 static char *copy_bytes(const char *data, size_t len) {
-    char *out = (char *)malloc(len + 1);
-    if (!out) return NULL;
-    if (len) memcpy(out, data, len);
-    out[len] = '\0';
-    return out;
+    char *bytes = (char *)malloc(len + 1);
+    if (!bytes) return NULL;
+    if (len > 0) memcpy(bytes, data, len);
+    bytes[len] = '\0';
+    return bytes;
 }
 
 static char *slice_copy(const char *data, size_t len) {
-    char *out = (char *)malloc(len + 1);
-    if (!out) return NULL;
-    memcpy(out, data, len);
-    out[len] = '\0';
-    return out;
+    char *copy = (char *)malloc(len + 1);
+    if (!copy) return NULL;
+    memcpy(copy, data, len);
+    copy[len] = '\0';
+    return copy;
 }
 
 static const JxCssDeclaration *css_decl(const char *selector, const char *property) {
-    return jx_css_find_property(&g_style.css, selector, property);
+    return jx_css_find_property(&g_page.css, selector, property);
 }
 
 static char *css_value_copy(const char *selector, const char *property) {
@@ -93,15 +118,17 @@ static COLORREF parse_color_value(const char *value, COLORREF fallback) {
     int g2 = hex_value(hex[4]);
     int b1 = hex_value(hex[5]);
     int b2 = hex_value(hex[6]);
-    if (r1 < 0 || r2 < 0 || g1 < 0 || g2 < 0 || b1 < 0 || b2 < 0) return fallback;
-    return RGB((r1 << 4) | r2, (g1 << 4) | g2, (b1 << 4) | b2);
+    if (r1 >= 0 && r2 >= 0 && g1 >= 0 && g2 >= 0 && b1 >= 0 && b2 >= 0) {
+        return RGB((r1 << 4) | r2, (g1 << 4) | g2, (b1 << 4) | b2);
+    }
+    return fallback;
 }
 
 static COLORREF css_color(const char *selector, const char *property, COLORREF fallback) {
     char *value = css_value_copy(selector, property);
-    COLORREF out = parse_color_value(value, fallback);
+    COLORREF color = parse_color_value(value, fallback);
     free(value);
-    return out;
+    return color;
 }
 
 static int css_px(const char *selector, const char *property, int fallback) {
@@ -113,73 +140,38 @@ static int css_px(const char *selector, const char *property, int fallback) {
     return n > 0 ? n : fallback;
 }
 
-static void init_state(void) {
-    InitializeCriticalSection(&g_lock);
-    copy_text(g_page.title, sizeof(g_page.title), JX_PAGE_TITLE);
-    copy_text(g_page.badge, sizeof(g_page.badge), JX_PAGE_BADGE);
-    copy_text(g_page.body, sizeof(g_page.body), JX_PAGE_BODY);
+static void init_default_content(void) {
+    copy_text(g_page.content.title, sizeof(g_page.content.title), JX_PAGE_TITLE);
+    copy_text(g_page.content.badge, sizeof(g_page.content.badge), JX_PAGE_BADGE);
+    copy_text(g_page.content.body, sizeof(g_page.content.body), JX_PAGE_BODY);
+    copy_text(g_page.modal.title, sizeof(g_page.modal.title), JX_PAGE_MODAL_TITLE);
+    copy_text(g_page.modal.body, sizeof(g_page.modal.body), JX_PAGE_MODAL_BODY);
+    g_page.modal.visible = 0;
+}
 
-    jx_css_stylesheet_init(&g_style.css);
-    g_style.css_len = strlen(JX_PAGE_CSS);
-    g_style.css_bytes = copy_bytes(JX_PAGE_CSS, g_style.css_len);
-    if (g_style.css_bytes) {
+static void load_page_css(void) {
+    memset(&g_page, 0, sizeof(g_page));
+    InitializeCriticalSection(&g_page.lock);
+    jx_css_stylesheet_init(&g_page.css);
+    init_default_content();
+
+    g_page.css_len = strlen(JX_PAGE_CSS);
+    g_page.css_bytes = copy_bytes(JX_PAGE_CSS, g_page.css_len);
+    if (g_page.css_bytes) {
         JxCssText css;
-        css.data = g_style.css_bytes;
-        css.length = g_style.css_len;
-        jx_css_parse_text(css, &g_style.css);
+        css.data = g_page.css_bytes;
+        css.length = g_page.css_len;
+        if (!jx_css_parse_text(css, &g_page.css)) {
+            MessageBoxA(NULL, "JX could not parse PHP page CSS.", "JX Native Page", MB_ICONWARNING | MB_OK);
+        }
     }
 
-    g_style.body_bg = css_color("body", "background", RGB(16, 19, 24));
-    g_style.body_fg = css_color("body", "color", RGB(244, 247, 251));
-    g_style.card_border = css_color(".card", "border", RGB(59, 68, 84));
-    g_style.body_padding = css_px("body", "padding", 32);
-    g_style.card_padding = css_px(".card", "padding", 16);
-    g_style.card_radius = css_px(".card", "border-radius", 12);
-}
-
-static void cleanup_state(void) {
-    InterlockedExchange(&g_api_stop, 1);
-    if (g_api_thread) {
-        closesocket(INVALID_SOCKET);
-        WaitForSingleObject(g_api_thread, 250);
-        CloseHandle(g_api_thread);
-    }
-    jx_css_stylesheet_free(&g_style.css);
-    free(g_style.css_bytes);
-    DeleteCriticalSection(&g_lock);
-}
-
-static void snapshot_page(JxPageState *out) {
-    EnterCriticalSection(&g_lock);
-    *out = g_page;
-    LeaveCriticalSection(&g_lock);
-}
-
-static void set_page(const char *title, const char *badge, const char *body) {
-    EnterCriticalSection(&g_lock);
-    if (title && *title) copy_text(g_page.title, sizeof(g_page.title), title);
-    if (badge && *badge) copy_text(g_page.badge, sizeof(g_page.badge), badge);
-    if (body && *body) copy_text(g_page.body, sizeof(g_page.body), body);
-    LeaveCriticalSection(&g_lock);
-}
-
-static void sync_form(void) {
-    JxPageState state;
-    snapshot_page(&state);
-    if (g_title_edit) SetWindowTextA(g_title_edit, state.title);
-    if (g_badge_edit) SetWindowTextA(g_badge_edit, state.badge);
-    if (g_body_edit) SetWindowTextA(g_body_edit, state.body);
-}
-
-static void apply_form(HWND hwnd) {
-    char title[192];
-    char badge[128];
-    char body[768];
-    GetWindowTextA(g_title_edit, title, sizeof(title));
-    GetWindowTextA(g_badge_edit, badge, sizeof(badge));
-    GetWindowTextA(g_body_edit, body, sizeof(body));
-    set_page(title, badge, body);
-    InvalidateRect(hwnd, NULL, TRUE);
+    g_page.body_bg = css_color("body", "background", RGB(16, 19, 24));
+    g_page.body_fg = css_color("body", "color", RGB(244, 247, 251));
+    g_page.card_border = css_color(".card", "border", RGB(59, 68, 84));
+    g_page.body_padding = css_px("body", "padding", 32);
+    g_page.card_padding = css_px(".card", "padding", 16);
+    g_page.card_radius = css_px(".card", "border-radius", 12);
 }
 
 static void fill_round_rect(HDC hdc, RECT rect, int radius, COLORREF fill, COLORREF outline) {
@@ -206,78 +198,179 @@ static void draw_text_block(HDC hdc, const char *text, RECT *rect, int font_size
     DeleteObject(font);
 }
 
+static void snapshot_content(JxPageContent *out) {
+    EnterCriticalSection(&g_page.lock);
+    *out = g_page.content;
+    LeaveCriticalSection(&g_page.lock);
+}
+
+static void snapshot_modal(JxModalContent *out) {
+    EnterCriticalSection(&g_page.lock);
+    *out = g_page.modal;
+    LeaveCriticalSection(&g_page.lock);
+}
+
+static void set_content(const char *title, const char *badge, const char *body) {
+    EnterCriticalSection(&g_page.lock);
+    if (title && *title) copy_text(g_page.content.title, sizeof(g_page.content.title), title);
+    if (badge && *badge) copy_text(g_page.content.badge, sizeof(g_page.content.badge), badge);
+    if (body && *body) copy_text(g_page.content.body, sizeof(g_page.content.body), body);
+    LeaveCriticalSection(&g_page.lock);
+}
+
+static void show_modal(const char *title, const char *body) {
+    EnterCriticalSection(&g_page.lock);
+    if (title && *title) copy_text(g_page.modal.title, sizeof(g_page.modal.title), title);
+    if (body && *body) copy_text(g_page.modal.body, sizeof(g_page.modal.body), body);
+    g_page.modal.visible = 1;
+    LeaveCriticalSection(&g_page.lock);
+}
+
+static void hide_modal(void) {
+    EnterCriticalSection(&g_page.lock);
+    g_page.modal.visible = 0;
+    LeaveCriticalSection(&g_page.lock);
+}
+
+static void apply_form_update(HWND hwnd) {
+    char title[160];
+    char badge[96];
+    char body[512];
+    GetWindowTextA(g_title_edit, title, sizeof(title));
+    GetWindowTextA(g_badge_edit, badge, sizeof(badge));
+    GetWindowTextA(g_body_edit, body, sizeof(body));
+    set_content(title, badge, body);
+    InvalidateRect(hwnd, NULL, TRUE);
+}
+
+static void sync_form_from_state(void) {
+    JxPageContent current;
+    snapshot_content(&current);
+    if (g_title_edit) SetWindowTextA(g_title_edit, current.title);
+    if (g_badge_edit) SetWindowTextA(g_badge_edit, current.badge);
+    if (g_body_edit) SetWindowTextA(g_body_edit, current.body);
+}
+
+static void paint_modal(HWND hwnd, HDC hdc, const JxModalContent *modal) {
+    if (!modal->visible) return;
+
+    RECT client;
+    GetClientRect(hwnd, &client);
+
+    HBRUSH shade = CreateSolidBrush(RGB(4, 6, 10));
+    FillRect(hdc, &client, shade);
+    DeleteObject(shade);
+
+    int width = 520;
+    int height = 260;
+    RECT box;
+    box.left = client.left + ((client.right - client.left) - width) / 2;
+    box.top = client.top + ((client.bottom - client.top) - height) / 2;
+    box.right = box.left + width;
+    box.bottom = box.top + height;
+
+    fill_round_rect(hdc, box, 18, RGB(28, 34, 45), RGB(90, 110, 136));
+
+    RECT title = box;
+    title.left += 28;
+    title.top += 24;
+    title.right -= 80;
+    title.bottom = title.top + 42;
+    draw_text_block(hdc, modal->title, &title, 24, FW_BOLD, g_page.body_fg);
+
+    g_modal_close_rect.left = box.right - 62;
+    g_modal_close_rect.top = box.top + 22;
+    g_modal_close_rect.right = box.right - 24;
+    g_modal_close_rect.bottom = box.top + 58;
+    fill_round_rect(hdc, g_modal_close_rect, 10, RGB(50, 60, 76), RGB(120, 140, 160));
+    RECT close_text = g_modal_close_rect;
+    close_text.left += 12;
+    close_text.top += 7;
+    draw_text_block(hdc, "X", &close_text, 16, FW_BOLD, RGB(245, 248, 252));
+
+    RECT body = box;
+    body.left += 28;
+    body.top += 84;
+    body.right -= 28;
+    body.bottom -= 28;
+    draw_text_block(hdc, modal->body, &body, 18, FW_NORMAL, RGB(226, 233, 242));
+}
+
 static void paint_page(HWND hwnd, HDC hdc) {
     RECT client;
     GetClientRect(hwnd, &client);
-    HBRUSH bg = CreateSolidBrush(g_style.body_bg);
+
+    HBRUSH bg = CreateSolidBrush(g_page.body_bg);
     FillRect(hdc, &client, bg);
     DeleteObject(bg);
 
-    JxPageState page_state;
-    snapshot_page(&page_state);
+    JxPageContent content;
+    JxModalContent modal;
+    snapshot_content(&content);
+    snapshot_modal(&modal);
 
-    int pad = g_style.body_padding;
+    int pad = g_page.body_padding;
     RECT page = client;
     page.left += pad;
     page.top += pad;
     page.right -= pad;
     page.bottom -= pad;
 
-    RECT render = page;
-    render.right -= 330;
+    RECT render_area = page;
+    render_area.right -= 330;
 
-    RECT title = render;
-    title.bottom = title.top + 86;
-    draw_text_block(hdc, page_state.title, &title, 32, FW_BOLD, g_style.body_fg);
+    RECT hero = render_area;
+    hero.bottom = hero.top + 84;
+    draw_text_block(hdc, content.title, &hero, 32, FW_BOLD, g_page.body_fg);
 
-    RECT intro = render;
+    RECT intro = render_area;
     intro.top += 56;
-    intro.bottom = intro.top + 74;
-    draw_text_block(hdc, "Generated from a PHP page into native Win32 drawing. No WebView. No browser engine.", &intro, 18, FW_NORMAL, g_style.body_fg);
+    intro.bottom = intro.top + 78;
+    draw_text_block(hdc, "This page is native Win32 GDI. No WebView. PHP declarations compiled this page, form, API, and modal.", &intro, 18, FW_NORMAL, g_page.body_fg);
 
-    RECT card = render;
+    RECT card = render_area;
     card.top += 146;
-    card.bottom = card.top + 300;
-    fill_round_rect(hdc, card, g_style.card_radius, RGB(24, 30, 40), g_style.card_border);
+    card.bottom = card.top + 310;
+    fill_round_rect(hdc, card, g_page.card_radius, RGB(24, 30, 40), g_page.card_border);
 
     RECT inner = card;
-    inner.left += g_style.card_padding;
-    inner.top += g_style.card_padding;
-    inner.right -= g_style.card_padding;
-    inner.bottom -= g_style.card_padding;
+    inner.left += g_page.card_padding;
+    inner.top += g_page.card_padding;
+    inner.right -= g_page.card_padding;
+    inner.bottom -= g_page.card_padding;
 
     RECT badge = inner;
     badge.bottom = badge.top + 30;
-    draw_text_block(hdc, page_state.badge, &badge, 16, FW_BOLD, RGB(145, 220, 255));
+    draw_text_block(hdc, content.badge, &badge, 16, FW_BOLD, RGB(145, 220, 255));
 
     RECT body = inner;
-    body.top += 48;
-    body.bottom = body.top + 130;
-    draw_text_block(hdc, page_state.body, &body, 19, FW_NORMAL, g_style.body_fg);
+    body.top += 46;
+    body.bottom = body.top + 118;
+    draw_text_block(hdc, content.body, &body, 19, FW_NORMAL, g_page.body_fg);
 
     RECT api = inner;
-    api.top += 190;
-    api.bottom = api.top + 82;
-    draw_text_block(hdc, "Local API: http://127.0.0.1:8765/update?title=Hello&badge=LIVE&body=Updated+from+URL", &api, 15, FW_NORMAL, RGB(210, 220, 232));
+    api.top += 174;
+    api.bottom = api.top + 92;
+    draw_text_block(hdc, "Local APIs:\n/update?title=Hello&badge=LIVE&body=Updated+from+URL\n/modal?title=Native+Modal&body=Opened+from+URL", &api, 15, FW_NORMAL, RGB(210, 220, 232));
 
     RECT panel = page;
     panel.left = panel.right - 300;
-    panel.bottom = panel.top + 430;
+    panel.bottom = panel.top + 470;
     fill_round_rect(hdc, panel, 14, RGB(28, 34, 45), RGB(67, 78, 96));
 
     RECT panel_title = panel;
     panel_title.left += 18;
     panel_title.top += 16;
     panel_title.right -= 18;
-    panel_title.bottom = panel_title.top + 32;
-    draw_text_block(hdc, "Dynamic Form", &panel_title, 20, FW_BOLD, g_style.body_fg);
+    panel_title.bottom = panel_title.top + 28;
+    draw_text_block(hdc, "Dynamic Form + Modal", &panel_title, 20, FW_BOLD, g_page.body_fg);
 
-    RECT note = panel;
-    note.left += 18;
-    note.right -= 18;
-    note.top += 336;
-    note.bottom = note.top + 70;
-    draw_text_block(hdc, "This .exe was compiled from PHP declarations and embedded CSS. URL API is local-only.", &note, 14, FW_NORMAL, RGB(210, 220, 232));
+    RECT note = panel_title;
+    note.top += 340;
+    note.bottom = note.top + 90;
+    draw_text_block(hdc, "The modal is native-drawn. The URL listener is bound only to 127.0.0.1 for local testing.", &note, 14, FW_NORMAL, RGB(210, 220, 232));
+
+    paint_modal(hwnd, hdc, &modal);
 }
 
 static int from_hex(char c) {
@@ -288,29 +381,29 @@ static int from_hex(char c) {
 }
 
 static void url_decode(char *text) {
-    char *r = text;
-    char *w = text;
-    while (*r) {
-        if (*r == '+') {
-            *w++ = ' ';
-            ++r;
-        } else if (*r == '%' && r[1] && r[2]) {
-            int hi = from_hex(r[1]);
-            int lo = from_hex(r[2]);
+    char *read = text;
+    char *write = text;
+    while (*read) {
+        if (*read == '+') {
+            *write++ = ' ';
+            ++read;
+        } else if (*read == '%' && read[1] && read[2]) {
+            int hi = from_hex(read[1]);
+            int lo = from_hex(read[2]);
             if (hi >= 0 && lo >= 0) {
-                *w++ = (char)((hi << 4) | lo);
-                r += 3;
+                *write++ = (char)((hi << 4) | lo);
+                read += 3;
             } else {
-                *w++ = *r++;
+                *write++ = *read++;
             }
         } else {
-            *w++ = *r++;
+            *write++ = *read++;
         }
     }
-    *w = '\0';
+    *write = '\0';
 }
 
-static void query_value(const char *query, const char *key, char *out, size_t out_size) {
+static void parse_query_value(const char *query, const char *key, char *out, size_t out_size) {
     out[0] = '\0';
     size_t key_len = strlen(key);
     const char *p = query;
@@ -331,17 +424,16 @@ static void query_value(const char *query, const char *key, char *out, size_t ou
     }
 }
 
-static void send_http_response(SOCKET client) {
-    const char *body = "OK JX page updated\n";
-    char response[256];
+static void send_http_response(SOCKET client, const char *body) {
+    char response[768];
     snprintf(response, sizeof(response),
-        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %u\r\nConnection: close\r\n\r\n%s",
-        (unsigned)strlen(body), body);
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n%s",
+        strlen(body), body);
     send(client, response, (int)strlen(response), 0);
 }
 
-static DWORD WINAPI api_thread_proc(LPVOID arg) {
-    (void)arg;
+static DWORD WINAPI api_thread_proc(LPVOID unused) {
+    (void)unused;
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 1;
 
@@ -351,49 +443,68 @@ static DWORD WINAPI api_thread_proc(LPVOID arg) {
         return 1;
     }
 
-    u_long nonblocking = 1;
-    ioctlsocket(server, FIONBIO, &nonblocking);
+    BOOL opt = TRUE;
+    setsockopt(server, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
 
     struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
+    ZeroMemory(&addr, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(JX_API_PORT);
-    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
-    if (bind(server, (struct sockaddr *)&addr, sizeof(addr)) == SOCKET_ERROR) {
+    if (bind(server, (struct sockaddr *)&addr, sizeof(addr)) == SOCKET_ERROR || listen(server, 8) == SOCKET_ERROR) {
         closesocket(server);
         WSACleanup();
         return 1;
     }
-    listen(server, 8);
 
-    while (!InterlockedCompareExchange(&g_api_stop, 0, 0)) {
+    while (InterlockedCompareExchange(&g_api_stop, 0, 0) == 0) {
         SOCKET client = accept(server, NULL, NULL);
-        if (client == INVALID_SOCKET) {
-            Sleep(35);
+        if (client == INVALID_SOCKET) break;
+
+        char request[2048];
+        int received = recv(client, request, sizeof(request) - 1, 0);
+        if (received <= 0) {
+            closesocket(client);
             continue;
         }
+        request[received] = '\0';
 
-        char req[2048];
-        int got = recv(client, req, sizeof(req) - 1, 0);
-        if (got > 0) {
-            req[got] = '\0';
-            char *start = strstr(req, "GET /update?");
-            if (start) {
-                char *query = start + strlen("GET /update?");
-                char *space = strchr(query, ' ');
-                if (space) *space = '\0';
-                char title[192];
-                char badge[128];
-                char body[768];
-                query_value(query, "title", title, sizeof(title));
-                query_value(query, "badge", badge, sizeof(badge));
-                query_value(query, "body", body, sizeof(body));
-                set_page(title, badge, body);
-                if (g_hwnd) PostMessageA(g_hwnd, JX_WM_API_UPDATE, 0, 0);
-            }
-            send_http_response(client);
+        char *path_start = strchr(request, ' ');
+        char *path_end = NULL;
+        if (path_start) {
+            ++path_start;
+            path_end = strchr(path_start, ' ');
         }
+        if (!path_start || !path_end) {
+            send_http_response(client, "bad request\n");
+            closesocket(client);
+            continue;
+        }
+        *path_end = '\0';
+
+        char *query = strchr(path_start, '?');
+        if (query) *query++ = '\0';
+
+        if (strcmp(path_start, "/update") == 0) {
+            char title[160], badge[96], body[512];
+            parse_query_value(query ? query : "", "title", title, sizeof(title));
+            parse_query_value(query ? query : "", "badge", badge, sizeof(badge));
+            parse_query_value(query ? query : "", "body", body, sizeof(body));
+            set_content(title, badge, body);
+            if (g_hwnd) PostMessageA(g_hwnd, JX_WM_API_UPDATE, 0, 0);
+            send_http_response(client, "updated\n");
+        } else if (strcmp(path_start, "/modal") == 0) {
+            char title[160], body[512];
+            parse_query_value(query ? query : "", "title", title, sizeof(title));
+            parse_query_value(query ? query : "", "body", body, sizeof(body));
+            show_modal(title, body);
+            if (g_hwnd) PostMessageA(g_hwnd, JX_WM_API_MODAL, 0, 0);
+            send_http_response(client, "modal opened\n");
+        } else {
+            send_http_response(client, "JX native page API\n/update?title=...&badge=...&body=...\n/modal?title=...&body=...\n");
+        }
+
         closesocket(client);
     }
 
@@ -402,39 +513,55 @@ static DWORD WINAPI api_thread_proc(LPVOID arg) {
     return 0;
 }
 
-static void create_controls(HWND hwnd) {
-    HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-    int x = 700;
-    int y = 118;
-    int w = 245;
-
-    g_title_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, x, y, w, 26, hwnd, (HMENU)JX_ID_TITLE, GetModuleHandleA(NULL), NULL);
-    g_badge_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, x, y + 62, w, 26, hwnd, (HMENU)JX_ID_BADGE, GetModuleHandleA(NULL), NULL);
-    g_body_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL, x, y + 124, w, 108, hwnd, (HMENU)JX_ID_BODY, GetModuleHandleA(NULL), NULL);
-    HWND button = CreateWindowA("BUTTON", "Apply", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, x, y + 250, w, 32, hwnd, (HMENU)JX_ID_APPLY, GetModuleHandleA(NULL), NULL);
-
-    SendMessageA(g_title_edit, WM_SETFONT, (WPARAM)font, TRUE);
-    SendMessageA(g_badge_edit, WM_SETFONT, (WPARAM)font, TRUE);
-    SendMessageA(g_body_edit, WM_SETFONT, (WPARAM)font, TRUE);
-    SendMessageA(button, WM_SETFONT, (WPARAM)font, TRUE);
-    sync_form();
+static void create_form_controls(HWND hwnd) {
+    HINSTANCE instance = GetModuleHandleA(NULL);
+    CreateWindowExA(0, "STATIC", "Title", WS_CHILD | WS_VISIBLE, 715, 100, 220, 20, hwnd, NULL, instance, NULL);
+    g_title_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 715, 122, 230, 26, hwnd, (HMENU)JX_ID_TITLE, instance, NULL);
+    CreateWindowExA(0, "STATIC", "Badge", WS_CHILD | WS_VISIBLE, 715, 158, 220, 20, hwnd, NULL, instance, NULL);
+    g_badge_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 715, 180, 230, 26, hwnd, (HMENU)JX_ID_BADGE, instance, NULL);
+    CreateWindowExA(0, "STATIC", "Body", WS_CHILD | WS_VISIBLE, 715, 216, 220, 20, hwnd, NULL, instance, NULL);
+    g_body_edit = CreateWindowExA(WS_EX_CLIENTEDGE, "EDIT", "", WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL, 715, 238, 230, 92, hwnd, (HMENU)JX_ID_BODY, instance, NULL);
+    CreateWindowExA(0, "BUTTON", "Apply", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 715, 346, 108, 32, hwnd, (HMENU)JX_ID_APPLY, instance, NULL);
+    CreateWindowExA(0, "BUTTON", "Show Modal", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 837, 346, 108, 32, hwnd, (HMENU)JX_ID_MODAL, instance, NULL);
+    sync_form_from_state();
 }
 
 static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE:
-            g_hwnd = hwnd;
-            create_controls(hwnd);
-            g_api_thread = CreateThread(NULL, 0, api_thread_proc, NULL, 0, NULL);
+            create_form_controls(hwnd);
             return 0;
         case WM_COMMAND:
             if (LOWORD(wp) == JX_ID_APPLY) {
-                apply_form(hwnd);
+                apply_form_update(hwnd);
+                return 0;
+            }
+            if (LOWORD(wp) == JX_ID_MODAL) {
+                show_modal(JX_PAGE_MODAL_TITLE, JX_PAGE_MODAL_BODY);
+                InvalidateRect(hwnd, NULL, TRUE);
                 return 0;
             }
             break;
+        case WM_LBUTTONDOWN: {
+            JxModalContent modal;
+            snapshot_modal(&modal);
+            if (modal.visible) {
+                POINT pt;
+                pt.x = LOWORD(lp);
+                pt.y = HIWORD(lp);
+                if (PtInRect(&g_modal_close_rect, pt)) {
+                    hide_modal();
+                    InvalidateRect(hwnd, NULL, TRUE);
+                    return 0;
+                }
+            }
+            break;
+        }
         case JX_WM_API_UPDATE:
-            sync_form();
+            sync_form_from_state();
+            InvalidateRect(hwnd, NULL, TRUE);
+            return 0;
+        case JX_WM_API_MODAL:
             InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         case WM_PAINT: {
@@ -448,6 +575,7 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         case WM_DESTROY:
+            InterlockedExchange(&g_api_stop, 1);
             PostQuitMessage(0);
             return 0;
         default:
@@ -460,29 +588,27 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_li
     (void)prev_instance;
     (void)command_line;
     (void)show_command;
-    init_state();
 
-    const char *class_name = "JXPHPNativePageWindow";
+    load_page_css();
+
+    const char *class_name = "JXPhpNativePageWindow";
     WNDCLASSA wc;
-    memset(&wc, 0, sizeof(wc));
+    ZeroMemory(&wc, sizeof(wc));
     wc.lpfnWndProc = window_proc;
     wc.hInstance = instance;
     wc.lpszClassName = class_name;
     wc.hbrBackground = NULL;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
 
-    if (!RegisterClassA(&wc)) {
-        MessageBoxA(NULL, "Cannot register window class.", "JX Native Page", MB_ICONERROR | MB_OK);
-        return 1;
-    }
+    if (!RegisterClassA(&wc)) die_last("cannot register native page window class");
 
-    HWND hwnd = CreateWindowExA(0, class_name, "JX PHP Native Page - Standalone EXE", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-        CW_USEDEFAULT, CW_USEDEFAULT, 1010, 700, NULL, NULL, instance, NULL);
-    if (!hwnd) {
-        MessageBoxA(NULL, "Cannot create window.", "JX Native Page", MB_ICONERROR | MB_OK);
-        cleanup_state();
-        return 1;
-    }
+    g_hwnd = CreateWindowExA(0, class_name, "JX PHP Native Page - Modal Demo",
+        WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 1020, 720,
+        NULL, NULL, instance, NULL);
+
+    if (!g_hwnd) die_last("cannot create native page window");
+
+    g_api_thread = CreateThread(NULL, 0, api_thread_proc, NULL, 0, NULL);
 
     MSG msg;
     while (GetMessageA(&msg, NULL, 0, 0) > 0) {
@@ -490,7 +616,10 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_li
         DispatchMessageA(&msg);
     }
 
-    cleanup_state();
+    if (g_api_thread) CloseHandle(g_api_thread);
+    jx_css_stylesheet_free(&g_page.css);
+    free(g_page.css_bytes);
+    DeleteCriticalSection(&g_page.lock);
     return 0;
 }
 
