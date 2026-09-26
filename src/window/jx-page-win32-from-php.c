@@ -21,8 +21,10 @@
 #ifndef JX_PAGE_IFRAME_HTML
 #define JX_PAGE_IFRAME_HTML "<p>Iframe HTML declared in PHP.</p>"
 #endif
-
+#ifndef JX_API_PORT
 #define JX_API_PORT 8765
+#endif
+
 #define JX_ID_TITLE 1001
 #define JX_ID_BADGE 1002
 #define JX_ID_BODY 1003
