@@ -12,6 +12,81 @@ static void die_last(const char *message) {
     ExitProcess(1);
 }
 
+static void die_message(const char *message, const char *detail) {
+    if (detail && *detail) {
+        fprintf(stderr, "jx-window-win32: %s: %s\n", message, detail);
+    } else {
+        fprintf(stderr, "jx-window-win32: %s\n", message);
+    }
+    ExitProcess(1);
+}
+
+static char *dup_string(const char *text) {
+    size_t len = strlen(text) + 1;
+    char *copy = (char *)malloc(len);
+    if (!copy) {
+        ExitProcess(1);
+    }
+    memcpy(copy, text, len);
+    return copy;
+}
+
+static char *append_exe_suffix(const char *path) {
+    size_t len = strlen(path);
+    char *out = (char *)malloc(len + 5);
+    if (!out) {
+        ExitProcess(1);
+    }
+    memcpy(out, path, len);
+    memcpy(out + len, ".exe", 5);
+    return out;
+}
+
+static int file_exists(const char *path) {
+    DWORD attrs = GetFileAttributesA(path);
+    return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+static char *full_path(const char *path) {
+    DWORD needed = GetFullPathNameA(path, 0, NULL, NULL);
+    if (needed == 0) {
+        die_last("cannot resolve executable path");
+    }
+
+    char *resolved = (char *)malloc((size_t)needed + 1);
+    if (!resolved) {
+        ExitProcess(1);
+    }
+
+    DWORD written = GetFullPathNameA(path, needed + 1, resolved, NULL);
+    if (written == 0 || written > needed) {
+        free(resolved);
+        die_last("cannot resolve executable path");
+    }
+
+    return resolved;
+}
+
+static char *resolve_executable_path(const char *input) {
+    char *resolved = full_path(input);
+    if (file_exists(resolved)) {
+        return resolved;
+    }
+
+    size_t len = strlen(resolved);
+    if (len < 4 || _stricmp(resolved + len - 4, ".exe") != 0) {
+        char *with_exe = append_exe_suffix(resolved);
+        free(resolved);
+        if (file_exists(with_exe)) {
+            return with_exe;
+        }
+        die_message("generated executable not found", with_exe);
+    }
+
+    die_message("generated executable not found", resolved);
+    return NULL;
+}
+
 static char *quote_arg(const char *arg) {
     size_t len = strlen(arg);
     size_t cap = len * 2 + 3;
@@ -32,14 +107,18 @@ static char *quote_arg(const char *arg) {
     return out;
 }
 
-static char *build_command_line(int argc, char **argv) {
-    size_t cap = 1024;
+static char *build_command_line(const char *exe_path, int argc, char **argv) {
+    char *quoted_exe = quote_arg(exe_path);
+    size_t cap = strlen(quoted_exe) + 128;
     char *cmd = (char *)calloc(1, cap);
     if (!cmd) {
+        free(quoted_exe);
         ExitProcess(1);
     }
+    strcat(cmd, quoted_exe);
+    free(quoted_exe);
 
-    for (int i = 1; i < argc; ++i) {
+    for (int i = 2; i < argc; ++i) {
         char *q = quote_arg(argv[i]);
         size_t need = strlen(cmd) + strlen(q) + 2;
         if (need > cap) {
@@ -54,9 +133,7 @@ static char *build_command_line(int argc, char **argv) {
             }
             cmd = next;
         }
-        if (i > 1) {
-            strcat(cmd, " ");
-        }
+        strcat(cmd, " ");
         strcat(cmd, q);
         free(q);
     }
@@ -128,6 +205,8 @@ static char *strip_html(const char *input) {
 }
 
 static char *run_child_capture(int argc, char **argv) {
+    char *exe_path = resolve_executable_path(argv[1]);
+
     SECURITY_ATTRIBUTES sa;
     ZeroMemory(&sa, sizeof(sa));
     sa.nLength = sizeof(sa);
@@ -136,9 +215,11 @@ static char *run_child_capture(int argc, char **argv) {
     HANDLE read_pipe = NULL;
     HANDLE write_pipe = NULL;
     if (!CreatePipe(&read_pipe, &write_pipe, &sa, 0)) {
+        free(exe_path);
         die_last("cannot create stdout pipe");
     }
     if (!SetHandleInformation(read_pipe, HANDLE_FLAG_INHERIT, 0)) {
+        free(exe_path);
         die_last("cannot configure stdout pipe");
     }
 
@@ -152,13 +233,16 @@ static char *run_child_capture(int argc, char **argv) {
     si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
     si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
 
-    char *cmd = build_command_line(argc, argv);
-    BOOL ok = CreateProcessA(NULL, cmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
+    char *cmd = build_command_line(exe_path, argc, argv);
+    BOOL ok = CreateProcessA(exe_path, cmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
     CloseHandle(write_pipe);
     free(cmd);
     if (!ok) {
+        fprintf(stderr, "jx-window-win32: tried executable: %s\n", exe_path);
+        free(exe_path);
         die_last("cannot start generated executable");
     }
+    free(exe_path);
 
     char *html = read_pipe_to_string(read_pipe);
     CloseHandle(read_pipe);
