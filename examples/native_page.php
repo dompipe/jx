@@ -15,5 +15,9 @@ jx_form_field('body', 'Body');
 jx_modal_title('JX Native Modal');
 jx_modal_body('This modal was declared in PHP, compiled into C, and drawn by the Win32 native renderer without WebView.');
 
+jx_iframe_title('Native Iframe');
+jx_iframe_html('<h2>Iframe HTML is allowed</h2><p>This content was declared in PHP as iframe HTML and rendered inside a native framed region.</p><p>No WebView is used in this pass.</p>');
+
 jx_local_api('/update', ['title', 'badge', 'body']);
 jx_local_api('/modal', ['title', 'body']);
+jx_local_api('/iframe', ['title', 'html']);
