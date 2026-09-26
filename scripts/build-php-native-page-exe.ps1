@@ -38,30 +38,52 @@ function Get-JxLiteralCall {
         [string] $Fallback
     )
 
-    $Pattern = "(?s)" + [regex]::Escape($Name) + "\s*\(\s*(['\"])(.*?)\1\s*\)"
-    $Match = [regex]::Match($Source, $Pattern)
-    if ($Match.Success) {
-        return $Match.Groups[2].Value
+    $EscapedName = [regex]::Escape($Name)
+    $SinglePattern = "(?s)$EscapedName\s*\(\s*'([^']*)'\s*\)"
+    $SingleMatch = [regex]::Match($Source, $SinglePattern)
+    if ($SingleMatch.Success) {
+        return $SingleMatch.Groups[1].Value
     }
+
+    $DoublePattern = '(?s)' + $EscapedName + '\s*\(\s*"([^"]*)"\s*\)'
+    $DoubleMatch = [regex]::Match($Source, $DoublePattern)
+    if ($DoubleMatch.Success) {
+        return $DoubleMatch.Groups[1].Value
+    }
+
     return $Fallback
 }
 
 function Convert-ToCString {
     param([string] $Text)
 
+    if ($null -eq $Text) {
+        $Text = ''
+    }
+
     $Builder = New-Object System.Text.StringBuilder
-    [void]$Builder.Append('"')
+    [void]$Builder.Append([char]34)
+
     foreach ($Char in $Text.ToCharArray()) {
-        switch ($Char) {
-            "`n" { [void]$Builder.Append('\n') }
-            "`r" { [void]$Builder.Append('\r') }
-            "`t" { [void]$Builder.Append('\t') }
-            '"'  { [void]$Builder.Append('\"') }
-            '\'  { [void]$Builder.Append('\\') }
-            default { [void]$Builder.Append($Char) }
+        $Code = [int][char]$Char
+        if ($Code -eq 10) {
+            [void]$Builder.Append('\n')
+        } elseif ($Code -eq 13) {
+            [void]$Builder.Append('\r')
+        } elseif ($Code -eq 9) {
+            [void]$Builder.Append('\t')
+        } elseif ($Code -eq 34) {
+            [void]$Builder.Append('\"')
+        } elseif ($Code -eq 92) {
+            [void]$Builder.Append('\\')
+        } elseif ($Code -lt 32 -or $Code -gt 126) {
+            [void]$Builder.Append(('\x{0:x2}' -f $Code))
+        } else {
+            [void]$Builder.Append($Char)
         }
     }
-    [void]$Builder.Append('"')
+
+    [void]$Builder.Append([char]34)
     return $Builder.ToString()
 }
 
@@ -83,15 +105,22 @@ $Title = Get-JxLiteralCall -Source $PhpSource -Name 'jx_page_title' -Fallback 'J
 $Badge = Get-JxLiteralCall -Source $PhpSource -Name 'jx_page_badge' -Fallback 'BUILT FROM PHP'
 $Body = Get-JxLiteralCall -Source $PhpSource -Name 'jx_page_body' -Fallback 'Generated from PHP declarations.'
 
+$PageSourcePath = $PhpPage -replace '\\', '/'
+$PageSourceC = Convert-ToCString $PageSourcePath
+$TitleC = Convert-ToCString $Title
+$BadgeC = Convert-ToCString $Badge
+$BodyC = Convert-ToCString $Body
+$CssC = Convert-ToCString $CssSource
+
 $Header = @"
 #ifndef JX_PHP_PAGE_DATA_H
 #define JX_PHP_PAGE_DATA_H
 
-#define JX_PAGE_SOURCE "$(($PhpPage -replace '\\', '/'))"
-#define JX_PAGE_TITLE $(Convert-ToCString $Title)
-#define JX_PAGE_BADGE $(Convert-ToCString $Badge)
-#define JX_PAGE_BODY $(Convert-ToCString $Body)
-#define JX_PAGE_CSS $(Convert-ToCString $CssSource)
+#define JX_PAGE_SOURCE $PageSourceC
+#define JX_PAGE_TITLE $TitleC
+#define JX_PAGE_BADGE $BadgeC
+#define JX_PAGE_BODY $BodyC
+#define JX_PAGE_CSS $CssC
 
 #endif
 "@
