@@ -14,6 +14,15 @@ $Css = Get-Content -Raw -Path $CssPath
 $AllowedSelectors = @(
     'window',
     'body',
+    'page',
+    'card',
+    'badge',
+    'form',
+    'iframe',
+    'iframe-chrome',
+    'modal',
+    'modal-overlay',
+    'modal-close',
     '#demo-page',
     '#main-card',
     '#badge',
@@ -23,12 +32,17 @@ $AllowedSelectors = @(
     '#help-modal',
     '#help-modal-overlay',
     '#help-modal-close',
+    '.page',
+    '.native-page',
     '.card',
     '.badge',
     '.panel',
+    '.dynamic-form',
     '.iframe',
+    '.native-frame',
     '.iframe-chrome',
     '.modal',
+    '.help-modal',
     '.modal-overlay',
     '.modal-close'
 )
@@ -80,9 +94,7 @@ if ($Matches.Count -eq 0) {
     Add-ErrorText 'no CSS blocks were parsed'
 }
 
-$ParsedLength = 0
 foreach ($Match in $Matches) {
-    $ParsedLength += $Match.Length
     $SelectorList = $Match.Groups[1].Value.Trim()
     $Body = $Match.Groups[2].Value.Trim()
 
