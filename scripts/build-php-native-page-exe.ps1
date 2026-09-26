@@ -7,7 +7,8 @@ param(
     [string] $GeneratedHeader = '',
     [string] $PageSource = '',
     [string] $CssValidator = '',
-    [string] $Compiler = ''
+    [string] $Compiler = '',
+    [string] $ApiPort = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -188,6 +189,13 @@ $GeneratedHeader = Get-ConfigValue -Config $Config -Name 'generatedHeader' -CliV
 $PageSource = Get-ConfigValue -Config $Config -Name 'pageSource' -CliValue $PageSource -Fallback 'src/window/jx-page-win32-from-php.c'
 $CssValidator = Get-ConfigValue -Config $Config -Name 'cssValidator' -CliValue $CssValidator -Fallback 'scripts/validate-native-page-css.ps1'
 $Compiler = Get-ConfigValue -Config $Config -Name 'compiler' -CliValue $Compiler -Fallback ''
+$ApiPort = Get-ConfigValue -Config $Config -Name 'apiPort' -CliValue $ApiPort -Fallback '8765'
+
+[int] $ApiPortNumber = 0
+if (-not [int]::TryParse($ApiPort, [ref] $ApiPortNumber) -or $ApiPortNumber -lt 1024 -or $ApiPortNumber -gt 65535) {
+    Write-Error "apiPort must be an integer from 1024 to 65535: $ApiPort"
+    exit 1
+}
 
 $CFlags = Get-ConfigArray -Config $Config -Name 'cFlags' -Fallback @('-O2', '-Wall', '-Wextra', '-mwindows')
 $RuntimeSources = Get-ConfigArray -Config $Config -Name 'runtimeSources' -Fallback @('src/runtime/jx_css_runtime.c')
@@ -260,6 +268,7 @@ $Header = @"
 #define JX_PAGE_IFRAME_TITLE $IframeTitleC
 #define JX_PAGE_IFRAME_HTML $IframeHtmlC
 #define JX_PAGE_CSS $CssC
+#define JX_API_PORT $ApiPortNumber
 
 #endif
 "@
@@ -283,6 +292,7 @@ Write-Host "PHP page: $PhpPage"
 Write-Host "CSS asset: $CssFile"
 Write-Host "Generated header: $GeneratedHeader"
 Write-Host "Output EXE: $OutputExe"
+Write-Host "Default API port: $ApiPortNumber"
 
 $CommandArgs = @()
 $CommandArgs += $CFlags
@@ -301,7 +311,10 @@ Write-Host ''
 Write-Host 'Run it directly:'
 Write-Host "  .\$OutputExe"
 Write-Host ''
+Write-Host 'Run another copy on another local API port:'
+Write-Host "  .\$OutputExe --port $($ApiPortNumber + 1)"
+Write-Host ''
 Write-Host 'Then test URL update:'
-Write-Host '  http://127.0.0.1:8765/update?title=Hello&badge=LIVE&body=Updated+from+URL'
-Write-Host '  http://127.0.0.1:8765/modal?title=Native+Modal&body=Opened+from+URL'
-Write-Host '  http://127.0.0.1:8765/iframe?title=Frame&html=%3Ch2%3EHello%3C%2Fh2%3E%3Cp%3EUpdated%20iframe%20HTML%3C%2Fp%3E'
+Write-Host "  http://127.0.0.1:$ApiPortNumber/update?title=Hello&badge=LIVE&body=Updated+from+URL"
+Write-Host "  http://127.0.0.1:$ApiPortNumber/modal?title=Native+Modal&body=Opened+from+URL"
+Write-Host "  http://127.0.0.1:$ApiPortNumber/iframe?title=Frame&html=%3Ch2%3EHello%3C%2Fh2%3E%3Cp%3EUpdated%20iframe%20HTML%3C%2Fp%3E"
