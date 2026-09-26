@@ -1,4 +1,0 @@
-$starter = 89;
-$river = 129;
-$garden = 169;
-$total = $starter + $river + $garden;

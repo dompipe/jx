@@ -1,3 +1,0 @@
-live_file("/tmp/pasl-live.html");
-live_set("from backing file");
-live_run(8765, 2);

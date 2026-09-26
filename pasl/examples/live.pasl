@@ -1,2 +1,0 @@
-live_set("hello from PASL live");
-live_run(8765, 3);

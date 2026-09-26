@@ -1,6 +1,0 @@
-{
-  "id": "decimals",
-  "entry": "Decimal.php",
-  "depends": [],
-  "targets": ["windows", "mac", "linux", "web"]
-}

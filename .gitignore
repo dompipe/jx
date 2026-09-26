@@ -1,3 +1,4 @@
-pasl/.pasl-*.body.php
-pasl/xi/src/XipEngine.assembled.php
 build/
+vendor/
+.DS_Store
+*.log

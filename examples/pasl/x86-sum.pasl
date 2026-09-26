@@ -1,7 +1,0 @@
-$sum = 0;
-$counter = 5;
-while ($counter) {
-    $sum = $sum + $counter;
-    $counter--;
-}
-$result = $sum;

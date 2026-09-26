@@ -1,4 +1,0 @@
-$fiction = 24;
-$history = 17;
-$science = 19;
-$total = $fiction + $history + $science;

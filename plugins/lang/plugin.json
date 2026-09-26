@@ -1,6 +1,0 @@
-{
-  "id": "lang",
-  "entry": "bootstrap.php",
-  "depends": [],
-  "targets": ["windows", "mac", "linux", "web"]
-}

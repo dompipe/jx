@@ -1,2 +1,0 @@
-string $r = fetch("https://example.com/");
-$n = strlen($r);
