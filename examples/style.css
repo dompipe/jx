@@ -1,0 +1,19 @@
+body {
+    font-family: Arial, sans-serif;
+    background: #101318;
+    color: #f4f7fb;
+    margin: 0;
+    padding: 2rem;
+}
+
+.card {
+    border: 1px solid #3b4454;
+    border-radius: 12px;
+    padding: 1rem;
+}
+
+.badge {
+    display: inline-block;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
