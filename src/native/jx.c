@@ -179,6 +179,66 @@ static char *jx_copy_text(const char *text) {
     return jx_copy_range(text, strlen(text));
 }
 
+static char *jx_exe_path_for_c_output(const char *output_path) {
+    size_t len = strlen(output_path);
+    if (len >= 2 && output_path[len - 2] == '.' &&
+        (output_path[len - 1] == 'c' || output_path[len - 1] == 'C')) {
+        char *exe = (char *)malloc(len + 3);
+        if (!exe) {
+            jx_die("out of memory");
+        }
+        memcpy(exe, output_path, len);
+        exe[len - 1] = 'e';
+        exe[len] = 'x';
+        exe[len + 1] = 'e';
+        exe[len + 2] = '\0';
+        return exe;
+    }
+
+    char *exe = (char *)malloc(len + 5);
+    if (!exe) {
+        jx_die("out of memory");
+    }
+    memcpy(exe, output_path, len);
+    memcpy(exe + len, ".exe", 5);
+    return exe;
+}
+
+static void jx_print_shell_quoted_arg(const char *arg) {
+    int simple = arg[0] != '\0';
+    for (const unsigned char *p = (const unsigned char *)arg; *p; ++p) {
+        if (!((*p >= 'A' && *p <= 'Z') ||
+              (*p >= 'a' && *p <= 'z') ||
+              (*p >= '0' && *p <= '9') ||
+              *p == '_' || *p == '-' || *p == '.' || *p == '/' || *p == '\\' || *p == ':')) {
+            simple = 0;
+            break;
+        }
+    }
+    if (simple) {
+        fputs(arg, stdout);
+        return;
+    }
+    fputc('"', stdout);
+    for (const char *p = arg; *p; ++p) {
+        if (*p == '"') {
+            fputc('\\', stdout);
+        }
+        fputc(*p, stdout);
+    }
+    fputc('"', stdout);
+}
+
+static void jx_print_window_gcc_command(const char *output_path) {
+    char *exe_path = jx_exe_path_for_c_output(output_path);
+    fputs("GCC window compile command:\n  gcc -O2 -Wall -Wextra -mwindows -I . -o ", stdout);
+    jx_print_shell_quoted_arg(exe_path);
+    fputc(' ', stdout);
+    jx_print_shell_quoted_arg(output_path);
+    fputs(" -lws2_32 -lgdi32 -luser32\n", stdout);
+    free(exe_path);
+}
+
 static char *jx_dirname_alloc(const char *path) {
     const char *slash = strrchr(path, '/');
     const char *backslash = strrchr(path, '\\');
@@ -1533,6 +1593,7 @@ int main(int argc, char **argv) {
     JxOptions opt = jx_parse_options(argc, argv, first_arg);
     jx_emit_c_file(&opt);
     printf("JX emitted GCC-compilable C: %s -> %s\n", opt.input_path, opt.output_path);
+    jx_print_window_gcc_command(opt.output_path);
     if (opt.inferred_asset) {
         free((char *)opt.asset_path);
     }
