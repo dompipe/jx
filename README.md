@@ -89,6 +89,47 @@ gcc
 one executable that recreates the PHP/CSS bundle
 ```
 
+## JX native page declarations, samples, and Island protocol
+
+The repo includes a practical guide and ten sample declaration files for the native page/window workflow:
+
+```text
+docs/JX_COMMAND_SAMPLES_AND_ISLAND.md
+examples/jx_command_samples/
+```
+
+These examples cover:
+
+- `jx_page_title()`
+- `jx_page_badge()`
+- `jx_page_body()`
+- `jx_modal_title()`
+- `jx_modal_body()`
+- `jx_iframe_title()`
+- `jx_iframe_html()`
+- `jx_page_json()`
+- `jx_local_api()`
+- how page JSON mirrors declaration state
+- how local Island/API routes like `/json`, `/update`, `/modal`, and `/iframe` work
+- how to emit each sample to C and compile it
+
+Start here:
+
+```bash
+cat docs/JX_COMMAND_SAMPLES_AND_ISLAND.md
+ls examples/jx_command_samples
+```
+
+Emit all ten samples to C:
+
+```bash
+mkdir -p build/jx-command-samples
+for sample in examples/jx_command_samples/[0-9][0-9]_*.php; do
+  base=$(basename "$sample" .php)
+  ./jx -o "build/jx-command-samples/${base}.c" "$sample"
+done
+```
+
 ## Commands
 
 ```bash
