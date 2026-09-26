@@ -9,7 +9,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define JX_VERSION "0.2.0-native-oracle-c-emitter"
+#define JX_VERSION "0.2.1-native-oracle-c-emitter"
 
 typedef struct {
     unsigned char *bytes;
@@ -144,7 +144,7 @@ static void jx_emit_runtime(FILE *out, const char *source_path, const JxBuffer *
     fputs("#include <unistd.h>\n\n", out);
 
     fputs("static const char *JX_ORACLE_NAME = \"php-payload-exec-oracle\";\n", out);
-    fputs("static const char *JX_ORACLE_VERSION = \"0.2.0\";\n", out);
+    fputs("static const char *JX_ORACLE_VERSION = \"0.2.1\";\n", out);
     fputs("static const char *JX_ORACLE_CAPABILITY = \"embedded PHP payload to executable process\";\n", out);
     fputs("static const char *JX_SOURCE_PATH = ", out);
     jx_write_c_string(out, source_path);
@@ -158,9 +158,19 @@ static void jx_emit_runtime(FILE *out, const char *source_path, const JxBuffer *
     fputs("    exit(1);\n", out);
     fputs("}\n\n", out);
 
+    fputs("static char *jx_oracle_copy_path(const char *path) {\n", out);
+    fputs("    size_t len = strlen(path) + 1;\n", out);
+    fputs("    char *copy = (char *)malloc(len);\n", out);
+    fputs("    if (!copy) {\n", out);
+    fputs("        jx_oracle_fail(\"cannot allocate temporary PHP path\");\n", out);
+    fputs("    }\n", out);
+    fputs("    memcpy(copy, path, len);\n", out);
+    fputs("    return copy;\n", out);
+    fputs("}\n\n", out);
+
     fputs("static char *jx_oracle_materialize_payload(void) {\n", out);
-    fputs("    char template_path[] = \"/tmp/jx_php_payload_XXXXXX.php\";\n", out);
-    fputs("    int fd = mkstemps(template_path, 4);\n", out);
+    fputs("    char template_path[] = \"/tmp/jx_php_payload_XXXXXX\";\n", out);
+    fputs("    int fd = mkstemp(template_path);\n", out);
     fputs("    if (fd < 0) {\n", out);
     fputs("        jx_oracle_fail(\"cannot create temporary PHP payload\");\n", out);
     fputs("    }\n", out);
@@ -172,18 +182,19 @@ static void jx_emit_runtime(FILE *out, const char *source_path, const JxBuffer *
     fputs("            unlink(template_path);\n", out);
     fputs("            jx_oracle_fail(\"cannot write temporary PHP payload\");\n", out);
     fputs("        }\n", out);
+    fputs("        if (written == 0) {\n", out);
+    fputs("            close(fd);\n", out);
+    fputs("            unlink(template_path);\n", out);
+    fputs("            errno = EIO;\n", out);
+    fputs("            jx_oracle_fail(\"short write on temporary PHP payload\");\n", out);
+    fputs("        }\n", out);
     fputs("        written_total += (size_t)written;\n", out);
     fputs("    }\n", out);
     fputs("    if (close(fd) != 0) {\n", out);
     fputs("        unlink(template_path);\n", out);
     fputs("        jx_oracle_fail(\"cannot close temporary PHP payload\");\n", out);
     fputs("    }\n", out);
-    fputs("    char *copy = strdup(template_path);\n", out);
-    fputs("    if (!copy) {\n", out);
-    fputs("        unlink(template_path);\n", out);
-    fputs("        jx_oracle_fail(\"cannot copy temporary PHP path\");\n", out);
-    fputs("    }\n", out);
-    fputs("    return copy;\n", out);
+    fputs("    return jx_oracle_copy_path(template_path);\n", out);
     fputs("}\n\n", out);
 
     fputs("static int jx_oracle_exec_php(int argc, char **argv, const char *payload_path) {\n", out);
