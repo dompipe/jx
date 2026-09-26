@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
     jx_css_stylesheet_init(&sheet);
 
     int rc = jx_css_parse_text(css, &sheet);
-    if (rc != 0) {
+    if (rc == 0) {
         fprintf(stderr, "css-runtime-demo: parse failed for %s\n", path);
         free(bytes);
         jx_css_stylesheet_free(&sheet);
