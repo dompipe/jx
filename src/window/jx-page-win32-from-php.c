@@ -7,7 +7,9 @@
 #include <string.h>
 
 #include "../runtime/jx_css_runtime.h"
+#ifndef JX_PAGE_DATA_EMBEDDED
 #include "jx_php_page_data.h"
+#endif
 
 #ifndef JX_PAGE_MODAL_TITLE
 #define JX_PAGE_MODAL_TITLE "JX Native Modal"
@@ -21,6 +23,10 @@
 #ifndef JX_PAGE_IFRAME_HTML
 #define JX_PAGE_IFRAME_HTML "<p>Iframe HTML declared in PHP.</p>"
 #endif
+#ifndef JX_PAGE_ATTACHMENT_JSON
+#define JX_PAGE_ATTACHMENT_JSON "{\"renderer\":\"win32-native\",\"api\":[\"/update\",\"/modal\",\"/iframe\",\"/json\"]}"
+#endif
+
 #ifndef JX_API_PORT
 #define JX_API_PORT 8765
 #endif
@@ -594,6 +600,15 @@ static void send_http_response(SOCKET client, const char *body) {
     send(client, response, (int)strlen(response), 0);
 }
 
+static void send_json_response(SOCKET client, const char *body) {
+    char header[512];
+    snprintf(header, sizeof(header),
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n",
+        strlen(body));
+    send(client, header, (int)strlen(header), 0);
+    send(client, body, (int)strlen(body), 0);
+}
+
 static DWORD WINAPI api_thread_proc(LPVOID unused) {
     (void)unused;
     WSADATA wsa;
@@ -651,9 +666,11 @@ static DWORD WINAPI api_thread_proc(LPVOID unused) {
             set_iframe(title, html);
             if (g_hwnd) PostMessageA(g_hwnd, JX_WM_API_IFRAME, 0, 0);
             send_http_response(client, "iframe updated\n");
+        } else if (strcmp(path_start, "/json") == 0) {
+            send_json_response(client, JX_PAGE_ATTACHMENT_JSON);
         } else {
             char help[512];
-            snprintf(help, sizeof(help), "JX native page API on port %d\n/update?title=...&badge=...&body=...\n/modal?title=...&body=...\n/iframe?title=...&html=...\n", g_page.api_port);
+            snprintf(help, sizeof(help), "JX native page API on port %d\n/update?title=...&badge=...&body=...\n/modal?title=...&body=...\n/iframe?title=...&html=...\n/json\n", g_page.api_port);
             send_http_response(client, help);
         }
         closesocket(client);

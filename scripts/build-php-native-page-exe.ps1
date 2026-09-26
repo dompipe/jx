@@ -120,6 +120,59 @@ function Get-JxLiteralCall {
     return $Fallback
 }
 
+function Convert-ToPhpSingleQuotedString {
+    param([string] $Text)
+
+    if ($null -eq $Text) {
+        $Text = ''
+    }
+
+    return "'" + ($Text -replace '\\', '\\' -replace "'", "\\'") + "'"
+}
+
+function Get-JxPageDeclarations {
+    param([string] $PhpPage)
+
+    $PhpCommand = Get-Command php -ErrorAction SilentlyContinue
+    if (-not $PhpCommand) {
+        return $null
+    }
+
+    $Runner = [System.IO.Path]::GetTempFileName() + '.php'
+    $PhpPageLiteral = Convert-ToPhpSingleQuotedString ((Resolve-Path $PhpPage).Path)
+    $RunnerSource = @"
+<?php
+`$GLOBALS['__jx_page'] = [
+    'fields' => [],
+    'api' => [],
+];
+function jx_page_title(`$value) { `$GLOBALS['__jx_page']['title'] = `$value; }
+function jx_page_badge(`$value) { `$GLOBALS['__jx_page']['badge'] = `$value; }
+function jx_page_body(`$value) { `$GLOBALS['__jx_page']['body'] = `$value; }
+function jx_form_field(`$name, `$label) { `$GLOBALS['__jx_page']['fields'][] = ['name' => `$name, 'label' => `$label]; }
+function jx_modal_title(`$value) { `$GLOBALS['__jx_page']['modalTitle'] = `$value; }
+function jx_modal_body(`$value) { `$GLOBALS['__jx_page']['modalBody'] = `$value; }
+function jx_iframe_title(`$value) { `$GLOBALS['__jx_page']['iframeTitle'] = `$value; }
+function jx_iframe_html(`$value) { `$GLOBALS['__jx_page']['iframeHtml'] = `$value; }
+function jx_local_api(`$path, `$params) { `$GLOBALS['__jx_page']['api'][] = ['path' => `$path, 'params' => `$params]; }
+require $PhpPageLiteral;
+echo json_encode(`$GLOBALS['__jx_page'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+"@
+
+    try {
+        Set-Content -Path $Runner -Value $RunnerSource -Encoding UTF8
+        $Json = & $PhpCommand.Source $Runner
+        if ($LASTEXITCODE -ne 0 -or -not $Json) {
+            return $null
+        }
+        return $Json | ConvertFrom-Json
+    } catch {
+        return $null
+    } finally {
+        Remove-Item -LiteralPath $Runner -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Convert-ToCString {
     param([string] $Text)
 
@@ -235,14 +288,15 @@ if ($CssValidator -and (Test-Path $CssValidator)) {
 
 $PhpSource = Get-Content -Raw -Path $PhpPage
 $CssSource = Get-Content -Raw -Path $CssFile
+$Declarations = Get-JxPageDeclarations -PhpPage $PhpPage
 
-$Title = Get-JxLiteralCall -Source $PhpSource -Name 'jx_page_title' -Fallback 'JX PHP Native Page'
-$Badge = Get-JxLiteralCall -Source $PhpSource -Name 'jx_page_badge' -Fallback 'BUILT FROM PHP'
-$Body = Get-JxLiteralCall -Source $PhpSource -Name 'jx_page_body' -Fallback 'Generated from PHP declarations.'
-$ModalTitle = Get-JxLiteralCall -Source $PhpSource -Name 'jx_modal_title' -Fallback 'JX Native Modal'
-$ModalBody = Get-JxLiteralCall -Source $PhpSource -Name 'jx_modal_body' -Fallback 'This modal was declared in PHP and compiled into the native executable.'
-$IframeTitle = Get-JxLiteralCall -Source $PhpSource -Name 'jx_iframe_title' -Fallback 'Native Iframe'
-$IframeHtml = Get-JxLiteralCall -Source $PhpSource -Name 'jx_iframe_html' -Fallback '<p>Iframe HTML declared in PHP.</p>'
+$Title = if ($Declarations -and $Declarations.title) { "$($Declarations.title)" } else { Get-JxLiteralCall -Source $PhpSource -Name 'jx_page_title' -Fallback 'JX PHP Native Page' }
+$Badge = if ($Declarations -and $Declarations.badge) { "$($Declarations.badge)" } else { Get-JxLiteralCall -Source $PhpSource -Name 'jx_page_badge' -Fallback 'BUILT FROM PHP' }
+$Body = if ($Declarations -and $Declarations.body) { "$($Declarations.body)" } else { Get-JxLiteralCall -Source $PhpSource -Name 'jx_page_body' -Fallback 'Generated from PHP declarations.' }
+$ModalTitle = if ($Declarations -and $Declarations.modalTitle) { "$($Declarations.modalTitle)" } else { Get-JxLiteralCall -Source $PhpSource -Name 'jx_modal_title' -Fallback 'JX Native Modal' }
+$ModalBody = if ($Declarations -and $Declarations.modalBody) { "$($Declarations.modalBody)" } else { Get-JxLiteralCall -Source $PhpSource -Name 'jx_modal_body' -Fallback 'This modal was declared in PHP and compiled into the native executable.' }
+$IframeTitle = if ($Declarations -and $Declarations.iframeTitle) { "$($Declarations.iframeTitle)" } else { Get-JxLiteralCall -Source $PhpSource -Name 'jx_iframe_title' -Fallback 'Native Iframe' }
+$IframeHtml = if ($Declarations -and $Declarations.iframeHtml) { "$($Declarations.iframeHtml)" } else { Get-JxLiteralCall -Source $PhpSource -Name 'jx_iframe_html' -Fallback '<p>Iframe HTML declared in PHP.</p>' }
 
 $PageSourcePath = $PhpPage -replace '\\', '/'
 $PageSourceC = Convert-ToCString $PageSourcePath

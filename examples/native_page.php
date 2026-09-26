@@ -40,6 +40,24 @@ $page = [
             'text' => 'This standalone EXE was generated from examples/native_page.php and examples/style.css. Edit the form or call the local URL API to update this native page live.',
         ],
         [
+            'type' => 'modal',
+            'id' => 'help-modal',
+            'classes' => ['modal', 'help-modal'],
+            'attrs' => [
+                'title' => 'JX Native Modal',
+                'api' => '/modal',
+            ],
+            'children' => [
+                [
+                    'type' => 'text',
+                    'id' => 'help-modal-body',
+                    'classes' => ['modal-body'],
+                    'attrs' => ['role' => 'body'],
+                    'text' => 'This modal was declared in PHP, compiled into C, and drawn by the Win32 native renderer without WebView.',
+                ],
+            ],
+        ],
+        [
             'type' => 'form',
             'id' => 'dynamic-form',
             'classes' => ['panel', 'dynamic-form'],
@@ -68,24 +86,7 @@ $page = [
                 ],
             ],
         ],
-        [
-            'type' => 'modal',
-            'id' => 'help-modal',
-            'classes' => ['modal', 'help-modal'],
-            'attrs' => [
-                'title' => 'JX Native Modal',
-                'api' => '/modal',
-            ],
-            'children' => [
-                [
-                    'type' => 'text',
-                    'id' => 'help-modal-body',
-                    'classes' => ['modal-body'],
-                    'attrs' => ['role' => 'body'],
-                    'text' => 'This modal was declared in PHP, compiled into C, and drawn by the Win32 native renderer without WebView.',
-                ],
-            ],
-        ],
+
         [
             'type' => 'iframe',
             'id' => 'native-iframe',
@@ -135,12 +136,12 @@ jx_page_title($page['children'][0]['text']);
 jx_page_badge($page['children'][1]['text']);
 jx_page_body($page['children'][2]['text']);
 
-jx_form_field($page['children'][3]['fields'][0]['attrs']['name'], $page['children'][3]['fields'][0]['attrs']['label']);
-jx_form_field($page['children'][3]['fields'][1]['attrs']['name'], $page['children'][3]['fields'][1]['attrs']['label']);
-jx_form_field($page['children'][3]['fields'][2]['attrs']['name'], $page['children'][3]['fields'][2]['attrs']['label']);
+jx_form_field($page['children'][4]['fields'][0]['attrs']['name'], $page['children'][4]['fields'][0]['attrs']['label']);
+jx_form_field($page['children'][4]['fields'][1]['attrs']['name'], $page['children'][4]['fields'][1]['attrs']['label']);
+jx_form_field($page['children'][4]['fields'][2]['attrs']['name'], $page['children'][4]['fields'][2]['attrs']['label']);
 
-jx_modal_title($page['children'][4]['attrs']['title']);
-jx_modal_body($page['children'][4]['children'][0]['text']);
+jx_modal_title($page['children'][3]['attrs']['title']);
+jx_modal_body($page['children'][3]['children'][0]['text']);
 
 jx_iframe_title($page['children'][5]['attrs']['title']);
 jx_iframe_html($page['children'][5]['children'][0]['html']);
