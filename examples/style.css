@@ -14,14 +14,28 @@ body {
     padding: 2rem;
 }
 
-#demo-page,
-.page,
+#demo-page {
+    background: #101318;
+    color: #f4f7fb;
+}
+
+.page {
+    background: #101318;
+    color: #f4f7fb;
+}
+
 .native-page {
     background: #101318;
     color: #f4f7fb;
 }
 
-#main-card,
+#main-card {
+    background: #181e28;
+    border: 1px solid #3b4454;
+    border-radius: 12px;
+    padding: 1rem;
+}
+
 .card {
     background: #181e28;
     border: 1px solid #3b4454;
@@ -29,7 +43,13 @@ body {
     padding: 1rem;
 }
 
-#badge,
+#badge {
+    color: #91dcff;
+    display: inline-block;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
 .badge {
     color: #91dcff;
     display: inline-block;
@@ -37,16 +57,38 @@ body {
     letter-spacing: 0.08em;
 }
 
-#dynamic-form,
-.panel,
+#dynamic-form {
+    background: #1c222d;
+    border: 1px solid #434e60;
+    border-radius: 14px;
+}
+
+.panel {
+    background: #1c222d;
+    border: 1px solid #434e60;
+    border-radius: 14px;
+}
+
 .dynamic-form {
     background: #1c222d;
     border: 1px solid #434e60;
     border-radius: 14px;
 }
 
-#native-iframe,
-.iframe,
+#native-iframe {
+    background: #0e121a;
+    color: #ecf0f7;
+    border: 1px solid #4b586e;
+    border-radius: 10px;
+}
+
+.iframe {
+    background: #0e121a;
+    color: #ecf0f7;
+    border: 1px solid #4b586e;
+    border-radius: 10px;
+}
+
 .native-frame {
     background: #0e121a;
     color: #ecf0f7;
@@ -54,26 +96,48 @@ body {
     border-radius: 10px;
 }
 
-#native-iframe-chrome,
+#native-iframe-chrome {
+    background: #202734;
+    color: #dce6f2;
+}
+
 .iframe-chrome {
     background: #202734;
     color: #dce6f2;
 }
 
-#help-modal,
-.modal,
+#help-modal {
+    background: #1c222d;
+    color: #e2e9f2;
+    border: 1px solid #5a6e88;
+}
+
+.modal {
+    background: #1c222d;
+    color: #e2e9f2;
+    border: 1px solid #5a6e88;
+}
+
 .help-modal {
     background: #1c222d;
     color: #e2e9f2;
     border: 1px solid #5a6e88;
 }
 
-#help-modal-overlay,
+#help-modal-overlay {
+    background: #04060a;
+}
+
 .modal-overlay {
     background: #04060a;
 }
 
-#help-modal-close,
+#help-modal-close {
+    background: #323c4c;
+    color: #f5f8fc;
+    border: 1px solid #788ca0;
+}
+
 .modal-close {
     background: #323c4c;
     color: #f5f8fc;
