@@ -32,22 +32,9 @@
 #define JX_WM_API_MODAL (WM_APP + 78)
 #define JX_WM_API_IFRAME (WM_APP + 79)
 
-typedef struct {
-    char title[160];
-    char badge[96];
-    char body[512];
-} JxPageContent;
-
-typedef struct {
-    char title[160];
-    char body[512];
-    int visible;
-} JxModalContent;
-
-typedef struct {
-    char title[160];
-    char html[1024];
-} JxIframeContent;
+typedef struct { char title[160]; char badge[96]; char body[512]; } JxPageContent;
+typedef struct { char title[160]; char body[512]; int visible; } JxModalContent;
+typedef struct { char title[160]; char html[1024]; } JxIframeContent;
 
 typedef struct {
     JxCssStylesheet css;
@@ -300,6 +287,30 @@ static void snapshot_content(JxPageContent *out) { EnterCriticalSection(&g_page.
 static void snapshot_modal(JxModalContent *out) { EnterCriticalSection(&g_page.lock); *out = g_page.modal; LeaveCriticalSection(&g_page.lock); }
 static void snapshot_iframe(JxIframeContent *out) { EnterCriticalSection(&g_page.lock); *out = g_page.iframe; LeaveCriticalSection(&g_page.lock); }
 
+static void set_one_control_visible(HWND hwnd, int visible) {
+    if (!hwnd) return;
+    ShowWindow(hwnd, visible ? SW_SHOW : SW_HIDE);
+    EnableWindow(hwnd, visible ? TRUE : FALSE);
+}
+
+static void set_form_controls_visible(int visible) {
+    set_one_control_visible(g_title_label, visible);
+    set_one_control_visible(g_title_edit, visible);
+    set_one_control_visible(g_badge_label, visible);
+    set_one_control_visible(g_badge_edit, visible);
+    set_one_control_visible(g_body_label, visible);
+    set_one_control_visible(g_body_edit, visible);
+    set_one_control_visible(g_apply_button, visible);
+    set_one_control_visible(g_modal_button, visible);
+    if (!visible && g_hwnd) SetFocus(g_hwnd);
+}
+
+static void sync_controls_for_modal(void) {
+    JxModalContent modal;
+    snapshot_modal(&modal);
+    set_form_controls_visible(!modal.visible);
+}
+
 static void set_content(const char *title, const char *badge, const char *body) {
     EnterCriticalSection(&g_page.lock);
     if (title && *title) copy_text(g_page.content.title, sizeof(g_page.content.title), title);
@@ -508,7 +519,7 @@ static void paint_page(HWND hwnd, HDC hdc) {
     RECT note = panel_title;
     note.top += 340;
     note.bottom = note.top + 120;
-    draw_text_block(hdc, "CSS targets:\n#main-card, #badge, #dynamic-form\n#native-iframe, #help-modal\nWindow sizing still uses window { ... }", &note, 14, FW_NORMAL, RGB(210, 220, 232));
+    draw_text_block(hdc, "CSS targets:\n#main-card, #badge, #dynamic-form\n#native-iframe, #help-modal\nForm child windows hide while modal is active.", &note, 14, FW_NORMAL, RGB(210, 220, 232));
 
     paint_modal(hwnd, hdc, &modal);
 }
@@ -632,6 +643,7 @@ static void create_form_controls(HWND hwnd) {
     g_modal_button = CreateWindowExA(0, "BUTTON", "Show Modal", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 1, 1, hwnd, (HMENU)JX_ID_MODAL, instance, NULL);
     layout_form_controls(hwnd);
     sync_form_from_state();
+    sync_controls_for_modal();
 }
 
 static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -641,7 +653,7 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_COMMAND:
             if (LOWORD(wp) == JX_ID_APPLY) { apply_form_update(hwnd); return 0; }
-            if (LOWORD(wp) == JX_ID_MODAL) { show_modal(JX_PAGE_MODAL_TITLE, JX_PAGE_MODAL_BODY); InvalidateRect(hwnd, NULL, TRUE); return 0; }
+            if (LOWORD(wp) == JX_ID_MODAL) { show_modal(JX_PAGE_MODAL_TITLE, JX_PAGE_MODAL_BODY); sync_controls_for_modal(); InvalidateRect(hwnd, NULL, TRUE); return 0; }
             break;
         case WM_LBUTTONDOWN: {
             JxModalContent modal;
@@ -650,7 +662,7 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 POINT pt;
                 pt.x = LOWORD(lp);
                 pt.y = HIWORD(lp);
-                if (PtInRect(&g_modal_close_rect, pt)) { hide_modal(); InvalidateRect(hwnd, NULL, TRUE); return 0; }
+                if (PtInRect(&g_modal_close_rect, pt)) { hide_modal(); sync_controls_for_modal(); InvalidateRect(hwnd, NULL, TRUE); return 0; }
             }
             break;
         }
@@ -659,6 +671,9 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         case JX_WM_API_MODAL:
+            sync_controls_for_modal();
+            InvalidateRect(hwnd, NULL, TRUE);
+            return 0;
         case JX_WM_API_IFRAME:
             InvalidateRect(hwnd, NULL, TRUE);
             return 0;
@@ -671,6 +686,7 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_SIZE:
             layout_form_controls(hwnd);
+            sync_controls_for_modal();
             InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         case WM_DESTROY:
