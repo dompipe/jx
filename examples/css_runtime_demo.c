@@ -31,7 +31,7 @@ static unsigned char *read_file(const char *path, size_t *len) {
 
     unsigned char *bytes = NULL;
     if (size > 0) {
-        bytes = (unsigned char *)malloc((size_t)size);
+        bytes = (unsigned char *)malloc((size_t)size + 1);
         if (!bytes) {
             fclose(fp);
             fprintf(stderr, "css-runtime-demo: out of memory\n");
@@ -44,11 +44,16 @@ static unsigned char *read_file(const char *path, size_t *len) {
             fprintf(stderr, "css-runtime-demo: cannot read %s\n", path);
             return NULL;
         }
+        bytes[size] = 0;
     }
 
     fclose(fp);
     *len = (size_t)size;
     return bytes;
+}
+
+static void print_slice(const char *data, size_t length) {
+    printf("%.*s", (int)length, data);
 }
 
 static void print_property(const JxCssStylesheet *sheet, const char *selector, const char *property) {
@@ -58,7 +63,12 @@ static void print_property(const JxCssStylesheet *sheet, const char *selector, c
         return;
     }
 
-    printf("%s { %s: %s; }\n", decl->selector, decl->property, decl->value);
+    print_slice(decl->selector, decl->selector_length);
+    printf(" { ");
+    print_slice(decl->property, decl->property_length);
+    printf(": ");
+    print_slice(decl->value, decl->value_length);
+    printf("; }\n");
 }
 
 int main(int argc, char **argv) {
@@ -70,7 +80,7 @@ int main(int argc, char **argv) {
     }
 
     JxCssText css;
-    css.bytes = bytes;
+    css.data = (const char *)bytes;
     css.length = len;
 
     JxCssStylesheet sheet;
