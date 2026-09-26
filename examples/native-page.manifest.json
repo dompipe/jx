@@ -5,6 +5,7 @@
   "generatedHeader": "build/jx_php_page_data.h",
   "pageSource": "src/window/jx-page-win32-from-php.c",
   "cssValidator": "scripts/validate-native-page-css.ps1",
+  "apiPort": 8765,
   "cFlags": ["-O2", "-Wall", "-Wextra", "-mwindows"],
   "runtimeSources": ["src/runtime/jx_css_runtime.c"],
   "linkLibraries": ["ws2_32", "gdi32", "user32"]
