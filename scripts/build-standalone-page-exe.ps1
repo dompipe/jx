@@ -47,7 +47,7 @@ if (-not $CCompiler) {
 
 Write-Host "Using C compiler: $CCompiler"
 
-Invoke-Step -Name 'Building standalone native page EXE...' -Exe $CCompiler -CommandArgs @(
+Invoke-Step -Name 'Building standalone native dynamic page EXE...' -Exe $CCompiler -CommandArgs @(
     '-O2',
     '-Wall',
     '-Wextra',
@@ -57,7 +57,8 @@ Invoke-Step -Name 'Building standalone native page EXE...' -Exe $CCompiler -Comm
     'src/window/jx-page-win32.c',
     'src/runtime/jx_css_runtime.c',
     '-lgdi32',
-    '-luser32'
+    '-luser32',
+    '-lws2_32'
 )
 
 Write-Host ''
@@ -67,3 +68,6 @@ Write-Host ''
 Write-Host 'Run it directly:'
 Write-Host '  .\dist\jx-native-page-demo.exe'
 Write-Host 'or double-click it in File Explorer.'
+Write-Host ''
+Write-Host 'Local update URL while the EXE is running:'
+Write-Host '  http://127.0.0.1:8765/update?title=Hello&badge=LIVE&body=Updated+from+URL'
