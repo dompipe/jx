@@ -52,6 +52,43 @@ Expected output:
 Hello from JX, world
 ```
 
+## PHP plus CSS asset to C
+
+JX can also collect a CSS file into the emitted C source:
+
+```bash
+./jx emit-c examples/page.php --asset examples/style.css -o build/page.c
+cc -O2 -std=c11 -Wall -Wextra -pedantic -o build/page build/page.c
+./build/page world > build/page.html
+```
+
+The generated executable materializes the CSS asset at runtime and exposes it to PHP as:
+
+```text
+JX_CSS_FILE=/tmp/jx_css_asset_XXXXXX
+JX_CSS_NAME=style.css
+```
+
+The PHP page can then inline or read it:
+
+```php
+$css = file_get_contents(getenv('JX_CSS_FILE'));
+```
+
+That gives this flow:
+
+```text
+PHP + CSS
+↓
+native ./jx
+↓
+one generated .c file
+↓
+gcc
+↓
+one executable that recreates the PHP/CSS bundle
+```
+
 ## Commands
 
 ```bash
@@ -62,12 +99,15 @@ mkdir -p build
 ./jx emit-c examples/hello.php -o build/hello.c
 cc -O2 -std=c11 -Wall -Wextra -pedantic -o build/hello build/hello.c
 ./build/hello world
+./jx emit-c examples/page.php --asset examples/style.css -o build/page.c
+cc -O2 -std=c11 -Wall -Wextra -pedantic -o build/page build/page.c
+./build/page world > build/page.html
 ./tests/native-run.sh
 ```
 
 ## Important status
 
-This is now a native executable compiler front-end that turns PHP files into GCC-compilable `.c` files.
+This is now a native executable compiler front-end that turns PHP files, and optionally a CSS asset, into GCC-compilable `.c` files.
 
 The generated executable still delegates PHP execution to the installed PHP runtime. That keeps behavior aligned while the native PHP compiler is built underneath it.
 
