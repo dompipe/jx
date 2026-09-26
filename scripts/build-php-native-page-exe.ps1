@@ -98,6 +98,14 @@ if (-not (Test-Path 'dist')) {
 $PhpPage = 'examples/native_page.php'
 $CssFile = 'examples/style.css'
 
+if (Test-Path 'scripts/validate-native-page-css.ps1') {
+    Write-Host 'Validating native CSS before build...'
+    & powershell -ExecutionPolicy Bypass -File '.\scripts\validate-native-page-css.ps1'
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+}
+
 $PhpSource = Get-Content -Raw -Path $PhpPage
 $CssSource = Get-Content -Raw -Path $CssFile
 
