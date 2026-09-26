@@ -1,9 +1,13 @@
+param(
+    [string] $CssFile = 'examples/style.css'
+)
+
 $ErrorActionPreference = 'Stop'
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root
 
-$CssPath = 'examples/style.css'
+$CssPath = $CssFile
 if (-not (Test-Path $CssPath)) {
     Write-Error "Missing CSS file: $CssPath"
     exit 1
@@ -180,4 +184,4 @@ if ($Errors.Count -gt 0) {
     exit 1
 }
 
-Write-Host "Native CSS validation OK: $($Matches.Count) block(s) checked"
+Write-Host "Native CSS validation OK: $($Matches.Count) block(s) checked from $CssPath"
