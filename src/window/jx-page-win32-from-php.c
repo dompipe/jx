@@ -15,6 +15,12 @@
 #ifndef JX_PAGE_MODAL_BODY
 #define JX_PAGE_MODAL_BODY "This modal was declared in PHP and compiled into the native executable."
 #endif
+#ifndef JX_PAGE_IFRAME_TITLE
+#define JX_PAGE_IFRAME_TITLE "Native Iframe"
+#endif
+#ifndef JX_PAGE_IFRAME_HTML
+#define JX_PAGE_IFRAME_HTML "<p>Iframe HTML declared in PHP.</p>"
+#endif
 
 #define JX_API_PORT 8765
 #define JX_ID_TITLE 1001
@@ -24,6 +30,7 @@
 #define JX_ID_MODAL 1005
 #define JX_WM_API_UPDATE (WM_APP + 77)
 #define JX_WM_API_MODAL (WM_APP + 78)
+#define JX_WM_API_IFRAME (WM_APP + 79)
 
 typedef struct {
     char title[160];
@@ -38,6 +45,11 @@ typedef struct {
 } JxModalContent;
 
 typedef struct {
+    char title[160];
+    char html[1024];
+} JxIframeContent;
+
+typedef struct {
     JxCssStylesheet css;
     char *css_bytes;
     size_t css_len;
@@ -49,6 +61,7 @@ typedef struct {
     int card_radius;
     JxPageContent content;
     JxModalContent modal;
+    JxIframeContent iframe;
     CRITICAL_SECTION lock;
 } JxPageDemo;
 
@@ -147,6 +160,8 @@ static void init_default_content(void) {
     copy_text(g_page.modal.title, sizeof(g_page.modal.title), JX_PAGE_MODAL_TITLE);
     copy_text(g_page.modal.body, sizeof(g_page.modal.body), JX_PAGE_MODAL_BODY);
     g_page.modal.visible = 0;
+    copy_text(g_page.iframe.title, sizeof(g_page.iframe.title), JX_PAGE_IFRAME_TITLE);
+    copy_text(g_page.iframe.html, sizeof(g_page.iframe.html), JX_PAGE_IFRAME_HTML);
 }
 
 static void load_page_css(void) {
@@ -198,6 +213,31 @@ static void draw_text_block(HDC hdc, const char *text, RECT *rect, int font_size
     DeleteObject(font);
 }
 
+static void html_to_plain(const char *html, char *out, size_t out_size) {
+    size_t j = 0;
+    int in_tag = 0;
+    if (out_size == 0) return;
+    for (size_t i = 0; html && html[i] && j + 1 < out_size; ++i) {
+        char c = html[i];
+        if (c == '<') {
+            in_tag = 1;
+            if (j > 0 && out[j - 1] != '\n' && j + 1 < out_size) out[j++] = '\n';
+            continue;
+        }
+        if (c == '>') {
+            in_tag = 0;
+            continue;
+        }
+        if (!in_tag) {
+            if (strncmp(html + i, "&lt;", 4) == 0) { out[j++] = '<'; i += 3; }
+            else if (strncmp(html + i, "&gt;", 4) == 0) { out[j++] = '>'; i += 3; }
+            else if (strncmp(html + i, "&amp;", 5) == 0) { out[j++] = '&'; i += 4; }
+            else out[j++] = c;
+        }
+    }
+    out[j] = '\0';
+}
+
 static void snapshot_content(JxPageContent *out) {
     EnterCriticalSection(&g_page.lock);
     *out = g_page.content;
@@ -207,6 +247,12 @@ static void snapshot_content(JxPageContent *out) {
 static void snapshot_modal(JxModalContent *out) {
     EnterCriticalSection(&g_page.lock);
     *out = g_page.modal;
+    LeaveCriticalSection(&g_page.lock);
+}
+
+static void snapshot_iframe(JxIframeContent *out) {
+    EnterCriticalSection(&g_page.lock);
+    *out = g_page.iframe;
     LeaveCriticalSection(&g_page.lock);
 }
 
@@ -232,6 +278,13 @@ static void hide_modal(void) {
     LeaveCriticalSection(&g_page.lock);
 }
 
+static void set_iframe(const char *title, const char *html) {
+    EnterCriticalSection(&g_page.lock);
+    if (title && *title) copy_text(g_page.iframe.title, sizeof(g_page.iframe.title), title);
+    if (html && *html) copy_text(g_page.iframe.html, sizeof(g_page.iframe.html), html);
+    LeaveCriticalSection(&g_page.lock);
+}
+
 static void apply_form_update(HWND hwnd) {
     char title[160];
     char badge[96];
@@ -251,12 +304,37 @@ static void sync_form_from_state(void) {
     if (g_body_edit) SetWindowTextA(g_body_edit, current.body);
 }
 
+static void paint_iframe(HDC hdc, RECT frame, const JxIframeContent *iframe) {
+    fill_round_rect(hdc, frame, 10, RGB(14, 18, 26), RGB(75, 88, 110));
+
+    RECT chrome = frame;
+    chrome.bottom = chrome.top + 34;
+    HBRUSH bar = CreateSolidBrush(RGB(32, 39, 52));
+    FillRect(hdc, &chrome, bar);
+    DeleteObject(bar);
+
+    RECT title = chrome;
+    title.left += 14;
+    title.top += 7;
+    title.right -= 14;
+    draw_text_block(hdc, iframe->title, &title, 15, FW_BOLD, RGB(220, 230, 242));
+
+    RECT body = frame;
+    body.left += 14;
+    body.top += 46;
+    body.right -= 14;
+    body.bottom -= 14;
+
+    char plain[1200];
+    html_to_plain(iframe->html, plain, sizeof(plain));
+    draw_text_block(hdc, plain, &body, 16, FW_NORMAL, RGB(236, 240, 247));
+}
+
 static void paint_modal(HWND hwnd, HDC hdc, const JxModalContent *modal) {
     if (!modal->visible) return;
 
     RECT client;
     GetClientRect(hwnd, &client);
-
     HBRUSH shade = CreateSolidBrush(RGB(4, 6, 10));
     FillRect(hdc, &client, shade);
     DeleteObject(shade);
@@ -306,8 +384,10 @@ static void paint_page(HWND hwnd, HDC hdc) {
 
     JxPageContent content;
     JxModalContent modal;
+    JxIframeContent iframe;
     snapshot_content(&content);
     snapshot_modal(&modal);
+    snapshot_iframe(&iframe);
 
     int pad = g_page.body_padding;
     RECT page = client;
@@ -326,11 +406,11 @@ static void paint_page(HWND hwnd, HDC hdc) {
     RECT intro = render_area;
     intro.top += 56;
     intro.bottom = intro.top + 78;
-    draw_text_block(hdc, "This page is native Win32 GDI. No WebView. PHP declarations compiled this page, form, API, and modal.", &intro, 18, FW_NORMAL, g_page.body_fg);
+    draw_text_block(hdc, "This page is native Win32 GDI. PHP declarations compile this page, form, API, modal, and iframe-like native frame.", &intro, 18, FW_NORMAL, g_page.body_fg);
 
     RECT card = render_area;
     card.top += 146;
-    card.bottom = card.top + 310;
+    card.bottom = card.top + 235;
     fill_round_rect(hdc, card, g_page.card_radius, RGB(24, 30, 40), g_page.card_border);
 
     RECT inner = card;
@@ -345,17 +425,17 @@ static void paint_page(HWND hwnd, HDC hdc) {
 
     RECT body = inner;
     body.top += 46;
-    body.bottom = body.top + 118;
-    draw_text_block(hdc, content.body, &body, 19, FW_NORMAL, g_page.body_fg);
+    body.bottom = body.top + 108;
+    draw_text_block(hdc, content.body, &body, 18, FW_NORMAL, g_page.body_fg);
 
-    RECT api = inner;
-    api.top += 174;
-    api.bottom = api.top + 92;
-    draw_text_block(hdc, "Local APIs:\n/update?title=Hello&badge=LIVE&body=Updated+from+URL\n/modal?title=Native+Modal&body=Opened+from+URL", &api, 15, FW_NORMAL, RGB(210, 220, 232));
+    RECT iframe_rect = render_area;
+    iframe_rect.top += 400;
+    iframe_rect.bottom = iframe_rect.top + 190;
+    paint_iframe(hdc, iframe_rect, &iframe);
 
     RECT panel = page;
     panel.left = panel.right - 300;
-    panel.bottom = panel.top + 470;
+    panel.bottom = panel.top + 500;
     fill_round_rect(hdc, panel, 14, RGB(28, 34, 45), RGB(67, 78, 96));
 
     RECT panel_title = panel;
@@ -367,8 +447,8 @@ static void paint_page(HWND hwnd, HDC hdc) {
 
     RECT note = panel_title;
     note.top += 340;
-    note.bottom = note.top + 90;
-    draw_text_block(hdc, "The modal is native-drawn. The URL listener is bound only to 127.0.0.1 for local testing.", &note, 14, FW_NORMAL, RGB(210, 220, 232));
+    note.bottom = note.top + 120;
+    draw_text_block(hdc, "Local APIs:\n/update?...\n/modal?...\n/iframe?title=...&html=<h2>...</h2>\nHTML is accepted and rendered in the native iframe frame.", &note, 14, FW_NORMAL, RGB(210, 220, 232));
 
     paint_modal(hwnd, hdc, &modal);
 }
@@ -462,7 +542,7 @@ static DWORD WINAPI api_thread_proc(LPVOID unused) {
         SOCKET client = accept(server, NULL, NULL);
         if (client == INVALID_SOCKET) break;
 
-        char request[2048];
+        char request[4096];
         int received = recv(client, request, sizeof(request) - 1, 0);
         if (received <= 0) {
             closesocket(client);
@@ -501,8 +581,15 @@ static DWORD WINAPI api_thread_proc(LPVOID unused) {
             show_modal(title, body);
             if (g_hwnd) PostMessageA(g_hwnd, JX_WM_API_MODAL, 0, 0);
             send_http_response(client, "modal opened\n");
+        } else if (strcmp(path_start, "/iframe") == 0) {
+            char title[160], html[1024];
+            parse_query_value(query ? query : "", "title", title, sizeof(title));
+            parse_query_value(query ? query : "", "html", html, sizeof(html));
+            set_iframe(title, html);
+            if (g_hwnd) PostMessageA(g_hwnd, JX_WM_API_IFRAME, 0, 0);
+            send_http_response(client, "iframe updated\n");
         } else {
-            send_http_response(client, "JX native page API\n/update?title=...&badge=...&body=...\n/modal?title=...&body=...\n");
+            send_http_response(client, "JX native page API\n/update?title=...&badge=...&body=...\n/modal?title=...&body=...\n/iframe?title=...&html=...\n");
         }
 
         closesocket(client);
@@ -562,6 +649,7 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         case JX_WM_API_MODAL:
+        case JX_WM_API_IFRAME:
             InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         case WM_PAINT: {
@@ -602,8 +690,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_li
 
     if (!RegisterClassA(&wc)) die_last("cannot register native page window class");
 
-    g_hwnd = CreateWindowExA(0, class_name, "JX PHP Native Page - Modal Demo",
-        WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 1020, 720,
+    g_hwnd = CreateWindowExA(0, class_name, "JX PHP Native Page - Iframe Demo",
+        WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, 1040, 760,
         NULL, NULL, instance, NULL);
 
     if (!g_hwnd) die_last("cannot create native page window");
@@ -624,7 +712,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_instance, LPSTR command_li
 }
 
 int main(int argc, char **argv) {
+    HINSTANCE instance = GetModuleHandleA(NULL);
     (void)argc;
     (void)argv;
-    return WinMain(GetModuleHandleA(NULL), NULL, GetCommandLineA(), SW_SHOWDEFAULT);
+    return WinMain(instance, NULL, GetCommandLineA(), SW_SHOWDEFAULT);
 }
