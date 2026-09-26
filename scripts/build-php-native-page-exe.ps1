@@ -106,6 +106,8 @@ $Badge = Get-JxLiteralCall -Source $PhpSource -Name 'jx_page_badge' -Fallback 'B
 $Body = Get-JxLiteralCall -Source $PhpSource -Name 'jx_page_body' -Fallback 'Generated from PHP declarations.'
 $ModalTitle = Get-JxLiteralCall -Source $PhpSource -Name 'jx_modal_title' -Fallback 'JX Native Modal'
 $ModalBody = Get-JxLiteralCall -Source $PhpSource -Name 'jx_modal_body' -Fallback 'This modal was declared in PHP and compiled into the native executable.'
+$IframeTitle = Get-JxLiteralCall -Source $PhpSource -Name 'jx_iframe_title' -Fallback 'Native Iframe'
+$IframeHtml = Get-JxLiteralCall -Source $PhpSource -Name 'jx_iframe_html' -Fallback '<p>Iframe HTML declared in PHP.</p>'
 
 $PageSourcePath = $PhpPage -replace '\\', '/'
 $PageSourceC = Convert-ToCString $PageSourcePath
@@ -114,6 +116,8 @@ $BadgeC = Convert-ToCString $Badge
 $BodyC = Convert-ToCString $Body
 $ModalTitleC = Convert-ToCString $ModalTitle
 $ModalBodyC = Convert-ToCString $ModalBody
+$IframeTitleC = Convert-ToCString $IframeTitle
+$IframeHtmlC = Convert-ToCString $IframeHtml
 $CssC = Convert-ToCString $CssSource
 
 $Header = @"
@@ -126,6 +130,8 @@ $Header = @"
 #define JX_PAGE_BODY $BodyC
 #define JX_PAGE_MODAL_TITLE $ModalTitleC
 #define JX_PAGE_MODAL_BODY $ModalBodyC
+#define JX_PAGE_IFRAME_TITLE $IframeTitleC
+#define JX_PAGE_IFRAME_HTML $IframeHtmlC
 #define JX_PAGE_CSS $CssC
 
 #endif
@@ -170,3 +176,4 @@ Write-Host ''
 Write-Host 'Then test URL update:'
 Write-Host '  http://127.0.0.1:8765/update?title=Hello&badge=LIVE&body=Updated+from+URL'
 Write-Host '  http://127.0.0.1:8765/modal?title=Native+Modal&body=Opened+from+URL'
+Write-Host '  http://127.0.0.1:8765/iframe?title=Frame&html=%3Ch2%3EHello%3C%2Fh2%3E%3Cp%3EUpdated%20iframe%20HTML%3C%2Fp%3E'
